@@ -31,7 +31,12 @@
 
 *GATE: Must pass before Phase 0 research. Re-check after Phase 1 design.*
 
-[Gates determined based on constitution file]
+- [ ] **Immutability First**: Design preserves append-only immutability with no delete/modify operations
+- [ ] **Data Integrity**: Transaction headers with sentinel bytes for corruption detection are included
+- [ ] **Correctness Over Performance**: Any performance optimizations maintain data correctness
+- [ ] **Chronological Ordering**: Design supports time-based key ordering with proper handling of time variations
+- [ ] **Concurrent Read-Write Safety**: Design supports concurrent reads and writes without data corruption
+- [ ] **Single-File Architecture**: Database uses single file enabling simple backup/recovery
 
 ## Project Structure
 

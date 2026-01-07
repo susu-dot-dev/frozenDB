@@ -1,50 +1,59 @@
-# [PROJECT_NAME] Constitution
-<!-- Example: Spec Constitution, TaskFlow Constitution, etc. -->
+<!--
+Sync Impact Report:
+Version change: 0.0.0 → 1.0.0 (initial constitution)
+Modified principles: None (new constitution)
+Added sections: All sections (Core Principles, Data Integrity Requirements, Development Standards, Governance)
+Removed sections: None
+Templates requiring updates: ✅ plan-template.md, ✅ spec-template.md, ✅ tasks-template.md
+Follow-up TODOs: None
+-->
+
+# frozenDB Constitution
 
 ## Core Principles
 
-### [PRINCIPLE_1_NAME]
-<!-- Example: I. Library-First -->
-[PRINCIPLE_1_DESCRIPTION]
-<!-- Example: Every feature starts as a standalone library; Libraries must be self-contained, independently testable, documented; Clear purpose required - no organizational-only libraries -->
+### I. Immutability First
+All data operations MUST preserve append-only immutability. Data written to frozenDB is permanent and tamper-resistant. No delete or modify operations are permitted on existing rows. This principle ensures audit trail integrity and prevents accidental data loss through modification operations.
 
-### [PRINCIPLE_2_NAME]
-<!-- Example: II. CLI Interface -->
-[PRINCIPLE_2_DESCRIPTION]
-<!-- Example: Every library exposes functionality via CLI; Text in/out protocol: stdin/args → stdout, errors → stderr; Support JSON + human-readable formats -->
+### II. Data Integrity Non-Negotiable
+All write operations MUST be atomic and verifiable. Data corruption MUST be detectable and recoverable. The system MUST maintain data consistency across all failure scenarios. No partial writes or corrupted data should ever be returned to users.
 
-### [PRINCIPLE_3_NAME]
-<!-- Example: III. Test-First (NON-NEGOTIABLE) -->
-[PRINCIPLE_3_DESCRIPTION]
-<!-- Example: TDD mandatory: Tests written → User approved → Tests fail → Then implement; Red-Green-Refactor cycle strictly enforced -->
+### III. Correctness Over Performance
+All operations MUST prioritize correctness above performance optimizations. Binary search optimizations, caching strategies, and performance enhancements MUST NOT compromise data integrity or correctness. Any performance trade-off MUST be justified with comprehensive testing demonstrating maintained correctness.
 
-### [PRINCIPLE_4_NAME]
-<!-- Example: IV. Integration Testing -->
-[PRINCIPLE_4_DESCRIPTION]
-<!-- Example: Focus areas requiring integration tests: New library contract tests, Contract changes, Inter-service communication, Shared schemas -->
+### IV. Chronological Key Ordering
+All keys MUST support chronological ordering for efficient lookup operations. Key ordering MUST enable time-based search optimization. The system MUST handle distributed system time variations while maintaining search integrity.
 
-### [PRINCIPLE_5_NAME]
-<!-- Example: V. Observability, VI. Versioning & Breaking Changes, VII. Simplicity -->
-[PRINCIPLE_5_DESCRIPTION]
-<!-- Example: Text I/O ensures debuggability; Structured logging required; Or: MAJOR.MINOR.BUILD format; Or: Start simple, YAGNI principles -->
+### V. Concurrent Read-Write Safety
+The system MUST support concurrent read and write operations without data corruption. Reads MUST always return consistent, valid data even during write operations. Write operations MUST maintain data integrity when occurring simultaneously with reads. The system MUST handle mixed read/write workloads reliably.
 
-## [SECTION_2_NAME]
-<!-- Example: Additional Constraints, Security Requirements, Performance Standards, etc. -->
+## Data Integrity Requirements
 
-[SECTION_2_CONTENT]
-<!-- Example: Technology stack requirements, compliance standards, deployment policies, etc. -->
+### Single-File Architecture
+The database MUST use a single-file architecture for simplicity and reliability. This design MUST enable straightforward backup through simple file copying. Recovery procedures MUST handle file corruption and truncation scenarios. Single-file design MUST support atomic operations and consistency verification.
 
-## [SECTION_3_NAME]
-<!-- Example: Development Workflow, Review Process, Quality Gates, etc. -->
+## Development Standards
 
-[SECTION_3_CONTENT]
-<!-- Example: Code review requirements, testing gates, deployment approval process, etc. -->
+### Test-Driven Correctness
+All code MUST have comprehensive tests covering success and error paths. Performance optimizations MUST include benchmarks demonstrating no correctness regression. Integration tests MUST cover concurrent read/write scenarios. Corruption scenarios MUST be explicitly tested.
+
+### Performance With Fixed Memory
+Memory usage MUST remain fixed regardless of database size. Caching strategies MUST have bounded memory usage. Disk reads SHOULD be optimized for sector size alignment. Profile-guided optimizations MUST not compromise memory constraints.
+
+### Error Handling Excellence
+All errors MUST be structured deriving from base FrozenDBError. Different error types MUST reflect different caller behaviors. Error messages MUST be clear and actionable for debugging. All error paths MUST be tested and documented.
 
 ## Governance
-<!-- Example: Constitution supersedes all other practices; Amendments require documentation, approval, migration plan -->
 
-[GOVERNANCE_RULES]
-<!-- Example: All PRs/reviews must verify compliance; Complexity must be justified; Use [GUIDANCE_FILE] for runtime development guidance -->
+This constitution supersedes all other practices and guidelines. Amendments require documentation, approval, and migration plan. All pull requests and reviews MUST verify compliance with these principles. Complexity violations MUST be explicitly justified in design documents.
 
-**Version**: [CONSTITUTION_VERSION] | **Ratified**: [RATIFICATION_DATE] | **Last Amended**: [LAST_AMENDED_DATE]
-<!-- Example: Version: 2.1.1 | Ratified: 2025-06-13 | Last Amended: 2025-07-16 -->
+### Amendment Procedure
+1. Proposed amendments MUST be documented with rationale and impact analysis
+2. Amendments MUST be reviewed and approved through pull request process
+3. Migration plans MUST be provided for any breaking changes
+4. Version numbers MUST follow semantic versioning based on amendment impact
+
+### Compliance Review
+All code changes MUST pass constitutional compliance checks before merge. Regular audits MUST verify adherence to these principles. Performance optimizations MUST undergo additional correctness validation. Any deviations MUST be documented and justified.
+
+**Version**: 1.0.0 | **Ratified**: 2025-01-07 | **Last Amended**: 2025-01-07

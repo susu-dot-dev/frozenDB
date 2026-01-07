@@ -62,12 +62,12 @@ description: "Task list template for feature implementation"
 
 Examples of foundational tasks (adjust based on your project):
 
-- [ ] T004 Setup database schema and migrations framework
-- [ ] T005 [P] Implement authentication/authorization framework
-- [ ] T006 [P] Setup API routing and middleware structure
-- [ ] T007 Create base models/entities that all stories depend on
-- [ ] T008 Configure error handling and logging infrastructure
-- [ ] T009 Setup environment configuration management
+- [ ] T004 Setup frozenDB file structure and header management
+- [ ] T005 [P] Implement chronological key ordering and time variation handling
+- [ ] T006 [P] Setup atomic write operations and corruption detection mechanisms
+- [ ] T007 Create immutable append-only storage layer
+- [ ] T008 Configure structured error handling (FrozenDBError hierarchy)
+- [ ] T009 Setup corruption detection and single-file recovery mechanisms
 
 **Checkpoint**: Foundation ready - user story implementation can now begin in parallel
 
@@ -88,12 +88,12 @@ Examples of foundational tasks (adjust based on your project):
 
 ### Implementation for User Story 1
 
-- [ ] T012 [P] [US1] Create [Entity1] model in src/models/[entity1].py
-- [ ] T013 [P] [US1] Create [Entity2] model in src/models/[entity2].py
-- [ ] T014 [US1] Implement [Service] in src/services/[service].py (depends on T012, T013)
-- [ ] T015 [US1] Implement [endpoint/feature] in src/[location]/[file].py
-- [ ] T016 [US1] Add validation and error handling
-- [ ] T017 [US1] Add logging for user story 1 operations
+- [ ] T012 [P] [US1] Create [entity] storage structure in internal/db/[entity].go
+- [ ] T013 [P] [US1] Implement [operation] with proper transaction handling
+- [ ] T014 [US1] Add corruption detection for [operation] (depends on T012, T013)
+- [ ] T015 [US1] Implement [API function] in pkg/[package]/[file].go
+- [ ] T016 [US1] Add comprehensive error handling with FrozenDBError types
+- [ ] T017 [US1] Add structured logging for [operation] with integrity validation
 
 **Checkpoint**: At this point, User Story 1 should be fully functional and testable independently
 

@@ -105,6 +105,7 @@
 <!--
   ACTION REQUIRED: Define measurable success criteria.
   These must be technology-agnostic and measurable.
+  For frozenDB, include data integrity and correctness metrics.
 -->
 
 ### Measurable Outcomes
@@ -113,3 +114,10 @@
 - **SC-002**: [Measurable metric, e.g., "System handles 1000 concurrent users without degradation"]
 - **SC-003**: [User satisfaction metric, e.g., "90% of users successfully complete primary task on first attempt"]
 - **SC-004**: [Business metric, e.g., "Reduce support tickets related to [X] by 50%"]
+
+### Data Integrity & Correctness Metrics *(required for frozenDB)*
+
+- **SC-005**: Zero data loss scenarios in corruption detection tests
+- **SC-006**: All concurrent read/write operations maintain data consistency
+- **SC-007**: Memory usage remains constant regardless of database size
+- **SC-008**: Transaction atomicity preserved in all crash simulation tests
