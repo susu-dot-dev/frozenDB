@@ -36,7 +36,6 @@ You **MUST** consider the user input before proceeding (if not empty).
    - If research.md exists: Extract decisions for setup tasks
    - Generate tasks organized by user story (see Task Generation Rules below)
    - Generate dependency graph showing user story completion order
-   - Create parallel execution examples per user story
    - Validate task completeness (each user story has all needed tasks, independently testable)
 
 4. **Generate tasks.md**: Use `.specify/templates/tasks-template.md` as structure, fill with:
@@ -49,13 +48,11 @@ You **MUST** consider the user input before proceeding (if not empty).
    - All tasks must follow the strict checklist format (see Task Generation Rules below)
    - Clear file paths for each task
    - Dependencies section showing story completion order
-   - Parallel execution examples per story
    - Implementation strategy section (MVP first, incremental delivery)
 
 5. **Report**: Output path to generated tasks.md and summary:
    - Total task count
    - Task count per user story
-   - Parallel opportunities identified
    - Independent test criteria for each story
    - Suggested MVP scope (typically just User Story 1)
    - Format validation: Confirm ALL tasks follow the checklist format (checkbox, ID, labels, file paths)
@@ -82,7 +79,6 @@ Every task MUST strictly follow this format:
 
 1. **Checkbox**: ALWAYS start with `- [ ]` (markdown checkbox)
 2. **Task ID**: Sequential number (T001, T002, T003...) in execution order
-3. **[P] marker**: Include ONLY if task is parallelizable (different files, no dependencies on incomplete tasks)
 4. **[Story] label**: REQUIRED for user story phase tasks only
    - Format: [US1], [US2], [US3], etc. (maps to user stories from spec.md)
    - Setup phase: NO story label
@@ -94,8 +90,8 @@ Every task MUST strictly follow this format:
 **Examples**:
 
 - ✅ CORRECT: `- [ ] T001 Create project structure per implementation plan`
-- ✅ CORRECT: `- [ ] T005 [P] Implement authentication middleware in src/middleware/auth.py`
-- ✅ CORRECT: `- [ ] T012 [P] [US1] Create User model in src/models/user.py`
+- ✅ CORRECT: `- [ ] T005 Implement authentication middleware in src/middleware/auth.py`
+- ✅ CORRECT: `- [ ] T012 [US1] Create User model in src/models/user.py`
 - ✅ CORRECT: `- [ ] T014 [US1] Implement UserService in src/services/user_service.py`
 - ❌ WRONG: `- [ ] Create User model` (missing ID and Story label)
 - ❌ WRONG: `T001 [US1] Create model` (missing checkbox)
@@ -115,7 +111,7 @@ Every task MUST strictly follow this format:
 
 2. **From Contracts**:
    - Map each contract/endpoint → to the user story it serves
-   - If tests requested: Each contract → contract test task [P] before implementation in that story's phase
+   - If tests requested: Each contract → contract test task before implementation in that story's phase
 
 3. **From Data Model**:
    - Map each entity to the user story(ies) that need it
