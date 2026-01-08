@@ -39,14 +39,14 @@ internal/db/
 ## Test Function Naming
 
 ### Test Function Convention
-Test functions MUST follow pattern: `TestFR-[NUMBER]_[Description]()`
-- `FR-[NUMBER]` corresponds to the functional requirement being tested
-- `[Description]` is a camelCase description of what is being validated
+Test functions MUST follow pattern: `TestFR_XXX_Description()`
+- `FR_XXX` corresponds to the functional requirement being tested
+- `Description` is a camelCase description of what is being validated
 - Test functions MUST be exported (start with capital T) to run with Go test framework
 
 ### Examples
 ```go
-// Testing FR-011: System MUST validate skewMs parameter is between 0-86400000 inclusive
+// Testing FR_011: System MUST validate skewMs parameter is between 0-86400000 inclusive
 func TestFR_011_NegativeSkewDisallowed(t *testing.T) { /* ... */ }
 func TestFR_011_ZeroSkewAllowed(t *testing.T) { /* ... */ }
 func TestFR_011_MaxSkewAllowed(t *testing.T) { /* ... */ }
@@ -69,7 +69,7 @@ func TestFR_011_ExceedsMaxSkewDisallowed(t *testing.T) { /* ... */ }
 #### Skip Example
 ```go
 func TestFR_999_HardwareFailover(t *testing.T) {
-    t.Skip("FR-999: Cannot test automatic hardware failover in unit test environment. " +
+    t.Skip("FR_999: Cannot test automatic hardware failover in unit test environment. " +
           "Requirement involves physical hardware failure detection which cannot be " +
           "simulated without specialized test hardware. Considered alternatives: " +
           "mock hardware interfaces (insufficient), network failure simulation (doesn't " +
@@ -216,7 +216,7 @@ package spec_tests
 import (
     "testing"
     "github.com/stretchr/testify/assert"
-    "yourproject/internal/db"
+    "github.com/susu-dot-dev/frozenDB/frozendb"
 )
 
 func TestFR_011_SkewMsValidation(t *testing.T) {
@@ -230,7 +230,7 @@ func TestFR_011_SkewMsValidation(t *testing.T) {
             name:    "negative_skew_disallowed",
             skewMs:  -1,
             wantErr: true,
-            errType: &db.InvalidInputError{},
+            errType: &frozendb.InvalidInputError{},
         },
         {
             name:    "zero_skew_allowed",
@@ -251,13 +251,13 @@ func TestFR_011_SkewMsValidation(t *testing.T) {
             name:    "exceeds_max_disallowed",
             skewMs:  86400001,
             wantErr: true,
-            errType: &db.InvalidInputError{},
+            errType: &frozendb.InvalidInputError{},
         },
     }
     
     for _, tt := range tests {
         t.Run(tt.name, func(t *testing.T) {
-            err := db.ValidateSkewMs(tt.skewMs)
+            err := frozendb.ValidateSkewMs(tt.skewMs)
             if tt.wantErr {
                 assert.Error(t, err)
                 if tt.errType != nil {

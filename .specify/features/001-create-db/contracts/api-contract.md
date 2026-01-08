@@ -29,7 +29,6 @@ func (cfg *CreateConfig) Validate() error
 //
 // Parameters:
 //   - config: Configuration containing path, rowSize, and skewMs
-//             Use NewCreateConfig() for simple parameter-based construction
 //
 // Requirements:
 //   - Must be run with sudo privileges to set append-only attribute
@@ -44,6 +43,28 @@ func (cfg *CreateConfig) Validate() error
 //
 // Example:
 //   config := frozendb.NewCreateConfig("/var/lib/app/database.fdb", 1024, 5000)
+//   err := frozendb.Create(config)
+//   if err != nil {
+//       log.Fatal(err)
+//   }
+func Create(config CreateConfig) error
+
+// NewCreateConfig creates a CreateConfig with the given parameters.
+//
+// Parameters:
+//   - path: Filesystem path for the database file (must end with .fdb)
+//   - rowSize: Size of each data row in bytes (128-65536)
+//   - skewMs: Time skew window in milliseconds (0-86400000)
+//
+// Returns:
+//   - CreateConfig: Initialized configuration struct ready for Create() function
+//
+// Example:
+//   config := frozendb.CreateConfig{
+//       Path:    "/var/lib/app/database.fdb",
+//       RowSize:  1024,
+//       SkewMs:   5000,
+//   }
 //   err := frozendb.Create(config)
 //   if err != nil {
 //       log.Fatal(err)

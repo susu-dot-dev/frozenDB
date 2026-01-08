@@ -115,9 +115,6 @@ func (cfg *CreateConfig) Validate() error
 
 // Create creates a new frozenDB database file with the given configuration
 func Create(config CreateConfig) error
-
-// NewCreateConfig creates a CreateConfig with the given parameters
-func NewCreateConfig(path string, rowSize, skewMs int) CreateConfig
 ```
 
 ### Internal Functions

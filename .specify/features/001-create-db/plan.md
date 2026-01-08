@@ -61,7 +61,7 @@ frozendb/
 
 ## Spec Testing Strategy
 
-Per frozenDB Constitution, all functional requirements (FR-001 through FR-035) MUST have corresponding spec tests in `frozendb/spec_tests/0001_create_db_test.go` following pattern `TestFR_[XXX]_[Description]()`. Spec tests are distinct from unit tests and validate functional requirements from user/system perspective.
+Per frozenDB Constitution, all functional requirements (FR-001 through FR-032) MUST have corresponding spec tests in `frozendb/spec_tests/0001_create_db_test.go` following pattern `TestFR_XXX_Description()`. Spec tests are distinct from unit tests and validate functional requirements from user/system perspective.
 
 Functional requirements are NOT considered implemented until:
 1. Implementation code exists and compiles

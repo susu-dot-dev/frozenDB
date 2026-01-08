@@ -18,7 +18,11 @@ import (
 
 func main() {
     // Create a new database file
-    config := frozendb.NewCreateConfig("/path/to/database.fdb", 1024, 5000)
+    config := frozendb.CreateConfig{
+        Path:    "/path/to/database.fdb",
+        RowSize:  1024,
+        SkewMs:   5000,
+    }
     err := frozendb.Create(config)
     if err != nil {
         log.Fatalf("Failed to create database: %v", err)
@@ -87,11 +91,24 @@ These are automatically set by sudo and used to ensure the created file is owned
 For better readability and extensibility, use the CreateConfig struct approach:
 
 ```go
-// Simple parameter-based creation
+// Simple struct-based creation
 config := frozendb.CreateConfig{
     Path:    "/path/to/database.fdb",
     RowSize:  1024,
     SkewMs:   5000,
+}
+err := frozendb.Create(config)
+```
+
+```go
+// Advanced configuration with validation
+config := frozendb.CreateConfig{
+    Path:    "/var/lib/app/database.fdb",
+    RowSize:  4096,
+    SkewMs:   10000,
+}
+if err := config.Validate(); err != nil {
+    log.Fatal("Invalid config:", err)
 }
 err := frozendb.Create(config)
 ```
@@ -136,26 +153,26 @@ func handleCreateError(err error) {
 
 ```go
 // Invalid input examples
-config := frozendb.NewCreateConfig("", 1024, 0)           // InvalidInputError: empty path
-config = frozendb.NewCreateConfig("/path/file.txt", 1024, 0)   // InvalidInputError: wrong extension
-config = frozendb.NewCreateConfig("/path/file.fdb", 64, 0)     // InvalidInputError: rowSize too small
-config = frozendb.NewCreateConfig("/path/file.fdb", 70000, 0)   // InvalidInputError: rowSize too large
-config = frozendb.NewCreateConfig("/path/file.fdb", 1024, 90000000) // InvalidInputError: skewMs too large
-frozendb.Create(config)                                     // Pass invalid config
+config := frozendb.CreateConfig{Path: "", RowSize: 1024, SkewMs: 0}                    // InvalidInputError: empty path
+config = frozendb.CreateConfig{Path: "/path/file.txt", RowSize: 1024, SkewMs: 0}       // InvalidInputError: wrong extension
+config = frozendb.CreateConfig{Path: "/path/file.fdb", RowSize: 64, SkewMs: 0}         // InvalidInputError: rowSize too small
+config = frozendb.CreateConfig{Path: "/path/file.fdb", RowSize: 70000, SkewMs: 0}      // InvalidInputError: rowSize too large
+config = frozendb.CreateConfig{Path: "/path/file.fdb", RowSize: 1024, SkewMs: 90000000} // InvalidInputError: skewMs too large
+frozendb.Create(config)                                                                   // Pass invalid config
 
 // Path errors
-config := frozendb.NewCreateConfig("/nonexistent/file.fdb", 1024, 0)
-frozendb.Create(config)                                     // PathError: parent doesn't exist
+config := frozendb.CreateConfig{Path: "/nonexistent/file.fdb", RowSize: 1024, SkewMs: 0}
+frozendb.Create(config)                                                                   // PathError: parent doesn't exist
 
-config = frozendb.NewCreateConfig("/readonly/file.fdb", 1024, 0)
-frozendb.Create(config)                                     // PathError: parent not writable
+config = frozendb.CreateConfig{Path: "/readonly/file.fdb", RowSize: 1024, SkewMs: 0}
+frozendb.Create(config)                                                                   // PathError: parent not writable
 
-config = frozendb.NewCreateConfig("/existing/file.fdb", 1024, 0)
-frozendb.Create(config)                                     // PathError: file already exists
+config = frozendb.CreateConfig{Path: "/existing/file.fdb", RowSize: 1024, SkewMs: 0}
+frozendb.Create(config)                                                                   // PathError: file already exists
 
 // Write errors (sudo-related)
-config = frozendb.NewCreateConfig("/path/file.fdb", 1024, 0)
-frozendb.Create(config)                                     // WriteError: no sudo context
+config = frozendb.CreateConfig{Path: "/path/file.fdb", RowSize: 1024, SkewMs: 0}
+frozendb.Create(config)                                                                   // WriteError: no sudo context
 ```
 
 ## File Properties
