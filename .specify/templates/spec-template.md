@@ -100,6 +100,17 @@
 - **[Entity 1]**: [What it represents, key attributes without implementation]
 - **[Entity 2]**: [What it represents, relationships to other entities]
 
+### Spec Testing Requirements
+
+Each functional requirement (FR-XXX) MUST have corresponding spec tests that:
+- Validate the requirement exactly as specified
+- Are placed in `module/spec_tests/[SPEC_NUMBER]_[SPEC_NAME]_test.go`
+- Follow naming convention `TestFR-XXX_Description()`
+- MUST NOT be modified after implementation without explicit user permission
+- Are distinct from unit tests and focus on functional validation
+
+See `docs/spec_testing.md` for complete spec testing guidelines.
+
 ## Success Criteria *(mandatory)*
 
 <!--

@@ -37,6 +37,7 @@
 - [ ] **Chronological Ordering**: Design supports time-based key ordering with proper handling of time variations
 - [ ] **Concurrent Read-Write Safety**: Design supports concurrent reads and writes without data corruption
 - [ ] **Single-File Architecture**: Database uses single file enabling simple backup/recovery
+- [ ] **Spec Test Compliance**: All functional requirements have corresponding spec tests in spec_tests/ directories
 
 ## Project Structure
 

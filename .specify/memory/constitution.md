@@ -1,8 +1,8 @@
 <!--
 Sync Impact Report:
-Version change: 0.0.0 → 1.0.0 (initial constitution)
-Modified principles: None (new constitution)
-Added sections: All sections (Core Principles, Data Integrity Requirements, Development Standards, Governance)
+Version change: 1.0.0 → 1.1.0 (minor version - new principle added)
+Modified principles: None
+Added sections: Spec Test Compliance principle under Development Standards
 Removed sections: None
 Templates requiring updates: ✅ plan-template.md, ✅ spec-template.md, ✅ tasks-template.md
 Follow-up TODOs: None
@@ -43,6 +43,9 @@ Memory usage MUST remain fixed regardless of database size. Caching strategies M
 ### Error Handling Excellence
 All errors MUST be structured deriving from base FrozenDBError. Different error types MUST reflect different caller behaviors. Error messages MUST be clear and actionable for debugging. All error paths MUST be tested and documented.
 
+### Spec Test Compliance
+All functional requirements MUST have corresponding spec tests validating implementation correctness. Functional requirements MUST NOT be considered implemented without passing spec tests. Spec tests MUST follow the requirements outlined in docs/spec_testing.md and MUST NOT be modified after spec implementation without explicit user permission. Previous spec tests MUST NOT be edited to accommodate new implementations - such changes require explicit user approval and potential specification updates.
+
 ## Governance
 
 This constitution supersedes all other practices and guidelines. Amendments require documentation, approval, and migration plan. All pull requests and reviews MUST verify compliance with these principles. Complexity violations MUST be explicitly justified in design documents.
@@ -56,4 +59,4 @@ This constitution supersedes all other practices and guidelines. Amendments requ
 ### Compliance Review
 All code changes MUST pass constitutional compliance checks before merge. Regular audits MUST verify adherence to these principles. Performance optimizations MUST undergo additional correctness validation. Any deviations MUST be documented and justified.
 
-**Version**: 1.0.0 | **Ratified**: 2025-01-07 | **Last Amended**: 2025-01-07
+**Version**: 1.1.0 | **Ratified**: 2025-01-07 | **Last Amended**: 2025-01-08
