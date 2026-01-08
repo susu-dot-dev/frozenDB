@@ -26,8 +26,7 @@ internal/db/
 ├── db_test.go              # Unit tests
 └── spec_tests/
     ├── 001_create_db_test.go
-    ├── test_helpers.go
-    └── common_test_helpers.go
+    └── test_helpers.go
 ```
 
 ### File Naming Convention
