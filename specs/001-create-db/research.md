@@ -102,13 +102,12 @@ type SudoContext struct {
     User     string
     UID      int
     GID      int
-    IsValid  bool
 }
 
-func DetectSudoContext() *SudoContext {
+func DetectSudoContext() *SudoContext, error {
     sudoUser := os.Getenv("SUDO_USER")
     if sudoUser == "" {
-        return &SudoContext{IsValid: false}
+        return nil, err
     }
     
     sudoUID := os.Getenv("SUDO_UID")
@@ -116,20 +115,19 @@ func DetectSudoContext() *SudoContext {
     
     uid, err := strconv.Atoi(sudoUID)
     if err != nil {
-        return &SudoContext{IsValid: false}
+        return nil, err
     }
     
     gid, err := strconv.Atoi(sudoGID)
     if err != nil {
-        return &SudoContext{IsValid: false}
+        return nil, err
     }
     
     return &SudoContext{
         User:    sudoUser,
         UID:     uid,
         GID:     gid,
-        IsValid: true,
-    }
+    }, nil
 }
 ```
 

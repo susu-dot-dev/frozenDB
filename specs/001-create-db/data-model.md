@@ -94,7 +94,6 @@ type SudoContext struct {
     User    string  // Original username from SUDO_USER
     UID     int     // Original user ID from SUDO_UID
     GID     int     // Original group ID from SUDO_GID
-    IsValid bool    // Whether sudo context is valid and complete
 }
 ```
 
