@@ -116,7 +116,7 @@ The Create function implementation will contain all necessary internal helper fu
 
 ```go
 // Header represents frozenDB v1 text-based header format
-// Header is exactly 64 bytes: JSON content + period padding + newline
+// Header is exactly 64 bytes: JSON content + null padding + newline
 type Header struct {
     Signature string    // Always "fDB" 
     Version   int      // Always 1 for v1 format
@@ -131,7 +131,7 @@ const (
     MinRowSize     = 128               // Minimum allowed row size
     MaxRowSize     = 65536             // Maximum allowed row size
     MaxSkewMs      = 86400000          // Maximum time skew (24 hours)
-    PaddingChar     = '.'               // Period character for header padding
+    PaddingChar     = '\x00'            // Null character for header padding
     HeaderNewline   = '\n'             // Byte 63 must be newline
 )
 
@@ -145,7 +145,7 @@ const HeaderFormat = `{sig:"fDB",ver:1,row_size:%d,skew_ms:%d}`
 
 ```go
 // The implementation must use fixed memory regardless of input parameters:
-// - Header writing: fixed 72-byte buffer
+// - Header writing: fixed 64-byte buffer
 // - Path validation: O(1) operations
 // - File operations: single pass, no buffering of entire file
 ```
@@ -155,7 +155,7 @@ const HeaderFormat = `{sig:"fDB",ver:1,row_size:%d,skew_ms:%d}`
 ```go
 // The implementation must minimize disk operations:
 // 1. Single file creation (O_CREAT|O_EXCL)
-// 2. Single header write (72 bytes)
+// 2. Single header write (64 bytes)
 // 3. Single data flush (fdatasync)
 // 4. Single attribute setting (ioctl)
 // 5. Single ownership change (chown, if applicable)

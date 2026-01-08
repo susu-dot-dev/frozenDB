@@ -138,7 +138,7 @@ func DetectSudoContext() *SudoContext {
 **Header Structure (from docs/v1_file_format.md):**
 ```go
 // Header represents frozenDB v1 text-based header format
-// Header is exactly 64 bytes: JSON content + period padding + newline
+// Header is exactly 64 bytes: JSON content + null padding + newline
 type Header struct {
     Signature string    // Always "fDB"
     Version   int      // Always 1 for v1 format
@@ -151,11 +151,11 @@ const HeaderSize = 64 // Fixed header size in bytes
 
 **Header Format String:**
 ```
-{sig:"fDB",ver:1,row_size:<size>,skew_ms:<skew>}....\n
+{sig:"fDB",ver:1,row_size:<size>,skew_ms:<skew>}\x00\x00\x00\x00\n
 ```
 Where:
 - JSON content must be between 44-51 bytes
-- Padding consists of period characters (.) 
+- Padding consists of null characters (\x00) 
 - Byte 63 must be newline (\n)
 - Total header length is exactly 64 bytes
 
@@ -172,7 +172,7 @@ func WriteHeader(fd int, rowSize, skewMs int) error {
     }
     
     paddingLength := 63 - contentLength
-    padding := strings.Repeat(".", paddingLength)
+    padding := strings.Repeat("\x00", paddingLength)
     
     // Assemble header: JSON + padding + newline
     header := jsonContent + padding + "\n"
@@ -220,4 +220,4 @@ func WriteHeader(fd int, rowSize, skewMs int) error {
 - **Fixed Memory**: Must use constant memory regardless of parameters
 - **Minimal Disk Operations**: Single pass through the sequence above
 - **Early Validation**: All validations before any filesystem operations
-- **Constant Time Header Writing**: Fixed 72-byte header write
+- **Constant Time Header Writing**: Fixed 64-byte header write

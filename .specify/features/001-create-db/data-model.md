@@ -8,7 +8,7 @@
 
 ```go
 // Header represents frozenDB v1 text-based header format
-// Header is exactly 64 bytes: JSON content + period padding + newline
+// Header is exactly 64 bytes: JSON content + null padding + newline
 type Header struct {
     Signature string    // Always "fDB" 
     Version   int      // Always 1 for v1 format
@@ -22,7 +22,7 @@ const (
     MinRowSize = 128               // Minimum allowed row size
     MaxRowSize = 65536             // Maximum allowed row size  
     MaxSkewMs  = 86400000          // Maximum time skew (24 hours)
-    PaddingChar = '.'                // Period character for header padding
+    PaddingChar = '\x00'             // Null character for header padding
     HeaderNewline = '\n'            // Byte 63 must be newline
 )
 ```
@@ -31,7 +31,7 @@ const (
 
 ```go
 // HeaderFormat defines the exact text format for frozenDB v1 headers
-// Format: {sig:"fDB",ver:1,row_size:<size>,skew_ms:<skew>}....\n
+// Format: {sig:"fDB",ver:1,row_size:<size>,skew_ms:<skew>}\x00\x00\x00\x00\n
 const HeaderFormat = `{sig:"fDB",ver:1,row_size:%d,skew_ms:%d}`
 ```
 
@@ -51,7 +51,7 @@ func GenerateHeader(rowSize, skewMs int) ([]byte, error) {
     
     // Calculate padding: 63 - jsonContent length (byte 63 is newline)
     paddingLength := 63 - contentLength
-    padding := strings.Repeat(PaddingChar, paddingLength)
+    padding := strings.Repeat(string(PaddingChar), paddingLength)
     
     // Assemble header: JSON + padding + newline
     header := jsonContent + padding + string(HeaderNewline)
@@ -252,8 +252,8 @@ graph TD
 
 Header Structure (exactly 64 bytes):
 +------------------+------------------+
-| JSON Content      | Period Padding    |
-| {sig:"fDB"...}  | (............)   |
+| JSON Content      | Null Padding     |
+| {sig:"fDB"...}  | (\x00\x00\x00\x00)   |
 | (44-51 bytes)    | (13-20 bytes)    |
 +------------------+------------------+
 | Byte 63          |
@@ -261,7 +261,7 @@ Header Structure (exactly 64 bytes):
 +------------------+------------------+
 
 Exact Format Example:
-{sig:"fDB",ver:1,row_size:1024,skew_ms:5000}.............\n
-<-- JSON content --><-- 13-20 padding periods --><- \n ->
+{sig:"fDB",ver:1,row_size:1024,skew_ms:5000}\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\n
+<-- JSON content --><-- 13-20 padding nulls --><- \n ->
     (44-51 bytes)           (13-20 bytes)     (1 byte)
 ```

@@ -37,14 +37,14 @@ The header SHALL be exactly 64 bytes in length. The header SHALL contain a JSON 
 The header SHALL follow this exact format:
 
 ```
-{sig:"fDB",ver:1,row_size:<size>,skew_ms:<skew>}....\n
+{sig:"fDB",ver:1,row_size:<size>,skew_ms:<skew>}\x00\x00\x00\x00\n
 ```
 
 Where:
 - `<size>` SHALL be an integer between 128 and 65536 (inclusive)
 - `<skew>` SHALL be an integer between 0 and 86400000 (inclusive)
 - The four keys SHALL appear in exactly this order: `sig`, `ver`, `row_size`, `skew_ms`
-- Padding SHALL consist of period characters (U+002E) as needed to fill to 63 bytes
+- Padding SHALL consist of null characters (U+0000) as needed to fill to 63 bytes
 - Byte 63 SHALL be a newline character (U+000A)
 
 ### 3.3. Header Fields
@@ -69,7 +69,7 @@ The `skew_ms` field SHALL contain an integer value between 0 and 86400000 (inclu
 
 ### 3.4. Padding Requirements
 
-Padding characters SHALL be used as needed to ensure the header occupies exactly 64 bytes. Padding SHALL consist solely of period characters (U+002E). The number of padding characters SHALL be calculated as 63 minus the length of the JSON content (excluding the newline).
+Padding characters SHALL be used as needed to ensure the header occupies exactly 64 bytes. Padding SHALL consist solely of null characters (U+0000). The number of padding characters SHALL be calculated as 63 minus the length of the JSON content (excluding the newline).
 
 ### 3.5. Header Termination
 
@@ -88,17 +88,17 @@ Therefore, the padding SHALL be between 13 and 20 characters in length.
 Implementations SHALL:
 1. Read exactly 64 bytes from the file start
 2. Verify byte 63 is a newline character (U+000A)
-3. Parse the JSON content from bytes 0-62 using the following method: Read the first 26 bytes and verify they match `{sig:"fDB",ver:1,row_size:`, then JSON parse the remaining content until the first period character
+3. Parse the JSON content from bytes 0-62 using the following method: Read the first 26 bytes and verify they match `{sig:"fDB",ver:1,row_size:`, then JSON parse the remaining content until the first null character
 4. Verify the JSON object contains exactly four keys in the order: `sig`, `ver`, `row_size`, `skew_ms`
 5. Validate each field value according to sections 3.3.1 through 3.3.4
-6. Verify that all characters between the end of the JSON content and byte 62 are periods (U+002E)
+6. Verify that all characters between the end of the JSON content and byte 62 are null characters (U+0000)
 
 ### 3.8. Header Error Handling
 
 Implementations SHALL reject files and report an error if any of the following conditions occur:
 - File contains fewer than 64 bytes
-- Bytes [0-N) do not contain valid JSON, where N is the index of the first period character (U+002E)
-- Bytes [N-63) is not U+002E (period)
+- Bytes [0-N) do not contain valid JSON, where N is the index of the first null character (U+0000)
+- Bytes [N-63) is not U+0000 (null)
 - Byte 63 is not a newline character
 - JSON object does not contain exactly four keys
 - Keys are not in the required order sig,ver,row_size
