@@ -26,7 +26,6 @@ internal/db/
 ├── db_test.go              # Unit tests
 └── spec_tests/
     ├── 001_create_db_test.go
-    └── test_helpers.go
 ```
 
 ### File Naming Convention
@@ -126,7 +125,6 @@ func TestFR_011_SkewMsValidation(t *testing.T) {
 The ONLY files that may be modified when implementing new specs:
 
 1. **Current Spec's Test File**: `spec_tests/[CURRENT_SPEC]_test.go`
-2. **Helper Files**: `spec_tests/test_helpers.go`, `spec_tests/common_test_helpers.go`
 
 ### Breaking Changes
 If new implementation causes previous spec tests to fail:
@@ -155,20 +153,6 @@ func TestFR_XXX_Description(t *testing.T) {
     if tt.wantResult != result {
         t.Errorf("Function() = %v, want %v", result, tt.wantResult)
     }
-}
-```
-
-### Helper Functions
-Common test setup and validation logic SHOULD be placed in helper files:
-
-```go
-// spec_tests/test_helpers.go
-func setupTestDB(t *testing.T) *DB {
-    // Common database setup for spec tests
-}
-
-func cleanupTestDB(t *testing.T, db *DB) {
-    // Common database cleanup
 }
 ```
 

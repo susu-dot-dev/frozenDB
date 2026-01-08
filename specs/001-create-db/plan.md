@@ -54,7 +54,6 @@ frozendb/
 ├── create_test.go          # Unit tests for Create function
 └── spec_tests/            # Spec tests (constitutional requirement)
     ├── 0001_create_db_test.go     # Spec tests for FR-001 through FR-035
-    └── test_helpers.go            # Common test setup and helpers
 ```
 
 **Structure Decision**: Single project structure with public API package at top-level `frozendb/` following Go conventions. Internal implementations are private within the package using lowercase functions, and spec tests are in `frozendb/spec_tests/` per constitutional requirements.

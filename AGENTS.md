@@ -28,7 +28,7 @@ go test -bench=. ./...
 # Format code
 go fmt ./...
 
-# Lint code (requires golangci-lint)
+# Lint code (using golangci-lint with defaults)
 golangci-lint run
 
 # Vet code for potential issues
