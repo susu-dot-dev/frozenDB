@@ -44,7 +44,7 @@ Memory usage MUST remain fixed regardless of database size. Caching strategies M
 All errors MUST be structured deriving from base FrozenDBError. Different error types MUST reflect different caller behaviors. Error messages MUST be clear and actionable for debugging. All error paths MUST be tested and documented.
 
 ### Spec Test Compliance
-All functional requirements MUST have corresponding spec tests validating implementation correctness. Functional requirements MUST NOT be considered implemented without passing spec tests. Spec tests MUST follow the requirements outlined in docs/spec_testing.md and MUST NOT be modified after spec implementation without explicit user permission. Previous spec tests MUST NOT be edited to accommodate new implementations - such changes require explicit user approval and potential specification updates.
+All functional requirements MUST have corresponding spec tests validating implementation correctness. Functional requirements MUST NOT be considered implemented without passing spec tests. Spec tests MUST follow the requirements outlined in docs/spec_testing.md and MUST NOT be modified after spec implementation without explicit user permission. Previous spec tests MUST NOT be edited to accommodate new implementations - such changes require explicit user approval and potential specification updates. Spec tests MUST be co-located with source files using pattern [file]_spec_test.go in same package directory as implementation. Each spec test must have the correct naming structure as described in docs/spec_testing.md
 
 ## Governance
 
@@ -59,4 +59,4 @@ This constitution supersedes all other practices and guidelines. Amendments requ
 ### Compliance Review
 All code changes MUST pass constitutional compliance checks before merge. Regular audits MUST verify adherence to these principles. Performance optimizations MUST undergo additional correctness validation. Any deviations MUST be documented and justified.
 
-**Version**: 1.1.0 | **Ratified**: 2025-01-07 | **Last Amended**: 2025-01-08
+**Version**: 1.2.0 | **Ratified**: 2025-01-07 | **Last Amended**: 2025-01-08

@@ -7,38 +7,29 @@ This document contains build commands and coding standards for agentic developme
 This is a Go project. Standard Go toolchain commands:
 
 ```bash
-# Build the project
-go build ./...
-
-# Run tests
+# Run all tests (unit + spec)
 go test ./...
-
-# Run a specific test
-go test -run TestFunctionName ./path/to/package
 
 # Run tests with verbose output
 go test -v ./...
 
+# Run spec tests only
+go test -v ./... -run "^Test_S_"
+
+# Run unit tests only
+go test -v ./... -run "^Test[^S]"
+
+# Run a specific test
+go test -run TestFunctionName ./path/to/package
+
 # Run tests with coverage
 go test -cover ./...
 
+# Run spec tests with coverage
+go test -cover ./... -run "^Test_S_"
+
 # Run benchmarks
 go test -bench=. ./...
-
-# Format code
-go fmt ./...
-
-# Lint code (using golangci-lint with defaults)
-golangci-lint run
-
-# Vet code for potential issues
-go vet ./...
-
-# Tidy dependencies
-go mod tidy
-
-# Generate module dependencies
-go mod download
 ```
 
 ## Project Structure

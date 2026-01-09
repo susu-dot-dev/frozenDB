@@ -82,10 +82,10 @@ Examples of foundational tasks (adjust based on your project):
 ### Tests for User Story 1 (MANDATORY - spec tests always required) ⚠️
 
 > **NOTE: Write spec tests FIRST, ensure they FAIL before implementation**
-> **Spec tests validate functional requirements FR-XXX and go in spec_tests/ folders**
+> **Spec tests validate functional requirements FR-XXX and go in same package directory**
 
-- [ ] T010 [US1] Spec test for FR-XXX in module/spec_tests/[spec_number]_[spec_name]_test.go
-- [ ] T011 [US1] Spec test for FR-XXX (additional requirement) in module/spec_tests/[spec_number]_[spec_name]_test.go
+- [ ] T010 [US1] Spec test for FR-XXX in module/[filename]_spec_test.go with function name Test_S_XXX_FR_XXX_Description
+- [ ] T011 [US1] Spec test for FR-XXX (additional requirement) in module/[filename]_spec_test.go with function name Test_S_XXX_FR_XXX_Description
 - [ ] T012 [US1] Unit tests for implementation in module/[file]_test.go (if needed)
 
 ### Implementation for User Story 1
@@ -111,8 +111,8 @@ Examples of foundational tasks (adjust based on your project):
 
 ### Tests for User Story 2 (MANDATORY - spec tests always required) ⚠️
 
-- [ ] T020 [US2] Spec test for FR-XXX in module/spec_tests/[spec_number]_[spec_name]_test.go
-- [ ] T021 [US2] Spec test for FR-XXX (additional requirement) in module/spec_tests/[spec_number]_[spec_name]_test.go
+- [ ] T020 [US2] Spec test for FR-XXX in module/[filename]_spec_test.go with function name Test_S_XXX_FR_XXX_Description
+- [ ] T021 [US2] Spec test for FR-XXX (additional requirement) in module/[filename]_spec_test.go with function name Test_S_XXX_FR_XXX_Description
 - [ ] T022 [US2] Unit tests for implementation in module/[file]_test.go (if needed)
 
 ### Implementation for User Story 2
@@ -138,8 +138,8 @@ Examples of foundational tasks (adjust based on your project):
 
 ### Tests for User Story 3 (MANDATORY - spec tests always required) ⚠️
 
-- [ ] T029 [US3] Spec test for FR-XXX in module/spec_tests/[spec_number]_[spec_name]_test.go
-- [ ] T030 [US3] Spec test for FR-XXX (additional requirement) in module/spec_tests/[spec_number]_[spec_name]_test.go
+- [ ] T029 [US3] Spec test for FR-XXX in module/[filename]_spec_test.go with function name Test_S_XXX_FR_XXX_Description
+- [ ] T030 [US3] Spec test for FR-XXX (additional requirement) in module/[filename]_spec_test.go with function name Test_S_XXX_FR_XXX_Description
 - [ ] T031 [US3] Unit tests for implementation in module/[file]_test.go (if needed)
 
 ### Implementation for User Story 3
