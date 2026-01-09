@@ -18,40 +18,49 @@ Spec tests differ from unit tests:
 ## File Organization
 
 ### Directory Structure
-Each Go module (e.g., `internal/db/`, `pkg/storage/`) MUST contain a `spec_tests/` subdirectory:
+Each Go source file MUST have corresponding test files in the same package directory:
 
 ```
-internal/db/
-├── db.go
-├── db_test.go              # Unit tests
-└── spec_tests/
-    ├── 001_create_db_test.go
-    ├── test_helpers.go
-    └── common_test_helpers.go
+frozendb/
+├── create.go              # Implementation
+├── create_test.go         # Unit tests  
+├── create_spec_test.go    # Spec tests
+├── errors.go              # Implementation
+├── errors_test.go         # Unit tests
+└── errors_spec_test.go    # Spec tests
 ```
 
 ### File Naming Convention
-- Spec test files MUST follow pattern: `[SPEC_NUMBER]_[SPEC_NAME]_test.go`
+- **Unit test files**: `[filename]_test.go` (standard Go convention)
+- **Spec test files**: `[filename]_spec_test.go` where `filename` matches the implementation file being tested
 - File names MUST use underscores instead of spaces
 - File names MUST be lowercase
-- SPEC_NUMBER is the 4-digit feature number (e.g., 0001, 0010)
-- SPEC_NAME is derived from the spec directory name (create_db, add_kv_pair)
+
+### Package Declaration
+- Unit test files and spec test files MAY use the same package declaration as the source file for testing internal structures, or package_name_test to enforce only testing public interfaces.
 
 ## Test Function Naming
 
 ### Test Function Convention
-Test functions MUST follow pattern: `TestFR-[NUMBER]_[Description]()`
-- `FR-[NUMBER]` corresponds to the functional requirement being tested
-- `[Description]` is a camelCase description of what is being validated
+Test functions MUST follow pattern: `Test_S_XXX_FR_XXX_Description()`
+- `S_XXX` corresponds to spec number that is being implemented. Always use exactly 3 digits for spec number
+- `FR_XXX` corresponds to functional requirement being tested. Use as few digits as required, example `FR_1`, `FR_22`, etc.
+- `Description` is a camelCase description of what is being validated
 - Test functions MUST be exported (start with capital T) to run with Go test framework
+
+### Test Ordering Requirement
+Spec tests MUST be written in functional requirement numerical order within each test file:
+- Tests must appear in order, sorted by Spec, then by FR number. S_001_FR-001, S_001_FR-002, S_002_FR-001, etc.
+- This ensures readability and makes it easy to verify complete coverage.
+- Automated checks should validate ordering during code reviews
 
 ### Examples
 ```go
-// Testing FR-011: System MUST validate skewMs parameter is between 0-86400000 inclusive
-func TestFR_011_NegativeSkewDisallowed(t *testing.T) { /* ... */ }
-func TestFR_011_ZeroSkewAllowed(t *testing.T) { /* ... */ }
-func TestFR_011_MaxSkewAllowed(t *testing.T) { /* ... */ }
-func TestFR_011_ExceedsMaxSkewDisallowed(t *testing.T) { /* ... */ }
+// Testing Spec 1, FR_011: System MUST validate skewMs parameter is between 0-86400000 inclusive
+func Test_S_001_FR_011_NegativeSkewDisallowed(t *testing.T) { /* ... */ }
+func Test_S_001_FR_011_ZeroSkewAllowed(t *testing.T) { /* ... */ }
+func Test_S_001_FR_011_MaxSkewAllowed(t *testing.T) { /* ... */ }
+func Test_S_001_FR_011_ExceedsMaxSkewDisallowed(t *testing.T) { /* ... */ }
 ```
 
 ## Functional Requirement Coverage
@@ -69,8 +78,8 @@ func TestFR_011_ExceedsMaxSkewDisallowed(t *testing.T) { /* ... */ }
 
 #### Skip Example
 ```go
-func TestFR_999_HardwareFailover(t *testing.T) {
-    t.Skip("FR-999: Cannot test automatic hardware failover in unit test environment. " +
+func Test_S_001_FR_999_HardwareFailover(t *testing.T) {
+    t.Skip("FR_999: Cannot test automatic hardware failover in unit test environment. " +
           "Requirement involves physical hardware failure detection which cannot be " +
           "simulated without specialized test hardware. Considered alternatives: " +
           "mock hardware interfaces (insufficient), network failure simulation (doesn't " +
@@ -79,33 +88,6 @@ func TestFR_999_HardwareFailover(t *testing.T) {
 }
 ```
 
-### Data-Driven Tests for Range Validation
-For requirements that validate parameter ranges, use data-driven tests:
-
-```go
-func TestFR_011_SkewMsValidation(t *testing.T) {
-    tests := []struct {
-        name    string
-        skewMs  int64
-        wantErr bool
-    }{
-        {"negative_skew_disallowed", -1, true},
-        {"zero_skew_allowed", 0, false},
-        {"positive_skew_allowed", 1000, false},
-        {"max_skew_allowed", 86400000, false},
-        {"exceeds_max_disallowed", 86400001, true},
-    }
-    
-    for _, tt := range tests {
-        t.Run(tt.name, func(t *testing.T) {
-            err := ValidateSkewMs(tt.skewMs)
-            if (err != nil) != tt.wantErr {
-                t.Errorf("ValidateSkewMs() error = %v, wantErr %v", err, tt.wantErr)
-            }
-        })
-    }
-}
-```
 
 ### Test Scope
 - Spec tests MUST cover the functional requirement exactly as specified
@@ -118,69 +100,30 @@ func TestFR_011_SkewMsValidation(t *testing.T) {
 ### Strict Protection Rules
 **CRITICAL**: The following rules MUST be followed without exception:
 
-1. **Existing Spec Tests MUST NOT be Modified** after a spec is implemented
-2. **Previous Spec Test Files MUST NOT be Edited** to accommodate new implementations
-3. **Spec Test Requirements MUST NOT be Changed** without user permission
-4. **Test Function Signatures MUST NOT be Altered** after implementation
+1. New spec tests may be freely added to an existing *_spec_test.go file 
+2. **Spec tests for a previous spec MUST NOT be Modified** when creating new features, without permission
+2. **Changes to a spec test for a previous spec, when allowed MUST correspond with updates to the previous spec** and related documentation, EXCEPT by following the breaking changes instructions. There should always be a current spec that is being worked on. For example, if the current spec is 002, then any spec test starting with `Test_S_001` may NOT be modified
 
-### Allowed Modifications
-The ONLY files that may be modified when implementing new specs:
-
-1. **Current Spec's Test File**: `spec_tests/[CURRENT_SPEC]_test.go`
-2. **Helper Files**: `spec_tests/test_helpers.go`, `spec_tests/common_test_helpers.go`
 
 ### Breaking Changes
 If new implementation causes previous spec tests to fail:
-1. **MUST STOP** and seek explicit user permission
-2. **MUST NOT** modify previous spec tests
-3. **MUST** update the functional requirements in the spec if needed
-4. **MUST** get user approval for any specification changes
+1. **MUST STOP** and seek explicit user guidance
+2. If breaking changes are expected, this MUST be documented in the current spec. The documentation should contain what the expected breaking change is, the new behavior, and the allowed ways to modify the code to accomodate this behavior
+3. If the change is due to an underspecified, or wrongly specified earlier spec, then the earlier spec must be rewritten to add updates and clarification. Then, the corresponding documentation (whether in the same spec folder, or elsewhere), should also be updated. Finally, you **MUST STOP** and ask if the updated spec is correct
+4. Only once the spec has been updated, and approval is given, may existing spec tests be updated
 
 ## Implementation Guidelines
-
-### Test Structure
-```go
-func TestFR_XXX_Description(t *testing.T) {
-    // Setup
-    db := setupTestDB(t)
-    defer cleanupTestDB(t, db)
-    
-    // Execute
-    result, err := db.FunctionUnderTest(params)
-    
-    // Validate
-    if (err != nil) != tt.wantErr {
-        t.Errorf("Function() error = %v, wantErr %v", err, tt.wantErr)
-    }
-    
-    if tt.wantResult != result {
-        t.Errorf("Function() = %v, want %v", result, tt.wantResult)
-    }
-}
-```
-
-### Helper Functions
-Common test setup and validation logic SHOULD be placed in helper files:
-
-```go
-// spec_tests/test_helpers.go
-func setupTestDB(t *testing.T) *DB {
-    // Common database setup for spec tests
-}
-
-func cleanupTestDB(t *testing.T, db *DB) {
-    // Common database cleanup
-}
-```
 
 ## Compliance Process
 
 ### Definition of "Implemented"
 A functional requirement is ONLY considered implemented when:
 1. The implementation code exists and compiles
-2. All corresponding spec tests pass
-3. Unit tests also pass (where applicable)
-4. No existing spec tests are broken
+2. The spec tests actually verify the behavior (and would fail if the desired behavior is not fully met)
+3. All corresponding spec tests pass
+4. Unit tests also pass (where applicable)
+5. No existing spec tests are broken
+
 
 ### Review Checklist
 Before considering a spec implemented:
@@ -193,14 +136,15 @@ Before considering a spec implemented:
 
 ### Verification Commands
 ```bash
-# Run spec tests for a specific module
-go test ./internal/db/spec_tests/...
+# Run all tests (unit + spec)
+go test -v ./...
 
-# Run all spec tests
-go test ./.../spec_tests/...
+# Run spec tests only (using naming convention)
+go test -v ./... -run "^Test_S_"
 
-# Run with coverage
-go test -cover ./.../spec_tests/...
+# Run spec tests with coverage
+go test -v ./... -cover -run "^Test_S_"
+
 ```
 
 ## Examples
@@ -209,18 +153,17 @@ go test -cover ./.../spec_tests/...
 
 **Requirement**: System MUST validate skewMs parameter is between 0-86400000 inclusive
 
-**Spec Test File**: `spec_tests/001_create_db_test.go`
+**Spec Test File**: `frozendb/create_spec_test.go`
 
 ```go
-package spec_tests
+package frozendb
 
 import (
     "testing"
     "github.com/stretchr/testify/assert"
-    "yourproject/internal/db"
 )
 
-func TestFR_011_SkewMsValidation(t *testing.T) {
+func Test_S_001_FR_011_SkewMsValidation(t *testing.T) {
     tests := []struct {
         name    string
         skewMs  int64
@@ -231,7 +174,7 @@ func TestFR_011_SkewMsValidation(t *testing.T) {
             name:    "negative_skew_disallowed",
             skewMs:  -1,
             wantErr: true,
-            errType: &db.InvalidInputError{},
+            errType: &frozendb.InvalidInputError{},
         },
         {
             name:    "zero_skew_allowed",
@@ -252,13 +195,13 @@ func TestFR_011_SkewMsValidation(t *testing.T) {
             name:    "exceeds_max_disallowed",
             skewMs:  86400001,
             wantErr: true,
-            errType: &db.InvalidInputError{},
+            errType: &frozendb.InvalidInputError{},
         },
     }
     
     for _, tt := range tests {
         t.Run(tt.name, func(t *testing.T) {
-            err := db.ValidateSkewMs(tt.skewMs)
+            err := frozendb.ValidateSkewMs(tt.skewMs)
             if tt.wantErr {
                 assert.Error(t, err)
                 if tt.errType != nil {
@@ -270,7 +213,6 @@ func TestFR_011_SkewMsValidation(t *testing.T) {
         })
     }
 }
-```
 
 ## Enforcement
 

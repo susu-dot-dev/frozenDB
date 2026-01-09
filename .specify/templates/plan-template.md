@@ -21,11 +21,13 @@
 **Primary Dependencies**: [e.g., FastAPI, UIKit, LLVM or NEEDS CLARIFICATION]  
 **Storage**: [if applicable, e.g., PostgreSQL, CoreData, files or N/A]  
 **Testing**: [e.g., pytest, XCTest, cargo test or NEEDS CLARIFICATION]  
-**Target Platform**: [e.g., Linux server, iOS 15+, WASM or NEEDS CLARIFICATION]
+**Target Platform**: [e.g., Linux server, iOS 15+, WASM or NEEDS CLARIFICATION]  
 **Project Type**: [single/web/mobile - determines source structure]  
 **Performance Goals**: [domain-specific, e.g., 1000 req/s, 10k lines/sec, 60 fps or NEEDS CLARIFICATION]  
 **Constraints**: [domain-specific, e.g., <200ms p95, <100MB memory, offline-capable or NEEDS CLARIFICATION]  
-**Scale/Scope**: [domain-specific, e.g., 10k users, 1M LOC, 50 screens or NEEDS CLARIFICATION]
+**Scale/Scope**: [domain-specific, e.g., 10k users, 1M LOC, 50 screens or NEEDS CLARIFICATION]  
+
+**GitHub Repository**: Obtain full repository path using `git remote get-url origin` for import statements in documentation and examples. Example: `github.com/user/repo` from `git@github.com:user/repo.git`
 
 ## Constitution Check
 
@@ -37,7 +39,7 @@
 - [ ] **Chronological Ordering**: Design supports time-based key ordering with proper handling of time variations
 - [ ] **Concurrent Read-Write Safety**: Design supports concurrent reads and writes without data corruption
 - [ ] **Single-File Architecture**: Database uses single file enabling simple backup/recovery
-- [ ] **Spec Test Compliance**: All functional requirements have corresponding spec tests in spec_tests/ directories
+- [ ] **Spec Test Compliance**: All functional requirements have corresponding spec tests in [filename]_spec_test.go files
 
 ## Project Structure
 

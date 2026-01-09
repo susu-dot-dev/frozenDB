@@ -36,6 +36,40 @@ frozenDB is a single-file key-value store where rows can only be added, never re
 3. **Concurrency**: Append-only means that reads can happen concurrently with writes, (avoiding any open transaction)
 3. **Corruption detection**: Sentinel bytes validate transaction integrity
 
+## Installation
+
+```bash
+go get github.com/susu-dot-dev/frozenDB
+```
+
+## Quick Start
+
+```go
+package main
+
+import (
+    "log"
+    "github.com/susu-dot-dev/frozenDB/frozendb"
+)
+
+func main() {
+    // Create a new database file
+    config := frozendb.CreateConfig{
+        Path:    "/var/lib/app/database.fdb",
+        RowSize:  1024,
+        SkewMs:   5000,
+    }
+    
+    // Requires sudo privileges for append-only protection
+    err := frozendb.Create(config)
+    if err != nil {
+        log.Fatalf("Failed to create database: %v", err)
+    }
+    
+    log.Println("Database created successfully!")
+}
+```
+
 ## Use Cases
 
 - **Audit trails** - Immutable compliance records that must never be altered
@@ -43,7 +77,76 @@ frozenDB is a single-file key-value store where rows can only be added, never re
 - **Security logging** - Tamper-evident security event records
 - **Compliance records** - Regulatory requirements for permanent, unmodifiable data
 
-## API Design (coming soon)
+## API Design
+
+### Database File Creation
+
+```go
+// CreateConfig holds configuration for creating a new frozenDB database file
+type CreateConfig struct {
+    Path    string // Filesystem path for the database file
+    RowSize int    // Size of each data row in bytes (128-65536)
+    SkewMs  int    // Time skew window in milliseconds (0-86400000)
+}
+
+// Create creates a new frozenDB database file with the given configuration.
+// The function performs atomic file creation with proper error handling and cleanup.
+// Files are created with append-only protection to ensure immutability.
+//
+// Requirements:
+//   - Must be run with sudo privileges to set append-only attribute
+//   - Parent directory must exist and be writable
+//   - Target file must not already exist
+//
+// Parameters:
+//   - config: Configuration containing path, rowSize, and skewMs
+//
+// Returns:
+//   - error: nil on success, or one of:
+//     * InvalidInputError: for invalid input parameters
+//     * PathError: for filesystem path issues  
+//     * WriteError: for file operations, sudo context, or attribute setting failures
+//
+// Example:
+//   config := frozendb.CreateConfig{
+//       Path:    "/var/lib/app/database.fdb",
+//       RowSize:  1024,
+//       SkewMs:   5000,
+//   }
+//   err := frozendb.Create(config)
+//   if err != nil {
+//       log.Fatal(err)
+//   }
+func Create(config CreateConfig) error
+```
+
+### Error Handling
+
+frozenDB uses structured error types for different failure scenarios:
+
+```go
+func handleCreateError(err error) {
+    switch err.(type) {
+    case *frozendb.InvalidInputError:
+        // Check parameters: empty path, invalid ranges, wrong extension
+        fmt.Println("Invalid input:", err)
+        
+    case *frozendb.PathError:
+        // Check: parent directory exists, path is writable, file doesn't exist
+        fmt.Println("Path error:", err)
+        
+    case *frozendb.WriteError:
+        // Check: sudo permissions, disk space, filesystem support
+        fmt.Println("Write error:", err)
+        
+    default:
+        fmt.Println("Unexpected error:", err)
+    }
+}
+```
+```
+
+### Database Operations (coming soon)
 
 ```go
 type DB struct { Path string, ... }

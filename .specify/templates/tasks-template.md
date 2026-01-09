@@ -14,9 +14,14 @@ description: "Task list template for feature implementation"
 
 ## Format: `[ID] [P?] [Story] Description`
 
-- **[P]**: Can run in parallel (different files, no dependencies)
 - **[Story]**: Which user story this task belongs to (e.g., US1, US2, US3)
 - Include exact file paths in descriptions
+
+## Spec Test Naming Convention
+
+- **Pattern**: `Test_S_XXX_FR_YYY_Description` where XXX is spec number, YYY is functional requirement number
+- **Order**: Spec tests MUST be written in functional requirement numerical order (FR-001, FR-002, etc.)
+- **Example**: `Test_S_001_FR_006_AtomicFileCreation` for spec 001, functional requirement FR-006
 
 ## Path Conventions
 
@@ -50,7 +55,7 @@ description: "Task list template for feature implementation"
 
 - [ ] T001 Create project structure per implementation plan
 - [ ] T002 Initialize [language] project with [framework] dependencies
-- [ ] T003 [P] Configure linting and formatting tools
+- [ ] T003 Configure linting and formatting tools
 
 ---
 
@@ -63,13 +68,13 @@ description: "Task list template for feature implementation"
 Examples of foundational tasks (adjust based on your project):
 
 - [ ] T004 Setup frozenDB file structure and header management
-- [ ] T005 [P] Implement chronological key ordering and time variation handling
-- [ ] T006 [P] Setup atomic write operations and corruption detection mechanisms
+- [ ] T005 Implement chronological key ordering and time variation handling
+- [ ] T006 Setup atomic write operations and corruption detection mechanisms
 - [ ] T007 Create immutable append-only storage layer
 - [ ] T008 Configure structured error handling (FrozenDBError hierarchy)
 - [ ] T009 Setup corruption detection and single-file recovery mechanisms
 
-**Checkpoint**: Foundation ready - user story implementation can now begin in parallel
+**Checkpoint**: Foundation ready - user story implementation can now begin
 
 ---
 
@@ -82,21 +87,21 @@ Examples of foundational tasks (adjust based on your project):
 ### Tests for User Story 1 (MANDATORY - spec tests always required) ⚠️
 
 > **NOTE: Write spec tests FIRST, ensure they FAIL before implementation**
-> **Spec tests validate functional requirements FR-XXX and go in spec_tests/ folders**
+> **Spec tests validate functional requirements FR-XXX and go in same package directory**
 
-- [ ] T010 [P] [US1] Spec test for FR-XXX in module/spec_tests/[spec_number]_[spec_name]_test.go
-- [ ] T011 [P] [US1] Spec test for FR-XXX (additional requirement) in module/spec_tests/[spec_number]_[spec_name]_test.go
-- [ ] T012 [P] [US1] Unit tests for implementation in module/[file]_test.go (if needed)
+- [ ] T010 [US1] Spec test for FR-XXX in module/[filename]_spec_test.go with function name Test_S_XXX_FR_XXX_Description
+- [ ] T011 [US1] Spec test for FR-XXX (additional requirement) in module/[filename]_spec_test.go with function name Test_S_XXX_FR_XXX_Description
+- [ ] T012 [US1] Unit tests for implementation in module/[file]_test.go (if needed)
 
 ### Implementation for User Story 1
 
-- [ ] T012 [P] [US1] Create [entity] storage structure in internal/db/[entity].go
-- [ ] T013 [P] [US1] Implement [operation] with proper transaction handling
+- [ ] T012 [US1] Create [entity] storage structure in internal/db/[entity].go
+- [ ] T013 [US1] Implement [operation] with proper transaction handling
 - [ ] T014 [US1] Add corruption detection for [operation] (depends on T012, T013)
 - [ ] T015 [US1] Implement [API function] in pkg/[package]/[file].go
 - [ ] T016 [US1] Add comprehensive error handling with FrozenDBError types
 - [ ] T017 [US1] Add structured logging for [operation] with integrity validation
-- [ ] T018 [US1] [P] Run spec tests for User Story 1 and verify all FR-XXX requirements have coverage
+- [ ] T018 [US1] Run spec tests for User Story 1 and verify all FR-XXX requirements have coverage
 - [ ] T019 [US1] Verify no t.Skip() calls in User Story 1 spec tests without proper documentation
 
 **Checkpoint**: At this point, User Story 1 should be fully functional and testable independently
@@ -111,17 +116,17 @@ Examples of foundational tasks (adjust based on your project):
 
 ### Tests for User Story 2 (MANDATORY - spec tests always required) ⚠️
 
-- [ ] T020 [P] [US2] Spec test for FR-XXX in module/spec_tests/[spec_number]_[spec_name]_test.go
-- [ ] T021 [P] [US2] Spec test for FR-XXX (additional requirement) in module/spec_tests/[spec_number]_[spec_name]_test.go
-- [ ] T022 [P] [US2] Unit tests for implementation in module/[file]_test.go (if needed)
+- [ ] T020 [US2] Spec test for FR-XXX in module/[filename]_spec_test.go with function name Test_S_XXX_FR_XXX_Description
+- [ ] T021 [US2] Spec test for FR-XXX (additional requirement) in module/[filename]_spec_test.go with function name Test_S_XXX_FR_XXX_Description
+- [ ] T022 [US2] Unit tests for implementation in module/[file]_test.go (if needed)
 
 ### Implementation for User Story 2
 
-- [ ] T023 [P] [US2] Create [Entity] model in src/models/[entity].py
+- [ ] T023 [US2] Create [Entity] model in src/models/[entity].py
 - [ ] T024 [US2] Implement [Service] in src/services/[service].py
 - [ ] T025 [US2] Implement [endpoint/feature] in src/[location]/[file].py
 - [ ] T026 [US2] Integrate with User Story 1 components (if needed)
-- [ ] T027 [US2] [P] Run spec tests for User Story 2 and verify all FR-XXX requirements have coverage
+- [ ] T027 [US2] Run spec tests for User Story 2 and verify all FR-XXX requirements have coverage
 - [ ] T028 [US2] Verify no t.Skip() calls in User Story 2 spec tests without proper documentation
 
 **Checkpoint**: At this point, User Stories 1 AND 2 should both work independently
@@ -138,16 +143,16 @@ Examples of foundational tasks (adjust based on your project):
 
 ### Tests for User Story 3 (MANDATORY - spec tests always required) ⚠️
 
-- [ ] T029 [P] [US3] Spec test for FR-XXX in module/spec_tests/[spec_number]_[spec_name]_test.go
-- [ ] T030 [P] [US3] Spec test for FR-XXX (additional requirement) in module/spec_tests/[spec_number]_[spec_name]_test.go
-- [ ] T031 [P] [US3] Unit tests for implementation in module/[file]_test.go (if needed)
+- [ ] T029 [US3] Spec test for FR-XXX in module/[filename]_spec_test.go with function name Test_S_XXX_FR_XXX_Description
+- [ ] T030 [US3] Spec test for FR-XXX (additional requirement) in module/[filename]_spec_test.go with function name Test_S_XXX_FR_XXX_Description
+- [ ] T031 [US3] Unit tests for implementation in module/[file]_test.go (if needed)
 
 ### Implementation for User Story 3
 
-- [ ] T032 [P] [US3] Create [Entity] model in src/models/[entity].py
-- [ ] T033 [P] [US3] Implement [Service] in src/services/[service].py
-- [ ] T034 [P] [US3] Implement [endpoint/feature] in src/[location]/[file].py
-- [ ] T035 [US3] [P] Run spec tests for User Story 3 and verify all FR-XXX requirements have coverage
+- [ ] T032 [US3] Create [Entity] model in src/models/[entity].py
+- [ ] T033 [US3] Implement [Service] in src/services/[service].py
+- [ ] T034 [US3] Implement [endpoint/feature] in src/[location]/[file].py
+- [ ] T035 [US3] Run spec tests for User Story 3 and verify all FR-XXX requirements have coverage
 - [ ] T036 [US3] Verify no t.Skip() calls in User Story 3 spec tests without proper documentation
 
 **Checkpoint**: All user stories should now be independently functional
@@ -162,13 +167,13 @@ Examples of foundational tasks (adjust based on your project):
 
 **Purpose**: Improvements that affect multiple user stories
 
-- [ ] TXXX [P] Documentation updates in docs/
+- [ ] TXXX Documentation updates in docs/
 - [ ] TXXX Code cleanup and refactoring
 - [ ] TXXX Performance optimization across all stories
-- [ ] TXXX [P] Additional unit tests (if requested) in tests/unit/
+- [ ] TXXX Additional unit tests (if requested) in tests/unit/
 - [ ] TXXX Security hardening
 - [ ] TXXX Run quickstart.md validation
-- [ ] TXXX [P] Run spec tests for all modules and ensure every FR-XXX has test coverage
+- [ ] TXXX Run spec tests for all modules and ensure every FR-XXX has test coverage
 - [ ] TXXX Verify no spec tests use t.Skip() without comprehensive documentation
 
 ---
@@ -180,8 +185,7 @@ Examples of foundational tasks (adjust based on your project):
 - **Setup (Phase 1)**: No dependencies - can start immediately
 - **Foundational (Phase 2)**: Depends on Setup completion - BLOCKS all user stories
 - **User Stories (Phase 3+)**: All depend on Foundational phase completion
-  - User stories can then proceed in parallel (if staffed)
-  - Or sequentially in priority order (P1 → P2 → P3)
+  - User stories proceed sequentially in priority order (P1 → P2 → P3)
 - **Polish (Final Phase)**: Depends on all desired user stories being complete
 
 ### User Story Dependencies
@@ -198,28 +202,18 @@ Examples of foundational tasks (adjust based on your project):
 - Core implementation before integration
 - Story complete before moving to next priority
 
-### Parallel Opportunities
+### Task Dependencies
 
-- All Setup tasks marked [P] can run in parallel
-- All Foundational tasks marked [P] can run in parallel (within Phase 2)
-- Once Foundational phase completes, all user stories can start in parallel (if team capacity allows)
-- All tests for a user story marked [P] can run in parallel
-- Models within a story marked [P] can run in parallel
-- Different user stories can be worked on in parallel by different team members
+- Setup tasks execute sequentially
+- Foundational tasks execute sequentially within Phase 2
+- User stories proceed in priority order (P1 → P2 → P3)
+- Tests for a user story execute sequentially
+- Models within a story execute sequentially
+- Different user stories are worked on sequentially
 
 ---
 
-## Parallel Example: User Story 1
 
-```bash
-# Launch all tests for User Story 1 together (if tests requested):
-Task: "Contract test for [endpoint] in tests/contract/test_[name].py"
-Task: "Integration test for [user journey] in tests/integration/test_[name].py"
-
-# Launch all models for User Story 1 together:
-Task: "Create [Entity1] model in src/models/[entity1].py"
-Task: "Create [Entity2] model in src/models/[entity2].py"
-```
 
 ---
 
@@ -241,22 +235,20 @@ Task: "Create [Entity2] model in src/models/[entity2].py"
 4. Add User Story 3 → Test independently → Deploy/Demo
 5. Each story adds value without breaking previous stories
 
-### Parallel Team Strategy
+### Team Strategy
 
-With multiple developers:
-
-1. Team completes Setup + Foundational together
-2. Once Foundational is done:
-   - Developer A: User Story 1
-   - Developer B: User Story 2
-   - Developer C: User Story 3
-3. Stories complete and integrate independently
+1. Team completes Setup + Foundational sequentially
+2. Once Foundational is done, proceed with stories in priority order:
+   - User Story 1
+   - User Story 2  
+   - User Story 3
+3. Each story completes before moving to the next
 
 ---
 
 ## Notes
 
-- [P] tasks = different files, no dependencies
+- Tasks execute sequentially with clear dependencies
 - [Story] label maps task to specific user story for traceability
 - Each user story should be independently completable and testable
 - Verify tests fail before implementing

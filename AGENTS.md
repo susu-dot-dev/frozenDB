@@ -7,38 +7,29 @@ This document contains build commands and coding standards for agentic developme
 This is a Go project. Standard Go toolchain commands:
 
 ```bash
-# Build the project
-go build ./...
-
-# Run tests
+# Run all tests (unit + spec)
 go test ./...
-
-# Run a specific test
-go test -run TestFunctionName ./path/to/package
 
 # Run tests with verbose output
 go test -v ./...
 
+# Run spec tests only
+go test -v ./... -run "^Test_S_"
+
+# Run unit tests only
+go test -v ./... -run "^Test[^S]"
+
+# Run a specific test
+go test -run TestFunctionName ./path/to/package
+
 # Run tests with coverage
 go test -cover ./...
 
+# Run spec tests with coverage
+go test -cover ./... -run "^Test_S_"
+
 # Run benchmarks
 go test -bench=. ./...
-
-# Format code
-go fmt ./...
-
-# Lint code (requires golangci-lint)
-golangci-lint run
-
-# Vet code for potential issues
-go vet ./...
-
-# Tidy dependencies
-go mod tidy
-
-# Generate module dependencies
-go mod download
 ```
 
 ## Project Structure
@@ -53,6 +44,18 @@ frozenDB/
 ├── test/          # Integration tests
 └── examples/      # Usage examples
 ```
+
+## Context Files
+
+During implementation, the following files should be used for context:
+- `specs/001-create-db/tasks.md` - Complete task breakdown and execution plan
+- `specs/001-create-db/plan.md` - Technical architecture and design decisions
+- `specs/001-create-db/data-model.md` - Entity definitions and data structures
+- `specs/001-create-db/contracts/api-contract.md` - API specifications and requirements
+- `specs/001-create-db/research.md` - Technical research and dependency analysis
+- `specs/001-create-db/quickstart.md` - Usage examples and integration scenarios
+- `docs/spec_testing.md` - Spec testing guidelines and requirements
+- `AGENTS.md` - This file for coding standards and build commands
 
 ## Code Style Guidelines
 
