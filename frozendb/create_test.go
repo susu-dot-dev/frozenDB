@@ -10,11 +10,6 @@ import (
 	"unsafe"
 )
 
-// mockSyscallWrapper allows mocking syscall behavior for testing
-type mockSyscallWrapper struct {
-	ioctl func(trap uintptr, a1 uintptr, a2 uintptr, a3 uintptr) (r1 uintptr, r2 uintptr, err syscall.Errno)
-}
-
 // Mock behaviors for testing
 var (
 	mockShouldFailGetFlags  bool
