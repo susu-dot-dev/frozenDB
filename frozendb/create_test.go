@@ -23,7 +23,13 @@ func setupMockSyscalls(failGet, failSet bool) {
 	mockShouldFailGetFlags = failGet
 	mockShouldFailSetFlags = failSet
 
-	mockWrapper := &syscallWrapper{
+	SetFSInterface(fsOperations{
+		Getuid: os.Getuid,
+		Lookup: user.Lookup,
+		Open:   os.OpenFile,
+		Stat:   os.Stat,
+		Mkdir:  os.Mkdir,
+		Chown:  os.Chown,
 		Ioctl: func(trap uintptr, a1 uintptr, a2 uintptr, a3 uintptr) (uintptr, uintptr, syscall.Errno) {
 			switch a2 {
 			case FS_IOC_GETFLAGS:
@@ -45,13 +51,12 @@ func setupMockSyscalls(failGet, failSet bool) {
 				return 0, 0, syscall.EINVAL
 			}
 		},
-	}
-	syscallInterface = mockWrapper
+	})
 }
 
 // Helper function to restore real syscalls
 func restoreRealSyscalls() {
-	syscallInterface = &defaultSyscallWrapper
+	fsInterface = &defaultFSOps
 }
 
 func TestValidateInputs(t *testing.T) {

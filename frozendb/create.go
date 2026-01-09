@@ -11,22 +11,78 @@ import (
 	"unsafe"
 )
 
-// syscallWrapper provides function pointers for syscall operations to enable dependency injection
-type syscallWrapper struct {
-	Ioctl func(trap uintptr, a1 uintptr, a2 uintptr, a3 uintptr) (r1 uintptr, r2 uintptr, err syscall.Errno)
+// fsOperations provides abstraction for OS and filesystem operations to enable mocking
+type fsOperations struct {
+	Getuid func() int
+	Lookup func(username string) (*user.User, error)
+	Open   func(name string, flag int, perm os.FileMode) (*os.File, error)
+	Stat   func(name string) (os.FileInfo, error)
+	Mkdir  func(path string, perm os.FileMode) error
+	Chown  func(name string, uid, gid int) error
+	Ioctl  func(trap uintptr, a1 uintptr, a2 uintptr, a3 uintptr) (r1 uintptr, r2 uintptr, err syscall.Errno)
 }
 
-// defaultSyscallWrapper uses actual syscalls
-var defaultSyscallWrapper = syscallWrapper{
-	Ioctl: syscall.Syscall,
+// Default implementations using real OS functions
+var defaultFSOps = fsOperations{
+	Getuid: os.Getuid,
+	Lookup: user.Lookup,
+	Open:   os.OpenFile,
+	Stat:   os.Stat,
+	Mkdir:  os.Mkdir,
+	Chown:  os.Chown,
+	Ioctl:  syscall.Syscall,
 }
 
-// Global variable to allow tests to inject mock syscalls
-var syscallInterface = &defaultSyscallWrapper
+// Global variable to allow tests to inject mock filesystem operations
+var fsInterface = &defaultFSOps
 
-// SetSyscallInterface allows tests to inject custom syscall implementations
-func SetSyscallInterface(wrapper syscallWrapper) {
-	syscallInterface = &wrapper
+// SetFSInterface allows tests to inject custom filesystem operation implementations
+func SetFSInterface(ops fsOperations) {
+	fsInterface = &ops
+}
+
+// restoreRealFS restores the original filesystem interface
+func restoreRealFS() {
+	fsInterface = &defaultFSOps
+}
+
+// setupMockFS creates a mock filesystem interface with real defaults and custom overrides
+// This makes it easy to mock only specific functions while keeping others as real implementations
+func setupMockFS(overrides fsOperations) {
+	mockOps := fsOperations{
+		Getuid: defaultFSOps.Getuid,
+		Lookup: defaultFSOps.Lookup,
+		Open:   defaultFSOps.Open,
+		Stat:   defaultFSOps.Stat,
+		Mkdir:  defaultFSOps.Mkdir,
+		Chown:  defaultFSOps.Chown,
+		Ioctl:  defaultFSOps.Ioctl,
+	}
+
+	// Apply overrides
+	if overrides.Getuid != nil {
+		mockOps.Getuid = overrides.Getuid
+	}
+	if overrides.Lookup != nil {
+		mockOps.Lookup = overrides.Lookup
+	}
+	if overrides.Open != nil {
+		mockOps.Open = overrides.Open
+	}
+	if overrides.Stat != nil {
+		mockOps.Stat = overrides.Stat
+	}
+	if overrides.Mkdir != nil {
+		mockOps.Mkdir = overrides.Mkdir
+	}
+	if overrides.Chown != nil {
+		mockOps.Chown = overrides.Chown
+	}
+	if overrides.Ioctl != nil {
+		mockOps.Ioctl = overrides.Ioctl
+	}
+
+	SetFSInterface(mockOps)
 }
 
 // CreateConfig holds configuration for creating a new frozenDB database file
@@ -131,7 +187,7 @@ func detectSudoContext() (*SudoContext, error) {
 	}
 
 	// Verify the user exists
-	userInfo, err := user.Lookup(sudoUser)
+	userInfo, err := fsInterface.Lookup(sudoUser)
 	if err != nil {
 		return nil, NewWriteError("original user not found", err)
 	}
@@ -177,7 +233,7 @@ func Create(config CreateConfig) error {
 	}
 
 	// Check for direct root execution (FR-003)
-	if os.Getuid() == 0 {
+	if fsInterface.Getuid() == 0 {
 		return NewWriteError("direct root execution not allowed", nil)
 	}
 
@@ -216,13 +272,13 @@ func Create(config CreateConfig) error {
 		return NewWriteError("failed to sync file data", err)
 	}
 
-	// Set append-only attribute using ioctl
-	if err = setAppendOnlyAttr(int(file.Fd())); err != nil {
+	// Set ownership to original user (if running under sudo)
+	if err = setOwnership(config.Path, sudoCtx); err != nil {
 		return err
 	}
 
-	// Set ownership to original user (if running under sudo)
-	if err = setOwnership(config.Path, sudoCtx); err != nil {
+	// Set append-only attribute using ioctl
+	if err = setAppendOnlyAttr(int(file.Fd())); err != nil {
 		return err
 	}
 
@@ -273,7 +329,7 @@ func validatePath(path string) error {
 	parentDir := filepath.Dir(path)
 
 	// Check if parent directory exists
-	info, err := os.Stat(parentDir)
+	info, err := fsInterface.Stat(parentDir)
 	if os.IsNotExist(err) {
 		return NewPathError("parent directory does not exist", err)
 	}
@@ -292,7 +348,7 @@ func validatePath(path string) error {
 	}
 
 	// Check if target file already exists
-	if _, err := os.Stat(path); err == nil {
+	if _, err := fsInterface.Stat(path); err == nil {
 		return NewPathError("file already exists", nil)
 	} else if !os.IsNotExist(err) {
 		return NewPathError("failed to check if file exists", err)
@@ -303,8 +359,8 @@ func validatePath(path string) error {
 
 // createFile atomically creates the file with proper permissions
 func createFile(path string) (*os.File, error) {
-	// Create file with O_CREAT|O_EXCL for atomic creation using os.OpenFile
-	file, err := os.OpenFile(path, O_CREAT_EXCL|syscall.O_WRONLY, FilePermissions)
+	// Create file with O_CREAT|O_EXCL for atomic creation using fsInterface
+	file, err := fsInterface.Open(path, O_CREAT_EXCL|syscall.O_WRONLY, FilePermissions)
 	if err != nil {
 		return nil, NewPathError("failed to create file atomically", err)
 	}
@@ -341,14 +397,14 @@ func setAppendOnlyAttr(fd int) error {
 	var flags uint32
 
 	// Get current flags first
-	_, _, errno := syscallInterface.Ioctl(syscall.SYS_IOCTL, uintptr(fd), FS_IOC_GETFLAGS, uintptr(unsafe.Pointer(&flags)))
+	_, _, errno := fsInterface.Ioctl(syscall.SYS_IOCTL, uintptr(fd), FS_IOC_GETFLAGS, uintptr(unsafe.Pointer(&flags)))
 	if errno != 0 {
 		return NewWriteError("failed to get file flags", errno)
 	}
 
 	// Set append-only flag
 	flags |= FS_APPEND_FL
-	_, _, errno = syscallInterface.Ioctl(syscall.SYS_IOCTL, uintptr(fd), FS_IOC_SETFLAGS, uintptr(unsafe.Pointer(&flags)))
+	_, _, errno = fsInterface.Ioctl(syscall.SYS_IOCTL, uintptr(fd), FS_IOC_SETFLAGS, uintptr(unsafe.Pointer(&flags)))
 	if errno != 0 {
 		return NewWriteError("failed to set append-only attribute", errno)
 	}
@@ -358,8 +414,8 @@ func setAppendOnlyAttr(fd int) error {
 
 // setOwnership changes file ownership if running under sudo
 func setOwnership(path string, sudoCtx *SudoContext) error {
-	// Use os.Chown to change ownership to original user
-	err := os.Chown(path, sudoCtx.UID, sudoCtx.GID)
+	// Use fsInterface.Chown to change ownership to original user
+	err := fsInterface.Chown(path, sudoCtx.UID, sudoCtx.GID)
 	if err != nil {
 		return NewWriteError("failed to set file ownership", err)
 	}

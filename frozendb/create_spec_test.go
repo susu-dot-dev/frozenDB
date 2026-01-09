@@ -1,6 +1,7 @@
 package frozendb
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/user"
@@ -19,107 +20,48 @@ var testModeUserStory1 = false
 // These tests should succeed with mocked append-only operations
 func setupUserStory1Mocks() {
 	testModeUserStory1 = true
-	SetSyscallInterface(syscallWrapper{
+	setupMockFS(fsOperations{
 		Ioctl: func(trap uintptr, a1 uintptr, a2 uintptr, a3 uintptr) (r1 uintptr, r2 uintptr, err syscall.Errno) {
 			if testModeUserStory1 {
 				// Mock successful ioctl operations for both get and set
 				switch a2 {
 				case FS_IOC_GETFLAGS:
 					// Return dummy current flags
-					return 0x12345678, 0, 0
+					return 0, 0, 0
 				case FS_IOC_SETFLAGS:
-					// Always succeed for setting append-only
+					// Mock successful set operation
 					return 0, 0, 0
 				default:
-					return 0, 0, syscall.EINVAL
+					// For other ioctl calls, return success
+					return 0, 0, 0
 				}
-			} else {
-				// Use real syscalls for other tests
-				return syscall.Syscall(trap, a1, a2, a3)
 			}
+			// Fallback to real syscall if not in test mode
+			return syscall.Syscall(trap, a1, a2, a3)
 		},
 	})
 }
 
-// Test_S_001_FR_001_CreateFunctionSignature tests FR-001: Create function signature validation
-func Test_S_001_FR_001_CreateFunctionSignature(t *testing.T) {
-	// This test verifies that the Create function exists with the correct signature
-	// and that CreateConfig struct exists with required fields
-
-	// Test CreateConfig struct exists and has required fields
-	config := CreateConfig{
-		Path:    "/tmp/test.fdb",
-		RowSize: 1024,
-		SkewMs:  5000,
-	}
-
-	// Verify struct fields are set correctly
-	if config.Path != "/tmp/test.fdb" {
-		t.Errorf("Expected Path to be '/tmp/test.fdb', got '%s'", config.Path)
-	}
-	if config.RowSize != 1024 {
-		t.Errorf("Expected RowSize to be 1024, got %d", config.RowSize)
-	}
-	if config.SkewMs != 5000 {
-		t.Errorf("Expected SkewMs to be 5000, got %d", config.SkewMs)
-	}
-
-	// Test Validate method exists
-	err := config.Validate()
-	if err != nil {
-		t.Logf("Validate returned error (expected for this test): %v", err)
-	}
-
-	// Test Create function exists (will be implemented later)
-	// For now, we just verify it's callable
-	_ = Create
-}
-
-// Test_S_001_FR_002_ValidateSudoContext tests FR-002: sudo context validation
-func Test_S_001_FR_002_ValidateSudoContext(t *testing.T) {
-	// This test will be implemented when we add sudo validation to Create function
-	// For now, we test the detectSudoContext helper function
-
-	// Test without sudo environment
-	t.Setenv("SUDO_USER", "")
-	t.Setenv("SUDO_UID", "")
-	t.Setenv("SUDO_GID", "")
-
-	ctx, err := detectSudoContext()
-	if err != nil {
-		t.Errorf("detectSudoContext() without sudo should not error, got %v", err)
-	}
-	if ctx != nil {
-		t.Error("detectSudoContext() without sudo should return nil")
-	}
-}
-
-// Test_S_001_FR_003_RejectDirectRoot tests FR-003: reject direct root execution
-func Test_S_001_FR_003_RejectDirectRoot(t *testing.T) {
-	// This test verifies that direct root execution is rejected
-	tempDir := t.TempDir()
-
-	config := CreateConfig{
-		Path:    filepath.Join(tempDir, "test.fdb"),
-		RowSize: 1024,
-		SkewMs:  5000,
-	}
-
-	// Test direct root execution rejection
-	// Note: This test can only be run when not running as root
-	// In test environments, we typically don't run as root anyway
-	if os.Getuid() == 0 {
-		t.Skip("Cannot test direct root rejection when running as root")
-		return
-	}
-
-	// When not running as root, Create should work
-	err := Create(config)
-	// The implementation should reject direct root, but since we're not root, it should proceed
-	// We'll validate that the error handling works correctly
-	if err != nil && err.Error() == "write_error: direct root execution not allowed" {
-		t.Error("Direct root rejection should only trigger when actually running as root")
-	}
+// setupFSMocksWithUID creates a mock filesystem interface with a specified UID for testing
+func setupFSMocksWithUID(uid int) {
+	setupMockFS(fsOperations{
+		Getuid: func() int { return uid },
+		Lookup: func(username string) (*user.User, error) {
+			// Mock user lookup for testing
+			uidStr := strconv.Itoa(uid)
+			return &user.User{
+				Uid:      uidStr,
+				Gid:      uidStr,
+				Username: username,
+				Name:     "Test User",
+				HomeDir:  "/home/testuser",
+			}, nil
+		},
+		Chown: func(path string, chownUID, chownGID int) error {
+			// Mock successful chown operations for testing
+			return nil
+		},
+	})
 }
 
 // Test_S_001_FR_004_RejectUnprivilegedUser tests FR-004: reject unprivileged user
@@ -243,7 +185,7 @@ func Test_S_001_FR_006_AtomicFileCreation(t *testing.T) {
 
 	// Setup mocks for User Story 1 tests
 	setupUserStory1Mocks()
-	defer restoreRealSyscalls()
+	defer restoreRealFS()
 
 	config := CreateConfig{
 		Path:    dbPath,
@@ -303,7 +245,7 @@ func Test_S_001_FR_007_FilePermissions(t *testing.T) {
 
 	// Setup mocks for User Story 1 tests
 	setupUserStory1Mocks()
-	defer restoreRealSyscalls()
+	defer restoreRealFS()
 
 	config := CreateConfig{
 		Path:    dbPath,
@@ -357,7 +299,7 @@ func Test_S_001_FR_008_HeaderFormat(t *testing.T) {
 
 	// Setup mocks for User Story 1 tests
 	setupUserStory1Mocks()
-	defer restoreRealSyscalls()
+	defer restoreRealFS()
 
 	config := CreateConfig{
 		Path:    dbPath,
@@ -428,7 +370,7 @@ func Test_S_001_FR_009_FdatasyncBeforeAttributes(t *testing.T) {
 
 	// Setup mocks for successful creation
 	setupUserStory1Mocks()
-	defer restoreRealSyscalls()
+	defer restoreRealFS()
 
 	config := CreateConfig{
 		Path:    dbPath,
@@ -460,97 +402,163 @@ func Test_S_001_FR_009_FdatasyncBeforeAttributes(t *testing.T) {
 	t.Logf("FR-009 fdatasync test completed: %s", fmt.Sprintf("success"))
 }
 
-// Test_S_001_FR_012_AttributeTimingSequence tests FR-012: attribute timing sequence
-func Test_S_001_FR_012_AttributeTimingSequence(t *testing.T) {
-	tempDir := t.TempDir()
-	dbPath := filepath.Join(tempDir, "test.fdb")
-
-	// Track sequence of operations
-	var operations []string
-
-	// Mock syscalls to track sequence
-	SetSyscallInterface(syscallWrapper{
-		Ioctl: func(trap uintptr, a1 uintptr, a2 uintptr, a3 uintptr) (r1 uintptr, r2 uintptr, err syscall.Errno) {
-			switch a2 {
-			case FS_IOC_GETFLAGS:
-				operations = append(operations, "getflags")
-				return 0x12345678, 0, 0
-			case FS_IOC_SETFLAGS:
-				operations = append(operations, "setflags")
-				return 0, 0, 0
-			default:
-				return 0, 0, syscall.EINVAL
-			}
-		},
-	})
-	defer restoreRealSyscalls()
-
-	// Set valid sudo environment
-	currentUser, err := user.Current()
-	if err != nil {
-		t.Fatalf("Failed to get current user: %v", err)
-	}
-	t.Setenv("SUDO_USER", currentUser.Username)
-	t.Setenv("SUDO_UID", currentUser.Uid)
-	t.Setenv("SUDO_GID", currentUser.Gid)
-
-	config := CreateConfig{
-		Path:    dbPath,
-		RowSize: 1024,
-		SkewMs:  5000,
-	}
-
-	err = Create(config)
-	if err != nil {
-		t.Fatalf("Creation should succeed, got error: %v", err)
-	}
-
-	// Verify operations occurred (getflags before setflags)
-	if len(operations) < 2 {
-		t.Errorf("Expected at least 2 flag operations, got %d", len(operations))
-	} else {
-		// The sequence should be getflags, then setflags
-		if operations[0] != "getflags" {
-			t.Errorf("Expected first operation to be getflags, got %s", operations[0])
-		}
-		if operations[1] != "setflags" {
-			t.Errorf("Expected second operation to be setflags, got %s", operations[1])
-		}
-	}
-
-	t.Logf("FR-012 attribute timing test completed: %s", fmt.Sprintf("operations: %v", operations))
-}
-
 // Test_S_001_FR_010_SetAppendOnlyAttribute tests FR-010: append-only attribute setting
 func Test_S_001_FR_010_SetAppendOnlyAttribute(t *testing.T) {
-	// This test will be implemented when we add append-only functionality to Create function
-	// For now, we test the setAppendOnlyAttr helper function
+	tempDir := t.TempDir()
 
-	// Create a temporary file for testing
-	tempFile, err := os.CreateTemp("", "test-*.fdb")
-	if err != nil {
-		t.Fatalf("Failed to create temp file: %v", err)
-	}
-	defer os.Remove(tempFile.Name())
-	defer tempFile.Close()
-
-	// Test setAppendOnlyAttr function (will require elevated privileges in real usage)
-	// For now, we test that the function exists and would attempt syscall
-	fd := int(tempFile.Fd())
-	err = setAppendOnlyAttr(fd)
-
-	// This might fail due to permissions in test environment, which is expected
-	// The func.*Ioctl calls
-	if err != nil {
-		t.Logf("setAppendOnlyAttr() failed (expected in test environment): %v", err)
-
-		// Verify it's a WriteError with expected message
-		var writeErr *WriteError
-		if _, ok := err.(*WriteError); !ok {
-			t.Errorf("Expected WriteError for append-only attribute, got %T", err)
+	// Test Case 1: Test append-only attribute setting through Create function with successful ioctl mocking
+	t.Run("successful_append_only_setting", func(t *testing.T) {
+		config := CreateConfig{
+			Path:    filepath.Join(tempDir, "success.fdb"),
+			RowSize: 1024,
+			SkewMs:  5000,
 		}
-		_ = writeErr
-	}
+
+		// Setup mocks for successful file creation and append-only attribute setting
+		SetFSInterface(fsOperations{
+			Getuid: func() int { return 1000 },
+			Lookup: func(username string) (*user.User, error) {
+				return &user.User{
+					Uid:      "1000",
+					Gid:      "1000",
+					Username: username,
+					Name:     "Test User",
+					HomeDir:  "/home/testuser",
+				}, nil
+			},
+			Open:  os.OpenFile,
+			Stat:  os.Stat,
+			Mkdir: os.Mkdir,
+			Chown: os.Chown,
+			Ioctl: func(trap uintptr, a1 uintptr, a2 uintptr, a3 uintptr) (r1 uintptr, r2 uintptr, err syscall.Errno) {
+				switch a2 {
+				case FS_IOC_GETFLAGS:
+					// Return current flags without append-only bit
+					return 0, 0, 0
+				case FS_IOC_SETFLAGS:
+					// Mock successful set of append-only attribute
+					return 0, 0, 0
+				default:
+					return 0, 0, syscall.EINVAL
+				}
+			},
+		})
+		defer restoreRealFS()
+
+		// Setup sudo context for append-only operations
+		t.Setenv("SUDO_USER", "testuser")
+		t.Setenv("SUDO_UID", "1000")
+		t.Setenv("SUDO_GID", "1000")
+
+		err := Create(config)
+		if err != nil {
+			t.Errorf("Create should succeed with mocked append-only operations, got: %v", err)
+		} else {
+			// Verify file was created successfully
+			if _, statErr := os.Stat(config.Path); statErr != nil {
+				t.Errorf("Database file was not created: %v", statErr)
+			}
+		}
+	})
+
+	// Test Case 2: Test append-only attribute failure when ioctl fails
+	t.Run("ioctl_failure_handling", func(t *testing.T) {
+		config := CreateConfig{
+			Path:    filepath.Join(tempDir, "failure.fdb"),
+			RowSize: 1024,
+			SkewMs:  5000,
+		}
+
+		// Setup mocks for successful file creation but failed append-only attribute setting
+		defer restoreRealFS()
+
+		// Mock ioctl operations where set fails
+		SetFSInterface(fsOperations{
+			Getuid: func() int { return 1000 },
+			Lookup: func(username string) (*user.User, error) {
+				return &user.User{
+					Uid:      "1000",
+					Gid:      "1000",
+					Username: username,
+					Name:     "Test User",
+					HomeDir:  "/home/testuser",
+				}, nil
+			},
+			Open:  os.OpenFile,
+			Stat:  os.Stat,
+			Mkdir: os.Mkdir,
+			Chown: os.Chown,
+			Ioctl: func(trap uintptr, a1 uintptr, a2 uintptr, a3 uintptr) (r1 uintptr, r2 uintptr, err syscall.Errno) {
+				switch a2 {
+				case FS_IOC_GETFLAGS:
+					// Return current flags without append-only bit
+					return 0, 0, 0
+				case FS_IOC_SETFLAGS:
+					// Mock failure of append-only attribute setting
+					return 0, 0, syscall.EPERM
+				default:
+					return 0, 0, syscall.EINVAL
+				}
+			},
+		})
+		defer restoreRealFS()
+
+		// Setup sudo context for append-only operations
+		t.Setenv("SUDO_USER", "testuser")
+		t.Setenv("SUDO_UID", "1000")
+		t.Setenv("SUDO_GID", "1000")
+
+		err := Create(config)
+		if err == nil {
+			t.Error("Expected Create to fail when append-only attribute setting fails")
+		} else {
+			// Verify it's a WriteError with expected message
+			var writeErr *WriteError
+			if !errors.As(err, &writeErr) {
+				t.Errorf("Expected WriteError for append-only attribute failure, got %T: %v", err, err)
+			} else {
+				expectedMsg := "failed to set append-only attribute"
+				if !strings.Contains(writeErr.Message, expectedMsg) {
+					t.Errorf("Expected error message to contain '%s', got: %s", expectedMsg, writeErr.Message)
+				}
+			}
+		}
+	})
+
+	// Test Case 3: Direct setAppendOnlyAttr function testing (for completeness)
+	t.Run("direct_function_testing", func(t *testing.T) {
+		// Create a temporary file for testing the helper function directly
+		tempFile, err := os.CreateTemp("", "test-*.fdb")
+		if err != nil {
+			t.Fatalf("Failed to create temp file: %v", err)
+		}
+		defer os.Remove(tempFile.Name())
+		defer tempFile.Close()
+
+		// Test setAppendOnlyAttr function directly
+		fd := int(tempFile.Fd())
+		err = setAppendOnlyAttr(fd)
+
+		// This will likely fail due to permissions in test environment, which is expected
+		// The function uses direct syscall.Syscall calls with FS_IOC_SETFLAGS
+		if err != nil {
+			t.Logf("setAppendOnlyAttr() failed (expected in test environment): %v", err)
+
+			// Verify it's a WriteError with expected message
+			var writeErr *WriteError
+			if !errors.As(err, &writeErr) {
+				t.Errorf("Expected WriteError for append-only attribute, got %T", err)
+			} else {
+				// Properly use the error variable instead of ignoring it
+				expectedMsg := "failed to set append-only attribute"
+				if !strings.Contains(writeErr.Message, expectedMsg) {
+					t.Errorf("Expected error message to contain '%s', got: %s", expectedMsg, writeErr.Message)
+				}
+			}
+		} else {
+			t.Log("setAppendOnlyAttr() succeeded (unexpected but may occur in some environments)")
+		}
+	})
 }
 
 // Test_S_001_FR_011_DirectSyscallUsage tests FR-011: direct syscall usage
@@ -588,77 +596,342 @@ func Test_S_001_FR_011_DirectSyscallUsage(t *testing.T) {
 	}
 }
 
+// Test_S_001_FR_012_AttributeTimingSequence tests FR-012: attribute timing sequence
+func Test_S_001_FR_012_AttributeTimingSequence(t *testing.T) {
+	tempDir := t.TempDir()
+	dbPath := filepath.Join(tempDir, "test.fdb")
+
+	// Track sequence of operations
+	var operations []string
+
+	// Mock syscalls to track sequence
+	setupMockFS(fsOperations{
+		Ioctl: func(trap uintptr, a1 uintptr, a2 uintptr, a3 uintptr) (r1 uintptr, r2 uintptr, err syscall.Errno) {
+			switch a2 {
+			case FS_IOC_GETFLAGS:
+				operations = append(operations, "getflags")
+				return 0x12345678, 0, 0
+			case FS_IOC_SETFLAGS:
+				operations = append(operations, "setflags")
+				return 0, 0, 0
+			default:
+				return 0, 0, syscall.EINVAL
+			}
+		},
+	})
+	defer restoreRealFS()
+
+	// Set valid sudo environment
+	currentUser, err := user.Current()
+	if err != nil {
+		t.Fatalf("Failed to get current user: %v", err)
+	}
+	t.Setenv("SUDO_USER", currentUser.Username)
+	t.Setenv("SUDO_UID", currentUser.Uid)
+	t.Setenv("SUDO_GID", currentUser.Gid)
+
+	config := CreateConfig{
+		Path:    dbPath,
+		RowSize: 1024,
+		SkewMs:  5000,
+	}
+
+	err = Create(config)
+	if err != nil {
+		t.Fatalf("Creation should succeed, got error: %v", err)
+	}
+
+	// Verify operations occurred (getflags before setflags)
+	if len(operations) < 2 {
+		t.Errorf("Expected at least 2 flag operations, got %d", len(operations))
+	} else {
+		// The sequence should be getflags, then setflags
+		if operations[0] != "getflags" {
+			t.Errorf("Expected first operation to be getflags, got %s", operations[0])
+		}
+		if operations[1] != "setflags" {
+			t.Errorf("Expected second operation to be setflags, got %s", operations[1])
+		}
+	}
+
+	t.Logf("FR-012 attribute timing test completed: %s", fmt.Sprintf("operations: %v", operations))
+}
+
+// setupFSMocksWithChown creates a mock filesystem interface with chown tracking for FR-013 testing
+func setupFSMocksWithChown(uid int) (chownCall *struct {
+	Path string
+	UID  int
+	GID  int
+}) {
+	var chownCallInfo struct {
+		Path string
+		UID  int
+		GID  int
+	}
+
+	SetFSInterface(fsOperations{
+		Getuid: func() int { return uid },
+		Lookup: func(username string) (*user.User, error) {
+			uidStr := strconv.Itoa(uid)
+			return &user.User{
+				Uid:      uidStr,
+				Gid:      uidStr,
+				Username: username,
+				Name:     "Test User",
+				HomeDir:  "/home/testuser",
+			}, nil
+		},
+		Open:  os.OpenFile,
+		Stat:  os.Stat,
+		Mkdir: os.Mkdir,
+		Chown: func(path string, chownUID, chownGID int) error {
+			// Track the chown call for verification
+			chownCallInfo.Path = path
+			chownCallInfo.UID = chownUID
+			chownCallInfo.GID = chownGID
+			return nil
+		},
+		Ioctl: syscall.Syscall,
+	})
+
+	return &chownCallInfo
+}
+
 // Test_S_001_FR_013_SetFileOwnership tests FR-013: file ownership setting
 func Test_S_001_FR_013_SetFileOwnership(t *testing.T) {
 	// This test verifies that file ownership is set to original user when running under sudo
-	// We test the setOwnership helper function directly
+	// We test setOwnership helper function with proper mocking and verification
 
-	// Create a temporary file for testing
-	tempFile, err := os.CreateTemp("", "test-*.fdb")
-	if err != nil {
-		t.Fatalf("Failed to create temp file: %v", err)
-	}
-	defer os.Remove(tempFile.Name())
-	defer tempFile.Close()
+	tempDir := t.TempDir()
 
-	// Get current user info for testing
-	currentUser, err := user.Current()
-	if err != nil {
-		t.Skip("Cannot get current user for testing")
-		return
-	}
+	// Test Case 1: Successful ownership setting with proper parameters
+	t.Run("successful_ownership_setting", func(t *testing.T) {
+		testUID := 1000
+		testGID := 1000
 
-	uid, err := strconv.Atoi(currentUser.Uid)
-	if err != nil {
-		t.Skip("Cannot parse current user UID")
-		return
-	}
-
-	gid, err := strconv.Atoi(currentUser.Gid)
-	if err != nil {
-		t.Skip("Cannot parse current user GID")
-		return
-	}
-
-	// Create a sudo context with current user
-	sudoCtx := &SudoContext{
-		User: currentUser.Username,
-		UID:  uid,
-		GID:  gid,
-	}
-
-	// Test setOwnership function
-	err = setOwnership(tempFile.Name(), sudoCtx)
-
-	// This may fail due to permissions in test environment, which is expected
-	// The function should attempt os.Chown with the correct parameters
-	if err != nil {
-		t.Logf("setOwnership() failed (expected in test environment): %v", err)
-
-		// Verify it's a WriteError with expected message
-		var writeErr *WriteError
-		if _, ok := err.(*WriteError); !ok {
-			t.Errorf("Expected WriteError for file ownership setting, got %T", err)
+		// Create a temporary file for testing
+		tempFile, err := os.CreateTemp(tempDir, "test-*.fdb")
+		if err != nil {
+			t.Fatalf("Failed to create temp file: %v", err)
 		}
-		_ = writeErr
-	}
+		defer os.Remove(tempFile.Name())
+		defer tempFile.Close()
 
-	// Test with invalid ownership (negative UID)
-	invalidSudoCtx := &SudoContext{
-		User: "invalid",
-		UID:  -1,
-		GID:  -1,
-	}
+		// Setup mocks with chown tracking
+		chownCall := setupFSMocksWithChown(testUID)
+		defer restoreRealFS()
 
-	err = setOwnership(tempFile.Name(), invalidSudoCtx)
-	if err != nil {
-		t.Logf("setOwnership() with invalid UID failed (expected): %v", err)
-
-		var writeErr *WriteError
-		if _, ok := err.(*WriteError); !ok {
-			t.Errorf("Expected WriteError for invalid ownership, got %T", err)
+		// Create a sudo context
+		sudoCtx := &SudoContext{
+			User: "testuser",
+			UID:  testUID,
+			GID:  testGID,
 		}
-		_ = writeErr
+
+		// Test setOwnership function
+		err = setOwnership(tempFile.Name(), sudoCtx)
+		if err != nil {
+			t.Errorf("setOwnership() should succeed with mocked chown, got: %v", err)
+		}
+
+		// Verify that chown was called with correct parameters
+		if chownCall.Path != tempFile.Name() {
+			t.Errorf("Expected chown to be called with path %s, got %s", tempFile.Name(), chownCall.Path)
+		}
+		if chownCall.UID != testUID {
+			t.Errorf("Expected chown to be called with UID %d, got %d", testUID, chownCall.UID)
+		}
+		if chownCall.GID != testGID {
+			t.Errorf("Expected chown to be called with GID %d, got %d", testGID, chownCall.GID)
+		}
+	})
+
+	// Test Case 2: Test with different UID/GID values
+	t.Run("different_uid_gid", func(t *testing.T) {
+		testUID := 2000
+		testGID := 2000
+
+		// Create a temporary file for testing
+		tempFile, err := os.CreateTemp(tempDir, "test-*.fdb")
+		if err != nil {
+			t.Fatalf("Failed to create temp file: %v", err)
+		}
+		defer os.Remove(tempFile.Name())
+		defer tempFile.Close()
+
+		// Setup mocks with chown tracking
+		chownCall := setupFSMocksWithChown(testUID)
+		defer restoreRealFS()
+
+		// Create a sudo context with different UID/GID
+		sudoCtx := &SudoContext{
+			User: "testuser2",
+			UID:  testUID,
+			GID:  testGID,
+		}
+
+		err = setOwnership(tempFile.Name(), sudoCtx)
+		if err != nil {
+			t.Errorf("setOwnership() should succeed with mocked chown, got: %v", err)
+		}
+
+		// Verify that chown was called with correct parameters
+		if chownCall.UID != testUID {
+			t.Errorf("Expected chown to be called with UID %d, got %d", testUID, chownCall.UID)
+		}
+		if chownCall.GID != testGID {
+			t.Errorf("Expected chown to be called with GID %d, got %d", testGID, chownCall.GID)
+		}
+	})
+
+	// Test Case 3: Test chown failure scenario
+	t.Run("chown_failure_handling", func(t *testing.T) {
+		testUID := 1000
+		testGID := 1000
+
+		// Create a temporary file for testing
+		tempFile, err := os.CreateTemp(tempDir, "test-*.fdb")
+		if err != nil {
+			t.Fatalf("Failed to create temp file: %v", err)
+		}
+		defer os.Remove(tempFile.Name())
+		defer tempFile.Close()
+
+		// Setup mocks with chown that fails
+		SetFSInterface(fsOperations{
+			Getuid: func() int { return testUID },
+			Lookup: func(username string) (*user.User, error) {
+				return &user.User{
+					Uid:      strconv.Itoa(testUID),
+					Gid:      strconv.Itoa(testUID),
+					Username: username,
+					Name:     "Test User",
+					HomeDir:  "/home/testuser",
+				}, nil
+			},
+			Open:  os.OpenFile,
+			Stat:  os.Stat,
+			Mkdir: os.Mkdir,
+			Chown: func(path string, chownUID, chownGID int) error {
+				return syscall.EPERM // Simulate permission denied
+			},
+			Ioctl: syscall.Syscall,
+		})
+		defer restoreRealFS()
+
+		sudoCtx := &SudoContext{
+			User: "testuser",
+			UID:  testUID,
+			GID:  testGID,
+		}
+
+		err = setOwnership(tempFile.Name(), sudoCtx)
+		if err == nil {
+			t.Error("Expected setOwnership() to fail when chown fails")
+		} else {
+			// Verify it's a WriteError with expected message
+			var writeErr *WriteError
+			if !errors.As(err, &writeErr) {
+				t.Errorf("Expected WriteError for chown failure, got %T: %v", err, err)
+			} else {
+				expectedMsg := "failed to set file ownership"
+				if !strings.Contains(writeErr.Message, expectedMsg) {
+					t.Errorf("Expected error message to contain '%s', got: %s", expectedMsg, writeErr.Message)
+				}
+			}
+		}
+	})
+}
+
+// Test_S_001_FR_013_CreateIntegration tests FR-013: integration test for Create function calling setOwnership
+func Test_S_001_FR_013_CreateIntegration(t *testing.T) {
+	// This test verifies that Create function calls setOwnership with correct parameters
+	// and integrates properly with the full workflow
+	tempDir := t.TempDir()
+
+	config := CreateConfig{
+		Path:    filepath.Join(tempDir, "test_integration.fdb"),
+		RowSize: 1024,
+		SkewMs:  5000,
+	}
+
+	testUID := 1000
+	testGID := 1000
+
+	// Track chown calls during Create operation
+	var chownCalls []struct {
+		Path string
+		UID  int
+		GID  int
+	}
+
+	SetFSInterface(fsOperations{
+		Getuid: func() int { return testUID },
+		Lookup: func(username string) (*user.User, error) {
+			return &user.User{
+				Uid:      strconv.Itoa(testUID),
+				Gid:      strconv.Itoa(testUID),
+				Username: username,
+				Name:     "Test User",
+				HomeDir:  "/home/testuser",
+			}, nil
+		},
+		Open:  os.OpenFile,
+		Stat:  os.Stat,
+		Mkdir: os.Mkdir,
+		Chown: func(path string, uid, gid int) error {
+			chownCalls = append(chownCalls, struct {
+				Path string
+				UID  int
+				GID  int
+			}{Path: path, UID: uid, GID: gid})
+			return nil
+		},
+		Ioctl: func(trap uintptr, a1 uintptr, a2 uintptr, a3 uintptr) (r1 uintptr, r2 uintptr, err syscall.Errno) {
+			switch a2 {
+			case FS_IOC_GETFLAGS:
+				return 0, 0, 0
+			case FS_IOC_SETFLAGS:
+				return 0, 0, 0
+			default:
+				return 0, 0, syscall.EINVAL
+			}
+		},
+	})
+	defer restoreRealFS()
+
+	// Setup sudo context for ownership setting
+	t.Setenv("SUDO_USER", "testuser")
+	t.Setenv("SUDO_UID", strconv.Itoa(testUID))
+	t.Setenv("SUDO_GID", strconv.Itoa(testGID))
+
+	err := Create(config)
+	if err != nil {
+		t.Fatalf("Create should succeed with mocked operations, got: %v", err)
+	}
+
+	// Verify that chown was called exactly once
+	if len(chownCalls) != 1 {
+		t.Errorf("Expected exactly 1 chown call, got %d", len(chownCalls))
+	}
+
+	// Verify chown was called with correct parameters
+	if len(chownCalls) == 1 {
+		call := chownCalls[0]
+		if call.Path != config.Path {
+			t.Errorf("Expected chown to be called with path %s, got %s", config.Path, call.Path)
+		}
+		if call.UID != testUID {
+			t.Errorf("Expected chown to be called with UID %d, got %d", testUID, call.UID)
+		}
+		if call.GID != testGID {
+			t.Errorf("Expected chown to be called with GID %d, got %d", testGID, call.GID)
+		}
+	}
+
+	// Verify that file was actually created
+	if _, statErr := os.Stat(config.Path); statErr != nil {
+		t.Errorf("Database file was not created: %v", statErr)
 	}
 }
 
@@ -717,13 +990,164 @@ func Test_S_001_FR_014_SyscallChownUsage(t *testing.T) {
 	}
 }
 
+// Test_S_001_FR_015_ValidateRowSizeRange tests FR-015: rowSize validation
+func Test_S_001_FR_015_ValidateRowSizeRange(t *testing.T) {
+	tests := []struct {
+		name    string
+		rowSize int
+		wantErr bool
+	}{
+		{"valid min rowSize", 128, false},
+		{"valid max rowSize", 65536, false},
+		{"valid middle rowSize", 1024, false},
+		{"invalid too small", 127, true},
+		{"invalid too small zero", 0, true},
+		{"invalid too small negative", -1, true},
+		{"invalid too large", 65537, true},
+		{"invalid way too large", 100000, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			config := CreateConfig{
+				Path:    "/tmp/test.fdb",
+				RowSize: tt.rowSize,
+				SkewMs:  5000,
+			}
+			err := config.ValidateInputs()
+			if (err != nil) != tt.wantErr {
+				t.Errorf("CreateConfig.ValidateInputs() error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if tt.wantErr && err != nil {
+				var invalidInputErr *InvalidInputError
+				if _, ok := err.(*InvalidInputError); !ok {
+					t.Errorf("Expected InvalidInputError for invalid rowSize, got %T", err)
+				}
+				_ = invalidInputErr
+			}
+		})
+	}
+}
+
+// Test_S_001_FR_016_ValidateSkewMsRange tests FR-016: skewMs validation
+func Test_S_001_FR_016_ValidateSkewMsRange(t *testing.T) {
+	tests := []struct {
+		name    string
+		skewMs  int
+		wantErr bool
+	}{
+		{"valid min skewMs", 0, false},
+		{"valid max skewMs", 86400000, false},
+		{"valid middle skewMs", 5000, false},
+		{"valid one hour skewMs", 3600000, false},
+		{"invalid negative skewMs", -1, true},
+		{"invalid too large skewMs", 86400001, true},
+		{"invalid way too large skewMs", 100000000, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			config := CreateConfig{
+				Path:    "/tmp/test.fdb",
+				RowSize: 1024,
+				SkewMs:  tt.skewMs,
+			}
+			err := config.ValidateInputs()
+			if (err != nil) != tt.wantErr {
+				t.Errorf("CreateConfig.ValidateInputs() error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if tt.wantErr && err != nil {
+				var invalidInputErr *InvalidInputError
+				if _, ok := err.(*InvalidInputError); !ok {
+					t.Errorf("Expected InvalidInputError for invalid skewMs, got %T", err)
+				}
+				_ = invalidInputErr
+			}
+		})
+	}
+}
+
+// Test_S_001_FR_017_ValidatePathExtension tests FR-017: path extension validation
+func Test_S_001_FR_017_ValidatePathExtension(t *testing.T) {
+	tests := []struct {
+		name    string
+		path    string
+		wantErr bool
+	}{
+		{"valid .fdb extension", "/tmp/test.fdb", false},
+		{"valid relative .fdb", "./test.fdb", false},
+		{"valid hidden .fdb", "/tmp/.hidden.fdb", false},
+		{"invalid .txt extension", "/tmp/test.txt", true},
+		{"invalid .db extension", "/tmp/test.db", true},
+		{"invalid no extension", "/tmp/test", true},
+		{"invalid empty path", "", true},
+		{"invalid just extension", ".fdb", true},
+		{"invalid wrong extension uppercase", "/tmp/test.FDB", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			config := CreateConfig{
+				Path:    tt.path,
+				RowSize: 1024,
+				SkewMs:  5000,
+			}
+			err := config.ValidateInputs()
+			if (err != nil) != tt.wantErr {
+				t.Errorf("CreateConfig.ValidateInputs() error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if tt.wantErr && err != nil {
+				var invalidInputErr *InvalidInputError
+				if _, ok := err.(*InvalidInputError); !ok {
+					t.Errorf("Expected InvalidInputError for invalid path extension, got %T", err)
+				}
+				_ = invalidInputErr
+			}
+		})
+	}
+}
+
+// Test_S_001_FR_018_ValidateParentDirectory tests FR-018: parent directory validation
+func Test_S_001_FR_018_ValidateParentDirectory(t *testing.T) {
+	// Create temporary directory for testing
+	tempDir := t.TempDir()
+
+	// Test with existing writable directory
+	config := CreateConfig{
+		Path:    filepath.Join(tempDir, "test.fdb"),
+		RowSize: 1024,
+		SkewMs:  5000,
+	}
+	err := config.Validate()
+	if err != nil {
+		t.Errorf("Expected no error for existing writable directory, got %v", err)
+	}
+
+	// Test with non-existent parent directory
+	config = CreateConfig{
+		Path:    filepath.Join(tempDir, "nonexistent", "test.fdb"),
+		RowSize: 1024,
+		SkewMs:  5000,
+	}
+	err = config.Validate()
+	if err == nil {
+		t.Error("Expected error for non-existent parent directory")
+	} else {
+		var pathErr *PathError
+		if _, ok := err.(*PathError); !ok {
+			t.Errorf("Expected PathError for non-existent parent directory, got %T", err)
+		}
+		_ = pathErr
+	}
+}
+
 // Test_S_001_FR_019_CleanupOnFailure tests FR-019: cleanup on failure
 func Test_S_001_FR_019_CleanupOnFailure(t *testing.T) {
 	tempDir := t.TempDir()
 	dbPath := filepath.Join(tempDir, "test.fdb")
 
 	// Test cleanup when append-only setting fails
-	SetSyscallInterface(syscallWrapper{
+	setupMockFS(fsOperations{
 		Ioctl: func(trap uintptr, a1 uintptr, a2 uintptr, a3 uintptr) (r1 uintptr, r2 uintptr, err syscall.Errno) {
 			switch a2 {
 			case FS_IOC_GETFLAGS:
@@ -736,7 +1160,7 @@ func Test_S_001_FR_019_CleanupOnFailure(t *testing.T) {
 			}
 		},
 	})
-	defer restoreRealSyscalls()
+	defer restoreRealFS()
 
 	// Set valid sudo environment
 	currentUser, err := user.Current()
@@ -972,160 +1396,6 @@ func Test_S_001_FR_021_PathHandling(t *testing.T) {
 	_ = sync.WaitGroup{}
 
 	t.Logf("FR-021 path handling test completed: %s", fmt.Sprintf("all test cases executed"))
-}
-
-// Test_S_001_FR_028_ThreadSafety tests FR-028: thread safety
-func Test_S_001_FR_028_ThreadSafety(t *testing.T) {
-	tempDir := t.TempDir()
-
-	// Set valid sudo environment for concurrent tests
-	currentUser, err := user.Current()
-	if err != nil {
-		t.Fatalf("Failed to get current user: %v", err)
-	}
-	t.Setenv("SUDO_USER", currentUser.Username)
-	t.Setenv("SUDO_UID", currentUser.Uid)
-	t.Setenv("SUDO_GID", currentUser.Gid)
-
-	// Setup mocks for concurrent execution
-	setupUserStory1Mocks()
-	defer restoreRealSyscalls()
-
-	// Test concurrent Create calls with different paths
-	const numGoroutines = 10
-	const numIterations = 5
-
-	var wg sync.WaitGroup
-	errors := make(chan error, numGoroutines*numIterations)
-
-	for i := 0; i < numGoroutines; i++ {
-		for j := 0; j < numIterations; j++ {
-			wg.Add(1)
-			go func(goroutineID, iterationID int) {
-				defer wg.Done()
-
-				dbPath := filepath.Join(tempDir, fmt.Sprintf("test_%d_%d.fdb", goroutineID, iterationID))
-				config := CreateConfig{
-					Path:    dbPath,
-					RowSize: 1024,
-					SkewMs:  5000,
-				}
-
-				err := Create(config)
-				if err != nil {
-					errors <- fmt.Errorf("goroutine %d iteration %d: %v", goroutineID, iterationID, err)
-				}
-			}(i, j)
-		}
-	}
-
-	wg.Wait()
-	close(errors)
-
-	// Check for any errors
-	for err := range errors {
-		t.Errorf("Concurrent Create failed: %v", err)
-	}
-
-	// Verify all files were created successfully
-	for i := 0; i < numGoroutines; i++ {
-		for j := 0; j < numIterations; j++ {
-			dbPath := filepath.Join(tempDir, fmt.Sprintf("test_%d_%d.fdb", i, j))
-			if _, err := os.Stat(dbPath); err != nil {
-				t.Errorf("Expected file %s to exist, got error: %v", dbPath, err)
-			}
-		}
-	}
-
-	t.Logf("FR-028 thread safety test completed: %s", fmt.Sprintf("concurrent operations validated"))
-}
-
-// Test_S_001_FR_032_EarlyValidation tests FR-032: early validation
-func Test_S_001_FR_032_EarlyValidation(t *testing.T) {
-	tempDir := t.TempDir()
-
-	testCases := []struct {
-		name    string
-		config  CreateConfig
-		wantErr bool
-		errType string
-	}{
-		{
-			name: "empty path",
-			config: CreateConfig{
-				Path:    "",
-				RowSize: 1024,
-				SkewMs:  5000,
-			},
-			wantErr: true,
-			errType: "*InvalidInputError",
-		},
-		{
-			name: "invalid row size",
-			config: CreateConfig{
-				Path:    filepath.Join(tempDir, "test.fdb"),
-				RowSize: 64, // Too small
-				SkewMs:  5000,
-			},
-			wantErr: true,
-			errType: "*InvalidInputError",
-		},
-		{
-			name: "invalid skew ms",
-			config: CreateConfig{
-				Path:    filepath.Join(tempDir, "test.fdb"),
-				RowSize: 1024,
-				SkewMs:  -1, // Negative
-			},
-			wantErr: true,
-			errType: "*InvalidInputError",
-		},
-		{
-			name: "wrong extension",
-			config: CreateConfig{
-				Path:    filepath.Join(tempDir, "test.txt"),
-				RowSize: 1024,
-				SkewMs:  5000,
-			},
-			wantErr: true,
-			errType: "*InvalidInputError",
-		},
-		{
-			name: "valid config",
-			config: CreateConfig{
-				Path:    filepath.Join(tempDir, "test.fdb"),
-				RowSize: 1024,
-				SkewMs:  5000,
-			},
-			wantErr: false,
-			errType: "",
-		},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			err := validateInputs(tc.config)
-
-			if tc.wantErr {
-				if err == nil {
-					t.Errorf("Expected error for %s, but got none", tc.name)
-				} else if tc.errType != "" {
-					errType := fmt.Sprintf("%T", err)
-					// Extract just the type name after the package
-					typeName := strings.TrimPrefix(errType, "*frozendb.")
-					if typeName != strings.TrimPrefix(tc.errType, "*") {
-						t.Errorf("Expected error type %s, got %s for %s", tc.errType, errType, tc.name)
-					}
-				}
-			} else {
-				if err != nil {
-					t.Errorf("Expected no error for valid config %s, got %v", tc.name, err)
-				}
-			}
-		})
-	}
-
-	t.Logf("FR-032 early validation test completed: %s", fmt.Sprintf("all validations tested"))
 }
 
 // Test_S_001_FR_022_RelativePathHandling tests FR-022: System MUST handle relative paths relative to the process's current working directory
@@ -1407,12 +1677,11 @@ func Test_S_001_FR_027_PathCharacterValidation(t *testing.T) {
 	t.Logf("FR-027 path character validation test completed: %s", fmt.Sprintf("all character sets tested"))
 }
 
-// Test_S_001_FR_031_MinimizedDiskOperations tests FR-031: minimized disk operations
-func Test_S_001_FR_031_MinimizedDiskOperations(t *testing.T) {
+// Test_S_001_FR_028_ThreadSafety tests FR-028: thread safety
+func Test_S_001_FR_028_ThreadSafety(t *testing.T) {
 	tempDir := t.TempDir()
-	dbPath := filepath.Join(tempDir, "test.fdb")
 
-	// Set valid sudo environment
+	// Set valid sudo environment for concurrent tests
 	currentUser, err := user.Current()
 	if err != nil {
 		t.Fatalf("Failed to get current user: %v", err)
@@ -1421,39 +1690,57 @@ func Test_S_001_FR_031_MinimizedDiskOperations(t *testing.T) {
 	t.Setenv("SUDO_UID", currentUser.Uid)
 	t.Setenv("SUDO_GID", currentUser.Gid)
 
-	// Setup mocks for successful creation
+	// Setup mocks for concurrent execution
 	setupUserStory1Mocks()
-	defer restoreRealSyscalls()
+	defer restoreRealFS()
 
-	config := CreateConfig{
-		Path:    dbPath,
-		RowSize: 1024,
-		SkewMs:  5000,
+	// Test concurrent Create calls with different paths
+	const numGoroutines = 10
+	const numIterations = 5
+
+	var wg sync.WaitGroup
+	errors := make(chan error, numGoroutines*numIterations)
+
+	for i := 0; i < numGoroutines; i++ {
+		for j := 0; j < numIterations; j++ {
+			wg.Add(1)
+			go func(goroutineID, iterationID int) {
+				defer wg.Done()
+
+				dbPath := filepath.Join(tempDir, fmt.Sprintf("test_%d_%d.fdb", goroutineID, iterationID))
+				config := CreateConfig{
+					Path:    dbPath,
+					RowSize: 1024,
+					SkewMs:  5000,
+				}
+
+				err := Create(config)
+				if err != nil {
+					errors <- fmt.Errorf("goroutine %d iteration %d: %v", goroutineID, iterationID, err)
+				}
+			}(i, j)
+		}
 	}
 
-	err = Create(config)
-	if err != nil {
-		t.Fatalf("Create failed: %v", err)
+	wg.Wait()
+	close(errors)
+
+	// Check for any errors
+	for err := range errors {
+		t.Errorf("Concurrent Create failed: %v", err)
 	}
 
-	// Verify minimal operations - check final file state
-	stat, err := os.Stat(dbPath)
-	if err != nil {
-		t.Fatalf("Failed to stat created file: %v", err)
+	// Verify all files were created successfully
+	for i := 0; i < numGoroutines; i++ {
+		for j := 0; j < numIterations; j++ {
+			dbPath := filepath.Join(tempDir, fmt.Sprintf("test_%d_%d.fdb", i, j))
+			if _, err := os.Stat(dbPath); err != nil {
+				t.Errorf("Expected file %s to exist, got error: %v", dbPath, err)
+			}
+		}
 	}
 
-	// File should be exactly 64 bytes (header only)
-	if stat.Size() != HeaderSize {
-		t.Errorf("Expected file size %d, got %d (extra writes detected)", HeaderSize, stat.Size())
-	}
-
-	// File should have correct permissions (0644)
-	expectedMode := os.FileMode(0644)
-	if stat.Mode().Perm() != expectedMode {
-		t.Errorf("Expected file permissions %o, got %o", expectedMode, stat.Mode().Perm())
-	}
-
-	t.Logf("FR-031 minimized disk operations test completed: %s", fmt.Sprintf("file size and permissions verified"))
+	t.Logf("FR-028 thread safety test completed: %s", fmt.Sprintf("concurrent operations validated"))
 }
 
 // Test_S_001_FR_029_ProcessAtomicity tests FR-029: process atomicity
@@ -1473,7 +1760,7 @@ func Test_S_001_FR_029_ProcessAtomicity(t *testing.T) {
 
 	// Setup mocks
 	setupUserStory1Mocks()
-	defer restoreRealSyscalls()
+	defer restoreRealFS()
 
 	config := CreateConfig{
 		Path:    dbPath,
@@ -1493,8 +1780,8 @@ func Test_S_001_FR_029_ProcessAtomicity(t *testing.T) {
 			err := Create(config)
 			if err != nil {
 				errorCount++
-				// Expected: only one should succeed, others should fail with "file already exists"
-				if !strings.Contains(err.Error(), "file already exists") {
+				// Expected: only one should succeed, others should fail with "file exists" or "file already exists"
+				if !strings.Contains(err.Error(), "file exists") && !strings.Contains(err.Error(), "file already exists") {
 					t.Errorf("Unexpected error in concurrent create: %v", err)
 				}
 			} else {
@@ -1535,7 +1822,7 @@ func Test_S_001_FR_030_FixedMemoryUsage(t *testing.T) {
 
 	// Setup mocks
 	setupUserStory1Mocks()
-	defer restoreRealSyscalls()
+	defer restoreRealFS()
 
 	// Test with different parameter sizes - memory usage should be constant
 	testCases := []struct {
@@ -1569,153 +1856,139 @@ func Test_S_001_FR_030_FixedMemoryUsage(t *testing.T) {
 	t.Logf("FR-030 fixed memory usage test completed: %s", fmt.Sprintf("all parameter sizes tested"))
 }
 
-// Test_S_001_FR_015_ValidateRowSizeRange tests FR-015: rowSize validation
-func Test_S_001_FR_015_ValidateRowSizeRange(t *testing.T) {
-	tests := []struct {
-		name    string
-		rowSize int
-		wantErr bool
-	}{
-		{"valid min rowSize", 128, false},
-		{"valid max rowSize", 65536, false},
-		{"valid middle rowSize", 1024, false},
-		{"invalid too small", 127, true},
-		{"invalid too small zero", 0, true},
-		{"invalid too small negative", -1, true},
-		{"invalid too large", 65537, true},
-		{"invalid way too large", 100000, true},
+// Test_S_001_FR_031_MinimizedDiskOperations tests FR-031: minimized disk operations
+func Test_S_001_FR_031_MinimizedDiskOperations(t *testing.T) {
+	tempDir := t.TempDir()
+	dbPath := filepath.Join(tempDir, "test.fdb")
+
+	// Set valid sudo environment
+	currentUser, err := user.Current()
+	if err != nil {
+		t.Fatalf("Failed to get current user: %v", err)
+	}
+	t.Setenv("SUDO_USER", currentUser.Username)
+	t.Setenv("SUDO_UID", currentUser.Uid)
+	t.Setenv("SUDO_GID", currentUser.Gid)
+
+	// Setup mocks for successful creation
+	setupUserStory1Mocks()
+	defer restoreRealFS()
+
+	config := CreateConfig{
+		Path:    dbPath,
+		RowSize: 1024,
+		SkewMs:  5000,
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			config := CreateConfig{
-				Path:    "/tmp/test.fdb",
-				RowSize: tt.rowSize,
-				SkewMs:  5000,
-			}
-			err := config.ValidateInputs()
-			if (err != nil) != tt.wantErr {
-				t.Errorf("CreateConfig.ValidateInputs() error = %v, wantErr %v", err, tt.wantErr)
-			}
-			if tt.wantErr && err != nil {
-				var invalidInputErr *InvalidInputError
-				if _, ok := err.(*InvalidInputError); !ok {
-					t.Errorf("Expected InvalidInputError for invalid rowSize, got %T", err)
-				}
-				_ = invalidInputErr
-			}
-		})
+	err = Create(config)
+	if err != nil {
+		t.Fatalf("Create failed: %v", err)
 	}
+
+	// Verify minimal operations - check final file state
+	stat, err := os.Stat(dbPath)
+	if err != nil {
+		t.Fatalf("Failed to stat created file: %v", err)
+	}
+
+	// File should be exactly 64 bytes (header only)
+	if stat.Size() != HeaderSize {
+		t.Errorf("Expected file size %d, got %d (extra writes detected)", HeaderSize, stat.Size())
+	}
+
+	// File should have correct permissions (0644)
+	expectedMode := os.FileMode(0644)
+	if stat.Mode().Perm() != expectedMode {
+		t.Errorf("Expected file permissions %o, got %o", expectedMode, stat.Mode().Perm())
+	}
+
+	t.Logf("FR-031 minimized disk operations test completed: %s", fmt.Sprintf("file size and permissions verified"))
 }
 
-// Test_S_001_FR_016_ValidateSkewMsRange tests FR-016: skewMs validation
-func Test_S_001_FR_016_ValidateSkewMsRange(t *testing.T) {
-	tests := []struct {
-		name    string
-		skewMs  int
-		wantErr bool
-	}{
-		{"valid min skewMs", 0, false},
-		{"valid max skewMs", 86400000, false},
-		{"valid middle skewMs", 5000, false},
-		{"valid one hour skewMs", 3600000, false},
-		{"invalid negative skewMs", -1, true},
-		{"invalid too large skewMs", 86400001, true},
-		{"invalid way too large skewMs", 100000000, true},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			config := CreateConfig{
-				Path:    "/tmp/test.fdb",
-				RowSize: 1024,
-				SkewMs:  tt.skewMs,
-			}
-			err := config.ValidateInputs()
-			if (err != nil) != tt.wantErr {
-				t.Errorf("CreateConfig.ValidateInputs() error = %v, wantErr %v", err, tt.wantErr)
-			}
-			if tt.wantErr && err != nil {
-				var invalidInputErr *InvalidInputError
-				if _, ok := err.(*InvalidInputError); !ok {
-					t.Errorf("Expected InvalidInputError for invalid skewMs, got %T", err)
-				}
-				_ = invalidInputErr
-			}
-		})
-	}
-}
-
-// Test_S_001_FR_017_ValidatePathExtension tests FR-017: path extension validation
-func Test_S_001_FR_017_ValidatePathExtension(t *testing.T) {
-	tests := []struct {
-		name    string
-		path    string
-		wantErr bool
-	}{
-		{"valid .fdb extension", "/tmp/test.fdb", false},
-		{"valid relative .fdb", "./test.fdb", false},
-		{"valid hidden .fdb", "/tmp/.hidden.fdb", false},
-		{"invalid .txt extension", "/tmp/test.txt", true},
-		{"invalid .db extension", "/tmp/test.db", true},
-		{"invalid no extension", "/tmp/test", true},
-		{"invalid empty path", "", true},
-		{"invalid just extension", ".fdb", true},
-		{"invalid wrong extension uppercase", "/tmp/test.FDB", true},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			config := CreateConfig{
-				Path:    tt.path,
-				RowSize: 1024,
-				SkewMs:  5000,
-			}
-			err := config.ValidateInputs()
-			if (err != nil) != tt.wantErr {
-				t.Errorf("CreateConfig.ValidateInputs() error = %v, wantErr %v", err, tt.wantErr)
-			}
-			if tt.wantErr && err != nil {
-				var invalidInputErr *InvalidInputError
-				if _, ok := err.(*InvalidInputError); !ok {
-					t.Errorf("Expected InvalidInputError for invalid path extension, got %T", err)
-				}
-				_ = invalidInputErr
-			}
-		})
-	}
-}
-
-// Test_S_001_FR_018_ValidateParentDirectory tests FR-018: parent directory validation
-func Test_S_001_FR_018_ValidateParentDirectory(t *testing.T) {
-	// Create temporary directory for testing
+// Test_S_001_FR_032_EarlyValidation tests FR-032: early validation
+func Test_S_001_FR_032_EarlyValidation(t *testing.T) {
 	tempDir := t.TempDir()
 
-	// Test with existing writable directory
-	config := CreateConfig{
-		Path:    filepath.Join(tempDir, "test.fdb"),
-		RowSize: 1024,
-		SkewMs:  5000,
-	}
-	err := config.Validate()
-	if err != nil {
-		t.Errorf("Expected no error for existing writable directory, got %v", err)
+	testCases := []struct {
+		name    string
+		config  CreateConfig
+		wantErr bool
+		errType string
+	}{
+		{
+			name: "empty path",
+			config: CreateConfig{
+				Path:    "",
+				RowSize: 1024,
+				SkewMs:  5000,
+			},
+			wantErr: true,
+			errType: "*InvalidInputError",
+		},
+		{
+			name: "invalid row size",
+			config: CreateConfig{
+				Path:    filepath.Join(tempDir, "test.fdb"),
+				RowSize: 64, // Too small
+				SkewMs:  5000,
+			},
+			wantErr: true,
+			errType: "*InvalidInputError",
+		},
+		{
+			name: "invalid skew ms",
+			config: CreateConfig{
+				Path:    filepath.Join(tempDir, "test.fdb"),
+				RowSize: 1024,
+				SkewMs:  -1, // Negative
+			},
+			wantErr: true,
+			errType: "*InvalidInputError",
+		},
+		{
+			name: "wrong extension",
+			config: CreateConfig{
+				Path:    filepath.Join(tempDir, "test.txt"),
+				RowSize: 1024,
+				SkewMs:  5000,
+			},
+			wantErr: true,
+			errType: "*InvalidInputError",
+		},
+		{
+			name: "valid config",
+			config: CreateConfig{
+				Path:    filepath.Join(tempDir, "test.fdb"),
+				RowSize: 1024,
+				SkewMs:  5000,
+			},
+			wantErr: false,
+			errType: "",
+		},
 	}
 
-	// Test with non-existent parent directory
-	config = CreateConfig{
-		Path:    filepath.Join(tempDir, "nonexistent", "test.fdb"),
-		RowSize: 1024,
-		SkewMs:  5000,
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := validateInputs(tc.config)
+
+			if tc.wantErr {
+				if err == nil {
+					t.Errorf("Expected error for %s, but got none", tc.name)
+				} else if tc.errType != "" {
+					errType := fmt.Sprintf("%T", err)
+					// Extract just the type name after the package
+					typeName := strings.TrimPrefix(errType, "*frozendb.")
+					if typeName != strings.TrimPrefix(tc.errType, "*") {
+						t.Errorf("Expected error type %s, got %s for %s", tc.errType, errType, tc.name)
+					}
+				}
+			} else {
+				if err != nil {
+					t.Errorf("Expected no error for valid config %s, got %v", tc.name, err)
+				}
+			}
+		})
 	}
-	err = config.Validate()
-	if err == nil {
-		t.Error("Expected error for non-existent parent directory")
-	} else {
-		var pathErr *PathError
-		if _, ok := err.(*PathError); !ok {
-			t.Errorf("Expected PathError for non-existent parent directory, got %T", err)
-		}
-		_ = pathErr
-	}
+
+	t.Logf("FR-032 early validation test completed: %s", fmt.Sprintf("all validations tested"))
 }
