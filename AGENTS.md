@@ -227,3 +227,10 @@ func TestDB_Add(t *testing.T) {
 - Provide clear error messages for debugging
 - Support JSON-serializable values
 - Enable efficient enumeration and counting operations
+
+## Active Technologies
+- Go 1.25.5 + Standard library only (os, syscall, encoding/json, sync) (002-open-frozendb)
+- Single file-based database with append-only immutability (002-open-frozendb)
+
+## Recent Changes
+- 002-open-frozendb: Added Go 1.25.5 + Standard library only (os, syscall, encoding/json, sync)
