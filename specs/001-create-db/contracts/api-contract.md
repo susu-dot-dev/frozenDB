@@ -157,7 +157,7 @@ const (
 )
 
 // Header format string for generating JSON content
-const HeaderFormat = `{sig:"fDB",ver:1,row_size:%d,skew_ms:%d}`
+const HeaderFormat = `{"sig":"fDB","ver":1,"row_size":%d,"skew_ms":%d}`
 ```
 
 ## Performance Contracts

@@ -34,25 +34,27 @@ This document consolidates research findings for implementing the NewFrozenDB fu
 
 ### 2. Header Validation Approach
 
-**Decision**: Hybrid binary + text validation with manual JSON parsing for strict key ordering.
+**Decision**: Standard JSON parsing with simplified null-terminator approach.
 
 **Rationale**:
 - Fixed positions (null terminator, newline) validated efficiently with binary operations
-- JSON content parsed manually to enforce exact key ordering requirement
-- Memory-efficient parsing in-place without allocations
-- Detailed error reporting with position information
+- JSON content parsed using standard library `encoding/json` for robustness
+- Null terminator approach: Use `bytes.IndexByte()` to find JSON boundary
+- Memory-efficient parsing with minimal allocations
+- Cleaner error handling and maintainable code
 
 **Implementation**:
 1. Validate fixed 64-byte size
 2. Verify byte 63 is newline
-3. Find null terminator position
-4. Validate JSON structure with manual token-by-token parsing
-5. Enforce exact key order: sig, ver, row_size, skew_ms
-6. Validate field values against specification ranges
+3. Find first null terminator with `bytes.IndexByte()`
+4. Extract JSON content before null byte
+5. Parse with standard JSON unmarshal to struct
+6. Validate padding bytes are all null characters
+7. Validate field values against specification ranges
 
 **Alternatives considered**:
-- Full JSON unmarshal: Cannot enforce key ordering, more allocations
-- Regex parsing: Complex for mixed format, harder error reporting
+- Manual JSON parsing: Complex, error-prone, hard to maintain
+- Full JSON with key ordering: Unnecessary complexity for v1 format
 - Binary-only format: Would require breaking v1 format specification
 
 ### 3. Resource Management Pattern

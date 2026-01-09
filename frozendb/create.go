@@ -120,7 +120,7 @@ const (
 )
 
 // Header format string for generating JSON content
-const HeaderFormat = `{sig:"fDB",ver:1,row_size:%d,skew_ms:%d}`
+const HeaderFormat = `{"sig":"fDB","ver":1,"row_size":%d,"skew_ms":%d}`
 
 // File system constants
 const (
@@ -148,7 +148,7 @@ func generateHeader(rowSize, skewMs int) ([]byte, error) {
 
 	// Calculate padding needed (total 64 bytes, minus newline at end)
 	contentLength := len(jsonContent)
-	if contentLength > 51 {
+	if contentLength > 58 {
 		return nil, NewInvalidInputError("header content too long", nil)
 	}
 

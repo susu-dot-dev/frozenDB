@@ -290,7 +290,7 @@ func Test_S_001_FR_008_HeaderFormat(t *testing.T) {
 
 	// Verify header contains expected JSON content
 	headerStr := string(header[:63]) // Exclude the newline
-	expected := `{sig:"fDB",ver:1,row_size:1024,skew_ms:5000}`
+	expected := `{"sig":"fDB","ver":1,"row_size":1024,"skew_ms":5000}`
 	if !strings.Contains(headerStr, expected) {
 		t.Errorf("Header should contain '%s', got '%s'", expected, headerStr)
 	}

@@ -47,6 +47,13 @@ The implementation will create a primary frozendb.go file containing the FrozenD
 - **Readers**: No locks needed (append-only files are safe for concurrent reads)
 - **Writers**: Exclusive locks only (prevent concurrent appends)
 
+**Header Parsing Optimization**:
+- **Simplified JSON parsing**: Use standard `encoding/json` instead of manual parsing
+- **Null terminator approach**: Find first null byte with `bytes.IndexByte()`
+- **Validation strategy**: Parse JSON with standard library, then validate padding and field values
+- **Error handling**: Clean separation between parsing errors and validation errors
+- **Performance**: More maintainable and less error-prone than manual tokenization
+
 ## Constitution Check
 
 *GATE: Must pass before Phase 0 research. Re-check after Phase 1 design.*

@@ -56,6 +56,17 @@ func NewWriteError(message string, err error) *WriteError {
 	}
 }
 
+// NewCorruptDatabaseError creates a new CorruptDatabaseError.
+func NewCorruptDatabaseError(message string, err error) *CorruptDatabaseError {
+	return &CorruptDatabaseError{
+		FrozenDBError: FrozenDBError{
+			Code:    "corrupt_database",
+			Message: message,
+			Err:     err,
+		},
+	}
+}
+
 // InvalidInputError is returned for input validation failures.
 // Used for: empty path, invalid parameter ranges, wrong file extension.
 type InvalidInputError struct {
@@ -71,5 +82,11 @@ type PathError struct {
 // WriteError is returned for file operation failures.
 // Used for: sudo context issues, header write failures, attribute setting failures.
 type WriteError struct {
+	FrozenDBError
+}
+
+// CorruptDatabaseError is returned for database corruption detection.
+// Used for: header validation failures, malformed file format, invalid field values.
+type CorruptDatabaseError struct {
 	FrozenDBError
 }

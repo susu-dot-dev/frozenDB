@@ -31,8 +31,8 @@ const (
 
 ```go
 // HeaderFormat defines the exact text format for frozenDB v1 headers
-// Format: {sig:"fDB",ver:1,row_size:<size>,skew_ms:<skew>}\x00\x00\x00\x00\n
-const HeaderFormat = `{sig:"fDB",ver:1,row_size:%d,skew_ms:%d}`
+// Format: {"sig":"fDB","ver":1,"row_size":<size>,"skew_ms":<skew>}\x00\x00\x00\x00\x00\x00\n
+const HeaderFormat = `{"sig":"fDB","ver":1,"row_size":%d,"skew_ms":%d}`
 ```
 
 ### Header Generation
@@ -249,7 +249,7 @@ graph TD
 Header Structure (exactly 64 bytes):
 +------------------+------------------+
 | JSON Content      | Null Padding     |
-| {sig:"fDB"...}  | (\x00\x00\x00\x00)   |
+| {"sig":"fDB"...}  | (\x00\x00\x00\x00\x00\x00)   |
 | (44-51 bytes)    | (13-20 bytes)    |
 +------------------+------------------+
 | Byte 63          |
@@ -257,7 +257,7 @@ Header Structure (exactly 64 bytes):
 +------------------+------------------+
 
 Exact Format Example:
-{sig:"fDB",ver:1,row_size:1024,skew_ms:5000}\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\n
-<-- JSON content --><-- 13-20 padding nulls --><- \n ->
-    (44-51 bytes)           (13-20 bytes)     (1 byte)
+{"sig":"fDB","ver":1,"row_size":1024,"skew_ms":5000}\x00\x00\x00\x00\x00\x00\n
+<-- JSON content --><-- 5-14 padding nulls --><- \n ->
+    (49-58 bytes)           (5-14 bytes)        (1 byte)
 ```

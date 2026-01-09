@@ -74,7 +74,9 @@ type Header struct {
 - Version must be exactly 1
 - RowSize must be between 128 and 65536 inclusive
 - SkewMs must be between 0 and 86400000 inclusive
-- Header must be 64 bytes with proper padding and newline
+- Header must be 64 bytes with JSON content + null padding + newline
+- JSON format: `{"sig":"fDB","ver":1,"row_size":NNNN,"skew_ms":NNNN}`
+- Maximum JSON content size: 58 bytes (leaving 6 bytes padding + newline)
 
 ## Supporting Entities
 
