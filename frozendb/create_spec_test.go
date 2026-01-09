@@ -16,6 +16,32 @@ import (
 // Global test mode flag
 var testModeUserStory1 = false
 
+// setupValidSudoEnv sets up a valid sudo environment for testing and returns a cleanup function
+// This helper function reduces code duplication across test functions
+func setupValidSudoEnv(t *testing.T) func() {
+	currentUser, err := user.Current()
+	if err != nil {
+		t.Skip("Cannot get current user for testing")
+		return func() {}
+	}
+
+	// Save original values
+	origUser := os.Getenv("SUDO_USER")
+	origUID := os.Getenv("SUDO_UID")
+	origGID := os.Getenv("SUDO_GID")
+
+	// Set valid sudo environment
+	t.Setenv("SUDO_USER", currentUser.Username)
+	t.Setenv("SUDO_UID", currentUser.Uid)
+	t.Setenv("SUDO_GID", currentUser.Gid)
+
+	return func() {
+		t.Setenv("SUDO_USER", origUser)
+		t.Setenv("SUDO_UID", origUID)
+		t.Setenv("SUDO_GID", origGID)
+	}
+}
+
 // setupUserStory1Mocks enables mocking for User Story 1 tests (FR-006, FR-007, FR-008)
 // These tests should succeed with mocked append-only operations
 func setupUserStory1Mocks() {
@@ -88,16 +114,8 @@ func Test_S_001_FR_004_RejectUnprivilegedUser(t *testing.T) {
 // Test_S_001_FR_005_ValidateSudoUIDGID tests FR-005: SUDO_UID/SUDO_GID validation
 func Test_S_001_FR_005_ValidateSudoUIDGID(t *testing.T) {
 	// Test with valid sudo environment
-	currentUser, err := user.Current()
-	if err != nil {
-		t.Skip("Cannot get current user for testing")
-		return
-	}
-
-	// Set valid sudo environment
-	t.Setenv("SUDO_USER", currentUser.Username)
-	t.Setenv("SUDO_UID", currentUser.Uid)
-	t.Setenv("SUDO_GID", currentUser.Gid)
+	cleanup := setupValidSudoEnv(t)
+	defer cleanup()
 
 	ctx, err := detectSudoContext()
 	if err != nil {
@@ -121,6 +139,11 @@ func Test_S_001_FR_005_ValidateSudoUIDGID(t *testing.T) {
 	}
 
 	// Test with missing SUDO_GID
+	currentUser, err := user.Current()
+	if err != nil {
+		t.Skip("Cannot get current user for testing")
+		return
+	}
 	t.Setenv("SUDO_UID", currentUser.Uid)
 	t.Setenv("SUDO_GID", "")
 	_, err = detectSudoContext()
@@ -141,25 +164,8 @@ func Test_S_001_FR_006_AtomicFileCreation(t *testing.T) {
 	dbPath := filepath.Join(tempDir, "test.fdb")
 
 	// Set up mock sudo environment for test
-	currentUser, err := user.Current()
-	if err != nil {
-		t.Skip("Cannot get current user for testing")
-		return
-	}
-
-	origUser := os.Getenv("SUDO_USER")
-	origUID := os.Getenv("SUDO_UID")
-	origGID := os.Getenv("SUDO_GID")
-	defer func() {
-		t.Setenv("SUDO_USER", origUser)
-		t.Setenv("SUDO_UID", origUID)
-		t.Setenv("SUDO_GID", origGID)
-	}()
-
-	// Set valid sudo environment
-	t.Setenv("SUDO_USER", currentUser.Username)
-	t.Setenv("SUDO_UID", currentUser.Uid)
-	t.Setenv("SUDO_GID", currentUser.Gid)
+	cleanup := setupValidSudoEnv(t)
+	defer cleanup()
 
 	// Setup mocks for User Story 1 tests
 	setupUserStory1Mocks()
@@ -172,9 +178,9 @@ func Test_S_001_FR_006_AtomicFileCreation(t *testing.T) {
 	}
 
 	// First creation should succeed
-	err = Create(config)
+	err := Create(config)
 	if err != nil {
-		t.Fatalf("First creation should succeed, got error: %v", err)
+		t.Fatalf("Creation should succeed, got error: %v", err)
 	}
 
 	// Verify file exists after creation
@@ -201,25 +207,8 @@ func Test_S_001_FR_007_FilePermissions(t *testing.T) {
 	dbPath := filepath.Join(tempDir, "test.fdb")
 
 	// Set up mock sudo environment for test
-	currentUser, err := user.Current()
-	if err != nil {
-		t.Skip("Cannot get current user for testing")
-		return
-	}
-
-	origUser := os.Getenv("SUDO_USER")
-	origUID := os.Getenv("SUDO_UID")
-	origGID := os.Getenv("SUDO_GID")
-	defer func() {
-		t.Setenv("SUDO_USER", origUser)
-		t.Setenv("SUDO_UID", origUID)
-		t.Setenv("SUDO_GID", origGID)
-	}()
-
-	// Set valid sudo environment
-	t.Setenv("SUDO_USER", currentUser.Username)
-	t.Setenv("SUDO_UID", currentUser.Uid)
-	t.Setenv("SUDO_GID", currentUser.Gid)
+	cleanup := setupValidSudoEnv(t)
+	defer cleanup()
 
 	// Setup mocks for User Story 1 tests
 	setupUserStory1Mocks()
@@ -231,7 +220,7 @@ func Test_S_001_FR_007_FilePermissions(t *testing.T) {
 		SkewMs:  5000,
 	}
 
-	err = Create(config)
+	err := Create(config)
 	if err != nil {
 		t.Fatalf("Creation should succeed, got error: %v", err)
 	}
@@ -255,25 +244,8 @@ func Test_S_001_FR_008_HeaderFormat(t *testing.T) {
 	dbPath := filepath.Join(tempDir, "test.fdb")
 
 	// Set up mock sudo environment for test
-	currentUser, err := user.Current()
-	if err != nil {
-		t.Skip("Cannot get current user for testing")
-		return
-	}
-
-	origUser := os.Getenv("SUDO_USER")
-	origUID := os.Getenv("SUDO_UID")
-	origGID := os.Getenv("SUDO_GID")
-	defer func() {
-		t.Setenv("SUDO_USER", origUser)
-		t.Setenv("SUDO_UID", origUID)
-		t.Setenv("SUDO_GID", origGID)
-	}()
-
-	// Set valid sudo environment
-	t.Setenv("SUDO_USER", currentUser.Username)
-	t.Setenv("SUDO_UID", currentUser.Uid)
-	t.Setenv("SUDO_GID", currentUser.Gid)
+	cleanup := setupValidSudoEnv(t)
+	defer cleanup()
 
 	// Setup mocks for User Story 1 tests
 	setupUserStory1Mocks()
@@ -285,7 +257,7 @@ func Test_S_001_FR_008_HeaderFormat(t *testing.T) {
 		SkewMs:  5000,
 	}
 
-	err = Create(config)
+	err := Create(config)
 	if err != nil {
 		t.Fatalf("Creation should succeed, got error: %v", err)
 	}
@@ -338,13 +310,8 @@ func Test_S_001_FR_009_FdatasyncBeforeAttributes(t *testing.T) {
 	dbPath := filepath.Join(tempDir, "test.fdb")
 
 	// Set valid sudo environment
-	currentUser, err := user.Current()
-	if err != nil {
-		t.Fatalf("Failed to get current user: %v", err)
-	}
-	t.Setenv("SUDO_USER", currentUser.Username)
-	t.Setenv("SUDO_UID", currentUser.Uid)
-	t.Setenv("SUDO_GID", currentUser.Gid)
+	cleanup := setupValidSudoEnv(t)
+	defer cleanup()
 
 	// Setup mocks for successful creation
 	setupUserStory1Mocks()
@@ -356,7 +323,7 @@ func Test_S_001_FR_009_FdatasyncBeforeAttributes(t *testing.T) {
 		SkewMs:  5000,
 	}
 
-	err = Create(config)
+	err := Create(config)
 	if err != nil {
 		t.Fatalf("Creation should succeed, got error: %v", err)
 	}
@@ -391,30 +358,12 @@ func Test_S_001_FR_010_SetAppendOnlyAttribute(t *testing.T) {
 			RowSize: 1024,
 			SkewMs:  5000,
 		}
-
-		// Setup mocks for successful file creation and append-only attribute setting
-		SetFSInterface(fsOperations{
-			Getuid: func() int { return 1000 },
-			Lookup: func(username string) (*user.User, error) {
-				return &user.User{
-					Uid:      "1000",
-					Gid:      "1000",
-					Username: username,
-					Name:     "Test User",
-					HomeDir:  "/home/testuser",
-				}, nil
-			},
-			Open:  os.OpenFile,
-			Stat:  os.Stat,
-			Mkdir: os.Mkdir,
-			Chown: os.Chown,
+		setupMockFS(fsOperations{
 			Ioctl: func(trap uintptr, a1 uintptr, a2 uintptr, a3 uintptr) (r1 uintptr, r2 uintptr, err syscall.Errno) {
 				switch a2 {
 				case FS_IOC_GETFLAGS:
-					// Return current flags without append-only bit
 					return 0, 0, 0
 				case FS_IOC_SETFLAGS:
-					// Mock successful set of append-only attribute
 					return 0, 0, 0
 				default:
 					return 0, 0, syscall.EINVAL
@@ -422,11 +371,8 @@ func Test_S_001_FR_010_SetAppendOnlyAttribute(t *testing.T) {
 			},
 		})
 		defer restoreRealFS()
-
-		// Setup sudo context for append-only operations
-		t.Setenv("SUDO_USER", "testuser")
-		t.Setenv("SUDO_UID", "1000")
-		t.Setenv("SUDO_GID", "1000")
+		cleanup := setupValidSudoEnv(t)
+		defer cleanup()
 
 		err := Create(config)
 		if err != nil {
@@ -450,22 +396,11 @@ func Test_S_001_FR_010_SetAppendOnlyAttribute(t *testing.T) {
 		// Setup mocks for successful file creation but failed append-only attribute setting
 		defer restoreRealFS()
 
+		cleanup := setupValidSudoEnv(t)
+		defer cleanup()
+
 		// Mock ioctl operations where set fails
-		SetFSInterface(fsOperations{
-			Getuid: func() int { return 1000 },
-			Lookup: func(username string) (*user.User, error) {
-				return &user.User{
-					Uid:      "1000",
-					Gid:      "1000",
-					Username: username,
-					Name:     "Test User",
-					HomeDir:  "/home/testuser",
-				}, nil
-			},
-			Open:  os.OpenFile,
-			Stat:  os.Stat,
-			Mkdir: os.Mkdir,
-			Chown: os.Chown,
+		setupMockFS(fsOperations{
 			Ioctl: func(trap uintptr, a1 uintptr, a2 uintptr, a3 uintptr) (r1 uintptr, r2 uintptr, err syscall.Errno) {
 				switch a2 {
 				case FS_IOC_GETFLAGS:
@@ -481,11 +416,6 @@ func Test_S_001_FR_010_SetAppendOnlyAttribute(t *testing.T) {
 		})
 		defer restoreRealFS()
 
-		// Setup sudo context for append-only operations
-		t.Setenv("SUDO_USER", "testuser")
-		t.Setenv("SUDO_UID", "1000")
-		t.Setenv("SUDO_GID", "1000")
-
 		err := Create(config)
 		if err == nil {
 			t.Error("Expected Create to fail when append-only attribute setting fails")
@@ -500,41 +430,6 @@ func Test_S_001_FR_010_SetAppendOnlyAttribute(t *testing.T) {
 					t.Errorf("Expected error message to contain '%s', got: %s", expectedMsg, writeErr.Message)
 				}
 			}
-		}
-	})
-
-	// Test Case 3: Direct setAppendOnlyAttr function testing (for completeness)
-	t.Run("direct_function_testing", func(t *testing.T) {
-		// Create a temporary file for testing the helper function directly
-		tempFile, err := os.CreateTemp("", "test-*.fdb")
-		if err != nil {
-			t.Fatalf("Failed to create temp file: %v", err)
-		}
-		defer os.Remove(tempFile.Name())
-		defer tempFile.Close()
-
-		// Test setAppendOnlyAttr function directly
-		fd := int(tempFile.Fd())
-		err = setAppendOnlyAttr(fd)
-
-		// This will likely fail due to permissions in test environment, which is expected
-		// The function uses direct syscall.Syscall calls with FS_IOC_SETFLAGS
-		if err != nil {
-			t.Logf("setAppendOnlyAttr() failed (expected in test environment): %v", err)
-
-			// Verify it's a WriteError with expected message
-			var writeErr *WriteError
-			if !errors.As(err, &writeErr) {
-				t.Errorf("Expected WriteError for append-only attribute, got %T", err)
-			} else {
-				// Properly use the error variable instead of ignoring it
-				expectedMsg := "failed to set append-only attribute"
-				if !strings.Contains(writeErr.Message, expectedMsg) {
-					t.Errorf("Expected error message to contain '%s', got: %s", expectedMsg, writeErr.Message)
-				}
-			}
-		} else {
-			t.Log("setAppendOnlyAttr() succeeded (unexpected but may occur in some environments)")
 		}
 	})
 }
@@ -600,13 +495,8 @@ func Test_S_001_FR_012_AttributeTimingSequence(t *testing.T) {
 	defer restoreRealFS()
 
 	// Set valid sudo environment
-	currentUser, err := user.Current()
-	if err != nil {
-		t.Fatalf("Failed to get current user: %v", err)
-	}
-	t.Setenv("SUDO_USER", currentUser.Username)
-	t.Setenv("SUDO_UID", currentUser.Uid)
-	t.Setenv("SUDO_GID", currentUser.Gid)
+	cleanup := setupValidSudoEnv(t)
+	defer cleanup()
 
 	config := CreateConfig{
 		Path:    dbPath,
@@ -614,7 +504,7 @@ func Test_S_001_FR_012_AttributeTimingSequence(t *testing.T) {
 		SkewMs:  5000,
 	}
 
-	err = Create(config)
+	err := Create(config)
 	if err != nil {
 		t.Fatalf("Creation should succeed, got error: %v", err)
 	}
@@ -885,7 +775,7 @@ func Test_S_001_FR_013_CreateIntegration(t *testing.T) {
 
 	err := Create(config)
 	if err != nil {
-		t.Fatalf("Create should succeed with mocked operations, got: %v", err)
+		t.Fatalf("Creation should succeed, got error: %v", err)
 	}
 
 	// Verify that chown was called exactly once
@@ -916,19 +806,12 @@ func Test_S_001_FR_013_CreateIntegration(t *testing.T) {
 // Test_S_001_FR_014_SyscallChownUsage tests FR-014: System MUST use syscall.Chown() to set original user ownership after file creation
 func Test_S_001_FR_014_SyscallChownUsage(t *testing.T) {
 	// This test verifies that setOwnership function uses syscall.Chown for setting file ownership
-	// Since we're using os.Chown in the implementation, this test verifies the behavior is equivalent
+	// Since we're using os.Chown in implementation, this test verifies the behavior is equivalent
 	tempDir := t.TempDir()
 
-	currentUser, err := user.Current()
-	if err != nil {
-		t.Skip("Cannot get current user for testing")
-		return
-	}
-
 	// Set valid sudo environment
-	t.Setenv("SUDO_USER", currentUser.Username)
-	t.Setenv("SUDO_UID", currentUser.Uid)
-	t.Setenv("SUDO_GID", currentUser.Gid)
+	cleanup := setupValidSudoEnv(t)
+	defer cleanup()
 
 	config := CreateConfig{
 		Path:    filepath.Join(tempDir, "test_syscall_chown.fdb"),
@@ -939,7 +822,7 @@ func Test_S_001_FR_014_SyscallChownUsage(t *testing.T) {
 	// Enable user story 1 mocking for successful creation
 	setupUserStory1Mocks()
 
-	err = Create(config)
+	err := Create(config)
 	if err != nil {
 		t.Errorf("Create failed: %v", err)
 		return
@@ -959,6 +842,11 @@ func Test_S_001_FR_014_SyscallChownUsage(t *testing.T) {
 	}
 
 	// Verify ownership matches original user
+	currentUser, err := user.Current()
+	if err != nil {
+		t.Skip("Cannot get current user for testing")
+		return
+	}
 	expectedUID, _ := strconv.Atoi(currentUser.Uid)
 	expectedGID, _ := strconv.Atoi(currentUser.Gid)
 
@@ -1141,13 +1029,8 @@ func Test_S_001_FR_019_CleanupOnFailure(t *testing.T) {
 	defer restoreRealFS()
 
 	// Set valid sudo environment
-	currentUser, err := user.Current()
-	if err != nil {
-		t.Fatalf("Failed to get current user: %v", err)
-	}
-	t.Setenv("SUDO_USER", currentUser.Username)
-	t.Setenv("SUDO_UID", currentUser.Uid)
-	t.Setenv("SUDO_GID", currentUser.Gid)
+	cleanup := setupValidSudoEnv(t)
+	defer cleanup()
 
 	config := CreateConfig{
 		Path:    dbPath,
@@ -1155,7 +1038,7 @@ func Test_S_001_FR_019_CleanupOnFailure(t *testing.T) {
 		SkewMs:  5000,
 	}
 
-	err = Create(config)
+	err := Create(config)
 	if err == nil {
 		t.Error("Expected creation to fail due to append-only attribute failure")
 	}
@@ -1396,16 +1279,9 @@ func Test_S_001_FR_022_RelativePathHandling(t *testing.T) {
 		t.Fatalf("Cannot change to temp directory: %v", err)
 	}
 
-	currentUser, err := user.Current()
-	if err != nil {
-		t.Skip("Cannot get current user for testing")
-		return
-	}
-
 	// Set valid sudo environment
-	t.Setenv("SUDO_USER", currentUser.Username)
-	t.Setenv("SUDO_UID", currentUser.Uid)
-	t.Setenv("SUDO_GID", currentUser.Gid)
+	cleanup := setupValidSudoEnv(t)
+	defer cleanup()
 
 	// Use relative path (should be relative to tempDir)
 	config := CreateConfig{
@@ -1508,16 +1384,9 @@ func Test_S_001_FR_024_FilesystemPathValidation(t *testing.T) {
 func Test_S_001_FR_025_AllowHiddenFiles(t *testing.T) {
 	tempDir := t.TempDir()
 
-	currentUser, err := user.Current()
-	if err != nil {
-		t.Skip("Cannot get current user for testing")
-		return
-	}
-
 	// Set valid sudo environment
-	t.Setenv("SUDO_USER", currentUser.Username)
-	t.Setenv("SUDO_UID", currentUser.Uid)
-	t.Setenv("SUDO_GID", currentUser.Gid)
+	cleanup := setupValidSudoEnv(t)
+	defer cleanup()
 
 	config := CreateConfig{
 		Path:    filepath.Join(tempDir, ".hidden_test.fdb"), // Hidden file
@@ -1528,7 +1397,7 @@ func Test_S_001_FR_025_AllowHiddenFiles(t *testing.T) {
 	// Enable user story 1 mocking for successful creation
 	setupUserStory1Mocks()
 
-	err = Create(config)
+	err := Create(config)
 	if err != nil {
 		t.Errorf("Create failed for hidden file: %v", err)
 		return
@@ -1663,13 +1532,8 @@ func Test_S_001_FR_028_ThreadSafety(t *testing.T) {
 	tempDir := t.TempDir()
 
 	// Set valid sudo environment for concurrent tests
-	currentUser, err := user.Current()
-	if err != nil {
-		t.Fatalf("Failed to get current user: %v", err)
-	}
-	t.Setenv("SUDO_USER", currentUser.Username)
-	t.Setenv("SUDO_UID", currentUser.Uid)
-	t.Setenv("SUDO_GID", currentUser.Gid)
+	cleanup := setupValidSudoEnv(t)
+	defer cleanup()
 
 	// Setup mocks for concurrent execution
 	setupUserStory1Mocks()
@@ -1731,13 +1595,8 @@ func Test_S_001_FR_029_ProcessAtomicity(t *testing.T) {
 
 	// Test atomicity by simulating concurrent attempts to create same file
 	// Set valid sudo environment
-	currentUser, err := user.Current()
-	if err != nil {
-		t.Fatalf("Failed to get current user: %v", err)
-	}
-	t.Setenv("SUDO_USER", currentUser.Username)
-	t.Setenv("SUDO_UID", currentUser.Uid)
-	t.Setenv("SUDO_GID", currentUser.Gid)
+	cleanup := setupValidSudoEnv(t)
+	defer cleanup()
 
 	// Setup mocks
 	setupUserStory1Mocks()
@@ -1793,13 +1652,8 @@ func Test_S_001_FR_030_FixedMemoryUsage(t *testing.T) {
 	tempDir := t.TempDir()
 
 	// Set valid sudo environment
-	currentUser, err := user.Current()
-	if err != nil {
-		t.Fatalf("Failed to get current user: %v", err)
-	}
-	t.Setenv("SUDO_USER", currentUser.Username)
-	t.Setenv("SUDO_UID", currentUser.Uid)
-	t.Setenv("SUDO_GID", currentUser.Gid)
+	cleanup := setupValidSudoEnv(t)
+	defer cleanup()
 
 	// Setup mocks
 	setupUserStory1Mocks()
@@ -1843,13 +1697,8 @@ func Test_S_001_FR_031_MinimizedDiskOperations(t *testing.T) {
 	dbPath := filepath.Join(tempDir, "test.fdb")
 
 	// Set valid sudo environment
-	currentUser, err := user.Current()
-	if err != nil {
-		t.Fatalf("Failed to get current user: %v", err)
-	}
-	t.Setenv("SUDO_USER", currentUser.Username)
-	t.Setenv("SUDO_UID", currentUser.Uid)
-	t.Setenv("SUDO_GID", currentUser.Gid)
+	cleanup := setupValidSudoEnv(t)
+	defer cleanup()
 
 	// Setup mocks for successful creation
 	setupUserStory1Mocks()
@@ -1861,9 +1710,9 @@ func Test_S_001_FR_031_MinimizedDiskOperations(t *testing.T) {
 		SkewMs:  5000,
 	}
 
-	err = Create(config)
+	err := Create(config)
 	if err != nil {
-		t.Fatalf("Create failed: %v", err)
+		t.Fatalf("Creation should succeed, got error: %v", err)
 	}
 
 	// Verify minimal operations - check final file state
