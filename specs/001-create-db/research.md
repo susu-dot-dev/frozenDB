@@ -149,10 +149,10 @@ const HeaderSize = 64 // Fixed header size in bytes
 
 **Header Format String:**
 ```
-{sig:"fDB",ver:1,row_size:<size>,skew_ms:<skew>}\x00\x00\x00\x00\n
+{"sig":"fDB","ver":1,"row_size":<size>,"skew_ms":<skew>}\x00\x00\x00\x00\x00\x00\n
 ```
 Where:
-- JSON content must be between 44-51 bytes
+- JSON content must be between 49-58 bytes
 - Padding consists of null characters (\x00) 
 - Byte 63 must be newline (\n)
 - Total header length is exactly 64 bytes
@@ -160,12 +160,12 @@ Where:
 **Header Writing with Integrity:**
 ```go
 func WriteHeader(fd int, rowSize, skewMs int) error {
-    // Generate JSON content: {sig:"fDB",ver:1,row_size:1024,skew_ms:5000}
-    jsonContent := fmt.Sprintf(`{sig:"fDB",ver:1,row_size:%d,skew_ms:%d}`, rowSize, skewMs)
+    // Generate JSON content: {"sig":"fDB","ver":1,"row_size":1024,"skew_ms":5000}
+    jsonContent := fmt.Sprintf(`{"sig":"fDB","ver":1,"row_size":%d,"skew_ms":%d}`, rowSize, skewMs)
     
     // Calculate padding needed (63 - jsonContent length, byte 63 is newline)
     contentLength := len(jsonContent)
-    if contentLength > 51 {
+    if contentLength > 58 {
         return fmt.Errorf("header content too long: %d bytes", contentLength)
     }
     

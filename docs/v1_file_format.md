@@ -37,13 +37,14 @@ The header SHALL be exactly 64 bytes in length. The header SHALL contain a JSON 
 The header SHALL follow this exact format:
 
 ```
-{sig:"fDB",ver:1,row_size:<size>,skew_ms:<skew>}\x00\x00\x00\x00\n
+{"sig":"fDB","ver":1,"row_size":<size>,"skew_ms":<skew>}\x00\x00\x00\x00\x00\x00\n
 ```
 
 Where:
 - `<size>` SHALL be an integer between 128 and 65536 (inclusive)
 - `<skew>` SHALL be an integer between 0 and 86400000 (inclusive)
 - The four keys SHALL appear in exactly this order: `sig`, `ver`, `row_size`, `skew_ms`
+- All JSON keys and string values SHALL use double quotes
 - Padding SHALL consist of null characters (U+0000) as needed to fill to 63 bytes
 - Byte 63 SHALL be a newline character (U+000A)
 
@@ -77,21 +78,22 @@ Byte 63 SHALL be a newline character (U+000A). Implementations MUST verify the p
 
 ### 3.6. Header Size Constraints
 
-The JSON content (excluding padding and newline) SHALL be between 44 and 51 bytes in length:
-- Minimum: `{sig:"fDB",ver:1,row_size:128,skew_ms:0}` (44 bytes)
-- Maximum: `{sig:"fDB",ver:1,row_size:65536,skew_ms:86400000}` (51 bytes)
+The JSON content (excluding padding and newline) SHALL be between 49 and 58 bytes in length:
+- Minimum: `{"sig":"fDB","ver":1,"row_size":128,"skew_ms":0}` (49 bytes)
+- Maximum: `{"sig":"fDB","ver":1,"row_size":65536,"skew_ms":86400000}` (58 bytes)
 
-Therefore, the padding SHALL be between 13 and 20 characters in length.
+Therefore, the padding SHALL be between 5 and 14 characters in length.
 
 ### 3.7. Header Parsing Requirements
 
 Implementations SHALL:
 1. Read exactly 64 bytes from the file start
 2. Verify byte 63 is a newline character (U+000A)
-3. Parse the JSON content from bytes 0-62 using the following method: Read the first 26 bytes and verify they match `{sig:"fDB",ver:1,row_size:`, then JSON parse the remaining content until the first null character
-4. Verify the JSON object contains exactly four keys in the order: `sig`, `ver`, `row_size`, `skew_ms`
-5. Validate each field value according to sections 3.3.1 through 3.3.4
-6. Verify that all characters between the end of the JSON content and byte 62 are null characters (U+0000)
+3. Find the first null character (U+0000) and extract bytes [0, N-1] as JSON content
+4. Parse the JSON content using standard JSON parsing libraries with proper double-quoted keys and values
+5. Verify that the JSON object contains exactly four keys in the order: `sig`, `ver`, `row_size`, `skew_ms`
+6. Validate each field value according to sections 3.3.1 through 3.3.4
+7. Verify that all characters between the end of the JSON content and byte 62 are null characters (U+0000)
 
 ### 3.8. Header Error Handling
 
