@@ -45,6 +45,18 @@ frozenDB/
 └── examples/      # Usage examples
 ```
 
+## Context Files
+
+During implementation, the following files should be used for context:
+- `specs/001-create-db/tasks.md` - Complete task breakdown and execution plan
+- `specs/001-create-db/plan.md` - Technical architecture and design decisions
+- `specs/001-create-db/data-model.md` - Entity definitions and data structures
+- `specs/001-create-db/contracts/api-contract.md` - API specifications and requirements
+- `specs/001-create-db/research.md` - Technical research and dependency analysis
+- `specs/001-create-db/quickstart.md` - Usage examples and integration scenarios
+- `docs/spec_testing.md` - Spec testing guidelines and requirements
+- `AGENTS.md` - This file for coding standards and build commands
+
 ## Code Style Guidelines
 
 ### General Principles

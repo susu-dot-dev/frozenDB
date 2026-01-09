@@ -14,9 +14,14 @@ description: "Task list template for feature implementation"
 
 ## Format: `[ID] [P?] [Story] Description`
 
-
 - **[Story]**: Which user story this task belongs to (e.g., US1, US2, US3)
 - Include exact file paths in descriptions
+
+## Spec Test Naming Convention
+
+- **Pattern**: `Test_S_XXX_FR_YYY_Description` where XXX is spec number, YYY is functional requirement number
+- **Order**: Spec tests MUST be written in functional requirement numerical order (FR-001, FR-002, etc.)
+- **Example**: `Test_S_001_FR_006_AtomicFileCreation` for spec 001, functional requirement FR-006
 
 ## Path Conventions
 

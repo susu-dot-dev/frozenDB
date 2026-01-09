@@ -43,10 +43,16 @@ frozendb/
 
 ### Test Function Convention
 Test functions MUST follow pattern: `Test_S_XXX_FR_XXX_Description()`
-- `S_XXX` corresponds to the spec number that is being implemented. Always use exactly 3 digits for the spec number
-- `FR_XXX` corresponds to the functional requirement being tested. Use as few digits as required, example `FR_1`, `FR_22`, etc.
+- `S_XXX` corresponds to spec number that is being implemented. Always use exactly 3 digits for spec number
+- `FR_XXX` corresponds to functional requirement being tested. Use as few digits as required, example `FR_1`, `FR_22`, etc.
 - `Description` is a camelCase description of what is being validated
 - Test functions MUST be exported (start with capital T) to run with Go test framework
+
+### Test Ordering Requirement
+Spec tests MUST be written in functional requirement numerical order within each test file:
+- Tests must appear in order, sorted by Spec, then by FR number. S_001_FR-001, S_001_FR-002, S_002_FR-001, etc.
+- This ensures readability and makes it easy to verify complete coverage.
+- Automated checks should validate ordering during code reviews
 
 ### Examples
 ```go
