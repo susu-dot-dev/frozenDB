@@ -257,8 +257,8 @@ func Create(config CreateConfig) error {
 	// Defer cleanup on any error
 	defer func() {
 		if err != nil {
-			file.Close()
-			os.Remove(config.Path) // Clean up partial file
+			_ = file.Close()
+			_ = os.Remove(config.Path) // Clean up partial file
 		}
 	}()
 

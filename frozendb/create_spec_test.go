@@ -42,28 +42,6 @@ func setupUserStory1Mocks() {
 	})
 }
 
-// setupFSMocksWithUID creates a mock filesystem interface with a specified UID for testing
-func setupFSMocksWithUID(uid int) {
-	setupMockFS(fsOperations{
-		Getuid: func() int { return uid },
-		Lookup: func(username string) (*user.User, error) {
-			// Mock user lookup for testing
-			uidStr := strconv.Itoa(uid)
-			return &user.User{
-				Uid:      uidStr,
-				Gid:      uidStr,
-				Username: username,
-				Name:     "Test User",
-				HomeDir:  "/home/testuser",
-			}, nil
-		},
-		Chown: func(path string, chownUID, chownGID int) error {
-			// Mock successful chown operations for testing
-			return nil
-		},
-	})
-}
-
 // Test_S_001_FR_004_RejectUnprivilegedUser tests FR-004: reject unprivileged user
 func Test_S_001_FR_004_RejectUnprivilegedUser(t *testing.T) {
 	// This test verifies that unprivileged users (no sudo) are rejected
@@ -399,7 +377,7 @@ func Test_S_001_FR_009_FdatasyncBeforeAttributes(t *testing.T) {
 	}
 
 	// Log test completion to use fmt package
-	t.Logf("FR-009 fdatasync test completed: %s", fmt.Sprintf("success"))
+	t.Log("FR-009 fdatasync test completed: success")
 }
 
 // Test_S_001_FR_010_SetAppendOnlyAttribute tests FR-010: append-only attribute setting
@@ -1190,7 +1168,7 @@ func Test_S_001_FR_019_CleanupOnFailure(t *testing.T) {
 		t.Errorf("Unexpected error checking file existence: %v", err)
 	}
 
-	t.Logf("FR-019 cleanup test completed: %s", fmt.Sprintf("file cleanup verified"))
+	t.Log("FR-019 cleanup test completed: file cleanup verified")
 }
 
 // Test_S_001_FR_020_PathValidation tests FR-020: path validation
@@ -1271,12 +1249,14 @@ func Test_S_001_FR_020_PathValidation(t *testing.T) {
 					if _, isInputErr := err.(*InvalidInputError); isInputErr {
 						t.Errorf("Expected no input validation error for path %s, got %v", tc.path, err)
 					}
+				} else if tc.wantErr {
+					t.Errorf("Expected error for test case %q but got none", tc.name)
 				}
 			}
 		})
 	}
 
-	t.Logf("FR-020 path validation test completed: %s", fmt.Sprintf("all test cases executed"))
+	t.Log("FR-020 path validation test completed: all test cases executed")
 }
 
 // Test_S_001_FR_021_PathHandling tests FR-021-FR-026: path handling
@@ -1347,7 +1327,8 @@ func Test_S_001_FR_021_PathHandling(t *testing.T) {
 			if tc.setupFunc != nil {
 				if err := tc.setupFunc(tc.path); err != nil {
 					// For directory creation errors, we might need to create parent dirs first
-					if tc.name == "parent is not a directory" {
+					switch tc.name {
+					case "parent is not a directory":
 						parentDir := filepath.Dir(tc.path)
 						if err := os.MkdirAll(filepath.Dir(parentDir), 0755); err != nil {
 							t.Fatalf("Failed to setup parent: %v", err)
@@ -1355,7 +1336,7 @@ func Test_S_001_FR_021_PathHandling(t *testing.T) {
 						if err := tc.setupFunc(tc.path); err != nil {
 							t.Fatalf("Failed to setup test condition: %v", err)
 						}
-					} else if tc.name == "parent not writable" {
+					case "parent not writable":
 						parentDir := filepath.Dir(tc.path)
 						if err := os.MkdirAll(parentDir, 0755); err != nil {
 							t.Fatalf("Failed to setup parent: %v", err)
@@ -1363,7 +1344,7 @@ func Test_S_001_FR_021_PathHandling(t *testing.T) {
 						if err := os.Chmod(parentDir, 0444); err != nil {
 							t.Fatalf("Failed to chmod parent: %v", err)
 						}
-					} else {
+					default:
 						t.Fatalf("Failed to setup test condition: %v", err)
 					}
 				}
@@ -1395,7 +1376,7 @@ func Test_S_001_FR_021_PathHandling(t *testing.T) {
 	// Use sync to resolve import for now (will be used in thread safety tests)
 	_ = sync.WaitGroup{}
 
-	t.Logf("FR-021 path handling test completed: %s", fmt.Sprintf("all test cases executed"))
+	t.Log("FR-021 path handling test completed: all test cases executed")
 }
 
 // Test_S_001_FR_022_RelativePathHandling tests FR-022: System MUST handle relative paths relative to the process's current working directory
@@ -1674,7 +1655,7 @@ func Test_S_001_FR_027_PathCharacterValidation(t *testing.T) {
 		})
 	}
 
-	t.Logf("FR-027 path character validation test completed: %s", fmt.Sprintf("all character sets tested"))
+	t.Log("FR-027 path character validation test completed: all character sets tested")
 }
 
 // Test_S_001_FR_028_ThreadSafety tests FR-028: thread safety
@@ -1740,7 +1721,7 @@ func Test_S_001_FR_028_ThreadSafety(t *testing.T) {
 		}
 	}
 
-	t.Logf("FR-028 thread safety test completed: %s", fmt.Sprintf("concurrent operations validated"))
+	t.Log("FR-028 thread safety test completed: concurrent operations validated")
 }
 
 // Test_S_001_FR_029_ProcessAtomicity tests FR-029: process atomicity
@@ -1804,7 +1785,7 @@ func Test_S_001_FR_029_ProcessAtomicity(t *testing.T) {
 		}
 	}
 
-	t.Logf("FR-029 process atomicity test completed: %s", fmt.Sprintf("atomic creation verified"))
+	t.Log("FR-029 process atomicity test completed: atomic creation verified")
 }
 
 // Test_S_001_FR_030_FixedMemoryUsage tests FR-030: fixed memory usage
@@ -1853,7 +1834,7 @@ func Test_S_001_FR_030_FixedMemoryUsage(t *testing.T) {
 		})
 	}
 
-	t.Logf("FR-030 fixed memory usage test completed: %s", fmt.Sprintf("all parameter sizes tested"))
+	t.Log("FR-030 fixed memory usage test completed: all parameter sizes tested")
 }
 
 // Test_S_001_FR_031_MinimizedDiskOperations tests FR-031: minimized disk operations
@@ -1902,7 +1883,7 @@ func Test_S_001_FR_031_MinimizedDiskOperations(t *testing.T) {
 		t.Errorf("Expected file permissions %o, got %o", expectedMode, stat.Mode().Perm())
 	}
 
-	t.Logf("FR-031 minimized disk operations test completed: %s", fmt.Sprintf("file size and permissions verified"))
+	t.Log("FR-031 minimized disk operations test completed: file size and permissions verified")
 }
 
 // Test_S_001_FR_032_EarlyValidation tests FR-032: early validation
@@ -1990,5 +1971,5 @@ func Test_S_001_FR_032_EarlyValidation(t *testing.T) {
 		})
 	}
 
-	t.Logf("FR-032 early validation test completed: %s", fmt.Sprintf("all validations tested"))
+	t.Log("FR-032 early validation test completed: all validations tested")
 }

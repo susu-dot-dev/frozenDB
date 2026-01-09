@@ -42,7 +42,9 @@ func setupMockSyscalls(failGet, failSet bool) {
 					return 0, 0, syscall.EPERM
 				}
 				// Extract flags from pointer and verify FS_APPEND_FL is set
-				flagsPtr := (*uint32)(unsafe.Pointer(a3))
+				// This is safe for testing - we control the pointer value in our mock
+				//nolint:govet // safe in test context as we control the pointer
+				flagsPtr := (*uint32)(unsafe.Pointer(uintptr(a3)))
 				if *flagsPtr&FS_APPEND_FL == 0 {
 					return 0, 0, syscall.EINVAL
 				}
