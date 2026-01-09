@@ -9,7 +9,7 @@ Implement the `Create(config CreateConfig) error` function in `frozendb/create.g
 
 ## Technical Context
 
-**Language/Version**: Go 1.21+  
+**Language/Version**: Go 1.25.5  
 **Primary Dependencies**: Go standard library (os, syscall, uuid), no external dependencies  
 **Storage**: Single file database with frozenDB v1 format (immutable, append-only)  
 **Testing**: Go testing package with table-driven tests, mocking for syscalls  
@@ -51,16 +51,15 @@ Implement the `Create(config CreateConfig) error` function in `frozendb/create.g
 frozendb/
 ├── errors.go              # FrozenDBError base struct and specific error types (reused across project)
 ├── create.go              # Public Create function + CreateConfig struct + all private helper functions
-├── create_test.go          # Unit tests for Create function
-└── spec_tests/            # Spec tests (constitutional requirement)
-    ├── 0001_create_db_test.go     # Spec tests for FR-001 through FR-035
+├── create_test.go         # Unit tests for Create function
+├── create_spec_test.go    # Spec tests for Create function (constitutional requirement)
 ```
 
 **Structure Decision**: Single project structure with public API package at top-level `frozendb/` following Go conventions. Internal implementations are private within the package using lowercase functions, and spec tests are in `frozendb/spec_tests/` per constitutional requirements.
 
 ## Spec Testing Strategy
 
-Per frozenDB Constitution, all functional requirements (FR-001 through FR-032) MUST have corresponding spec tests in `frozendb/spec_tests/0001_create_db_test.go` following pattern `TestFR_XXX_Description()`. Spec tests are distinct from unit tests and validate functional requirements from user/system perspective.
+Per frozenDB Constitution, all functional requirements (FR-001 through FR-032) MUST have corresponding spec tests in `frozendb/create_spec_test.go` following pattern `Test_Spec_001_FR_XXX_Description()`. Spec tests are distinct from unit tests and validate functional requirements from user/system perspective.
 
 Functional requirements are NOT considered implemented until:
 1. Implementation code exists and compiles

@@ -132,18 +132,11 @@ As a system administrator, I want the entire database creation process (header w
 
 All functional requirements (FR-001 through FR-032) MUST have corresponding spec tests following the guidelines in `docs/spec_testing.md`. Spec tests validate functional requirements from user/system perspective and are distinct from unit tests.
 
-### Spec Test Structure
-
-```text
-frozendb/spec_tests/
-├── 0001_create_db_test.go    # Spec tests for database file creation
-```
-
 ### Spec Test Requirements
 
-**File Naming**: `0001_create_db_test.go` (4-digit feature number + underscore + spec name + `_test.go`)
+**File Naming**: `create_spec_test.go` (corresponding file under test + `spec_test.go`)
 
-**Test Function Pattern**: `TestFR_XXX_Description()`
+**Test Function Pattern**: `Test_S001_FR_XXX_Description()`
 - FR_XXX corresponds to functional requirement being tested
 - Description is camelCase description of validation
 
