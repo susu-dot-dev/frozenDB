@@ -18,22 +18,28 @@ This section defines key terms and constants used throughout this specification.
 
 - **ROW_START**: The byte value 0x1F (unit separator) that marks the beginning of a data row
 - **ROW_END**: The byte value 0x0A (newline character) that marks the end of a data row
+- **start_control**: The first byte after ROW_START that identifies the row type; SHALL be a single uppercase alphanumeric character (A-Z, 0-9)
+- **end_control**: Exactly 2 bytes immediately preceding the parity bytes that identify the row type termination; each SHALL be an uppercase alphanumeric character (A-Z, 0-9)
 - **parity_bytes**: Exactly 2 UTF-8 characters (uppercase hexadecimal digits 0-9, A-F) representing the longitudinal redundancy check (LRC) of row data
 - **LRC (Longitudinal Redundancy Check)**: An error detection method that computes the XOR of all bytes in a specified range
+- **CRC32**: A 32-bit cyclic redundancy check using the IEEE polynomial 0xedb88320
+- **checksum_row**: A row type containing CRC32 data for integrity verification of subsequent rows
 
 ## 2. File Structure
 
-A frozenDB v1 file consists of a fixed-width header followed by zero or more fixed-width data rows.
+A frozenDB v1 file consists of a fixed-width header followed by a checksum row, then zero or more data rows, with additional checksum rows inserted at regular intervals.
 
 ```
 File Offset:
 0            64          64+row_size     64+2*row_size
-├────────────┼────────────┼──────────────┼──────────────┤
-│   Header   │    Row 0   │    Row 1     │    Row 2     │
-└────────────┴────────────┴──────────────┴──────────────┘
+├────────────┼────────────┼──────────────┼──────────────┼
+│   Header   │Checksum Row│   Data Row 0 │   Data Row 1 │
+└────────────┴────────────┴──────────────┴──────────────┴
 ```
 
-The header occupies bytes 0 through 63 (inclusive). Data rows begin at offset 64.
+The header occupies bytes 0 through 63 (inclusive). The first checksum row occupies bytes 64 through (63 + row_size). Subsequent rows begin at offsets calculated as multiples of row_size added to 64.
+
+A valid frozenDB file MUST have a checksum row immediately following the header. The file structure SHALL be: Header → Checksum Row → Data Rows, with additional checksum rows inserted after every 10,000 data rows. The pattern SHALL be: Header → Checksum Row → (up to 10,000 Data Rows) → Checksum Row → (up to 10,000 Data Rows) → Checksum Row → ..., where the file may end after any number of data rows.
 
 ## 3. Header Specification
 
@@ -108,8 +114,8 @@ Implementations SHALL:
 
 Implementations SHALL reject files and report an error if any of the following conditions occur:
 - File contains fewer than 64 bytes
-- Bytes [0-N) do not contain valid JSON, where N is the index of the first null character (U+0000)
-- Bytes [N-63) is not U+0000 (null)
+- Bytes [0..X-1] do not contain valid JSON, where X is the index of the first null character (U+0000)
+- Bytes [X..63] are not U+0000 (null)
 - Byte 63 is not a newline character
 - JSON object does not contain exactly four keys
 - Keys are not in the required order sig,ver,row_size
@@ -125,23 +131,27 @@ Implementations SHALL reject files and report an error if any of the following c
 Each data row in a frozenDB v1 file SHALL follow this basic structure:
 
 ```
-Byte Layout:
-[0]        ROW_START (0x1F)
-[1..N-3]   Row Content (varies by row type, includes padding)
-[N-2..N-1] Parity Bytes (2-byte UTF-8 hex string "00"-"FF")
-[N]        ROW_END (0x0A)
+Byte Layout (all ranges are inclusive, zero-based indexing):
+[0]           ROW_START (0x1F)
+[1]           Start Control Character (1 byte)
+[2..N-6]      Row Content (varies by row type, includes padding)
+[N-5..N-4]    End Control Characters (2 bytes)
+[N-3..N-2]    Parity Bytes (2-byte UTF-8 hex string "00"-"FF")
+[N-1]         ROW_END (0x0A)
 ```
 
 Where:
 - N is the total row size specified in the header's `row_size` field
-- Row Content varies by specific row type and will be defined in future specifications
+- Start Control Character identifies the row type (see section 4.3)
+- End Control Characters provide row type termination validation (see section 4.3)
+- Row Content varies by specific row type and is defined in subsequent sections
 - All row types MUST conform to this basic structure with parity protection
 
 ### 4.2. Parity Calculation
 
 The parity bytes SHALL be computed using a longitudinal redundancy check (LRC) algorithm:
 
-1. Compute the XOR of all bytes from `[0]` through `[N-3]` inclusive (ROW_START through end of row content)
+1. Compute the XOR of all bytes from `[0..N-4]`
 2. Convert the resulting byte value to a 2-character uppercase hexadecimal string
 3. Encode this string as UTF-8 characters in the parity_bytes field `[N-2..N-1]`
 
@@ -151,6 +161,112 @@ The parity bytes MUST be exactly 2 UTF-8 characters representing the hexadecimal
 - The string MUST NOT include any suffix (no "h" or similar)
 - Examples: "00", "1F", "A3", "FF"
 
-The parity calculation includes all bytes between ROW_START and the parity field, including any padding bytes that may be present in the row content.
+The parity calculation includes all bytes between ROW_START and the end control characters, including any padding bytes that may be present in the row content.
 
-Example: For a row where bytes [0] through [N-3] result in an XOR value of 0x1F, the parity bytes SHALL be the UTF-8 string "1F" (bytes 0x31 and 0x46).
+Example: For a row where bytes [0] through [N-4] result in an XOR value of 0x1F, the parity bytes SHALL be the UTF-8 string "1F" (bytes 0x31 and 0x46).
+
+### 4.3. Row Types
+
+#### 4.3.1. Start Control Characters
+
+The byte at position [1] immediately following ROW_START SHALL be the start_control character. Start_control characters SHALL be single UTF-8 bytes representing uppercase alphanumeric characters (A-Z, 0-9). The valid byte range for start_control characters SHALL be 0x30-0x39 (digits 0-9) and 0x41-0x5A (uppercase letters A-Z).
+
+The following start_control characters are defined:
+
+- **C (0x43)**: Checksum row type
+- Additional start_control characters MAY be defined in future specifications, limited to the alphanumeric range specified above
+
+Implementations MUST reject rows containing start_control characters outside the defined alphanumeric range or containing undefined start_control characters within the valid range.
+
+#### 4.3.2. End Control Characters
+
+The bytes at positions [N-5] and [N-4] immediately preceding the parity bytes SHALL be the end_control characters. End_control characters SHALL be two UTF-8 bytes representing uppercase alphanumeric characters (A-Z, 0-9). The valid byte range for each end_control character SHALL be 0x30-0x39 (digits 0-9) and 0x41-0x5A (uppercase letters A-Z). All byte positions use inclusive, zero-based indexing.
+
+The following end_control character sequences are defined:
+
+- **CS (0x43 0x53)**: Checksum row type termination
+- Additional end_control character sequences MAY be defined in future specifications, limited to the alphanumeric range specified above
+
+Implementations MUST reject rows containing end_control characters outside the defined alphanumeric range or containing undefined end_control character sequences within the valid range.
+
+#### 4.3.3. Row Type Validation
+
+For each row type, the start_control character and end_control character sequence MUST correspond according to this specification. Implementations MUST validate that the start_control and end_control characters match the defined row type.
+
+### 4.4. Checksum Row (C/CS) Specification
+
+#### 4.4.1. Checksum Row Format
+
+Checksum rows SHALL use start_control character C (0x43) and end_control characters CS (0x43 0x53). The format SHALL be:
+
+```
+ROW_START|C|crc32_b64_encoded|CS|parity|\n
+```
+
+Where:
+- ROW_START is byte 0x1F at position [0]
+- C is the start_control character (0x43) at position [1]
+- crc32_b64_encoded is exactly 8 bytes containing standard base64 encoding at positions [2..9]
+- CS is the end_control character sequence (0x43 0x53) at positions [10..11]
+- parity is the 2-byte LRC checksum at positions [12..13]
+- \n is ROW_END (0x0A) at position [N-1]
+All byte positions use inclusive, zero-based indexing.
+
+#### 4.4.2. CRC32 Calculation
+
+The crc32_b64_encoded field SHALL contain the base64 encoding of a CRC32 checksum calculated as follows:
+
+1. **Algorithm**: IEEE CRC32 with polynomial 0xedb88320 (LSB-first representation)
+2. **Input Range**: All bytes from the ROW_START character immediately following the previous checksum row through the ROW_END character of the row immediately preceding this checksum row
+   - For the first checksum row in a file: bytes from offset 64 through the ROW_END at offset (64 + row_size - 1) inclusive
+   - For subsequent checksum rows: bytes from the ROW_START after the previous checksum row through the ROW_END at the last byte of the row immediately before this checksum row
+3. **Output**: 32-bit unsigned integer (4 bytes)
+4. **Encoding**: Standard base64 encoding (RFC 4648) resulting in exactly 8 bytes including padding
+
+The CRC32 calculation SHALL use the same algorithm as Go's `crc32.ChecksumIEEE()` function. Implementations using other languages MUST produce identical results for identical input data.
+
+#### 4.4.3. Base64 Encoding Requirements
+
+The crc32_b64_encoded field SHALL be exactly 8 bytes containing standard base64 encoding:
+
+- **Alphabet**: Standard base64 alphabet (A-Z, a-z, 0-9, +, /)
+- **Padding**: Standard base64 padding with "=" characters as required
+- **Input**: 4 bytes (32-bit CRC32 value)
+- **Output**: Exactly 8 bytes including padding characters
+
+Examples:
+- CRC32 value 0x00000000 → Base64 "AAAAAA=="
+- CRC32 value 0x12345678 → Base64 "EjRWeA=="
+- CRC32 value 0xFFFFFFFF → Base64 "/////w=="
+
+#### 4.4.4. Checksum Row Placement Requirements
+
+Checksum rows SHALL be placed according to the following rules:
+
+1. **First Checksum Row**: A checksum row MUST be the first row in every frozenDB file, immediately following the header at offset 64
+2. **Subsequent Checksum Rows**: Additional checksum rows SHALL be inserted after every 10,000 non-checksum rows, but only if there are data rows present
+3. **Row Counting**: The 10,000 row count SHALL include only non-checksum rows; checksum rows SHALL NOT be counted toward this total
+4. **File Termination**: A frozenDB file MAY end after any number of data rows; a final checksum row is not required unless the 10,000-row threshold is reached
+5. **Pattern**: The file structure SHALL follow the pattern: Header → Checksum Row → (0 to 10,000 Data Rows) → Checksum Row (if 10,000 data rows reached) → (0 to 10,000 Data Rows) → Checksum Row (if another 10,000 data rows reached) → ...
+
+Row numbering examples:
+- Row 1: Checksum row (required)
+- Rows 2-5: Data rows (file ends here - valid)
+- Row 1: Checksum row (required)
+- Rows 2-10,001: Data rows (10,000 total)
+- Row 10,002: Checksum row (required because 10,000 data rows reached)
+- Rows 10,003-10,010: Data rows (8 total - file ends here - valid)
+
+#### 4.4.5. Checksum Row Validation
+
+Implementations SHALL validate checksum rows according to these requirements:
+
+1. Verify start_control character is C (0x43)
+2. Verify end_control characters are CS (0x43 0x53)
+3. Verify crc32_b64_encoded field is exactly 8 bytes containing valid standard base64 encoding
+4. Compute the CRC32 of the specified byte range and verify it matches the decoded value
+5. Verify parity bytes using the LRC algorithm specified in section 4.2
+
+### 4.5. Data Row Types
+
+Additional row types for data storage (key-value pairs, metadata, etc.) SHALL be defined in future specifications. All future row types MUST conform to the basic row structure defined in section 4.1 and MUST use defined start_control and end_control character sequences.
