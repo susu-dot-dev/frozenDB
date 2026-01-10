@@ -12,6 +12,15 @@ The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "S
 
 All text in a frozenDB v1 file SHALL be encoded using UTF-8. Implementations MUST accept UTF-8 encoded input and MUST generate UTF-8 encoded output.
 
+### 1.3. Terminology
+
+This section defines key terms and constants used throughout this specification.
+
+- **ROW_START**: The byte value 0x1F (unit separator) that marks the beginning of a data row
+- **ROW_END**: The byte value 0x0A (newline character) that marks the end of a data row
+- **parity_bytes**: Exactly 2 UTF-8 characters (uppercase hexadecimal digits 0-9, A-F) representing the longitudinal redundancy check (LRC) of row data
+- **LRC (Longitudinal Redundancy Check)**: An error detection method that computes the XOR of all bytes in a specified range
+
 ## 2. File Structure
 
 A frozenDB v1 file consists of a fixed-width header followed by zero or more fixed-width data rows.
@@ -108,3 +117,40 @@ Implementations SHALL reject files and report an error if any of the following c
 - Any field value is missing, of incorrect type, or outside valid ranges
 - The signature field is not `"fDB"`
 - The version field is not `1`
+
+## 4. Data Row Specification
+
+### 4.1. Row Structure
+
+Each data row in a frozenDB v1 file SHALL follow this basic structure:
+
+```
+Byte Layout:
+[0]        ROW_START (0x1F)
+[1..N-3]   Row Content (varies by row type, includes padding)
+[N-2..N-1] Parity Bytes (2-byte UTF-8 hex string "00"-"FF")
+[N]        ROW_END (0x0A)
+```
+
+Where:
+- N is the total row size specified in the header's `row_size` field
+- Row Content varies by specific row type and will be defined in future specifications
+- All row types MUST conform to this basic structure with parity protection
+
+### 4.2. Parity Calculation
+
+The parity bytes SHALL be computed using a longitudinal redundancy check (LRC) algorithm:
+
+1. Compute the XOR of all bytes from `[0]` through `[N-3]` inclusive (ROW_START through end of row content)
+2. Convert the resulting byte value to a 2-character uppercase hexadecimal string
+3. Encode this string as UTF-8 characters in the parity_bytes field `[N-2..N-1]`
+
+The parity bytes MUST be exactly 2 UTF-8 characters representing the hexadecimal value of the computed checksum:
+- Characters SHALL be uppercase hexadecimal digits (0-9, A-F)
+- The string MUST NOT include any prefix (no "0x" or similar)
+- The string MUST NOT include any suffix (no "h" or similar)
+- Examples: "00", "1F", "A3", "FF"
+
+The parity calculation includes all bytes between ROW_START and the parity field, including any padding bytes that may be present in the row content.
+
+Example: For a row where bytes [0] through [N-3] result in an XOR value of 0x1F, the parity bytes SHALL be the UTF-8 string "1F" (bytes 0x31 and 0x46).
