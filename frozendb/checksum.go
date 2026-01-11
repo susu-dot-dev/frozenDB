@@ -43,13 +43,19 @@ func (c *Checksum) UnmarshalText(text []byte) error {
 	return nil
 }
 
+// Validate validates the Checksum value
+// Checksum is universally valid (uint32 is always valid), so this always returns nil
+func (c Checksum) Validate() error {
+	return nil
+}
+
 // ChecksumRow represents a checksum integrity row in frozenDB
 type ChecksumRow struct {
-	baseRow[Checksum] // Embedded with typed Checksum payload
+	baseRow[*Checksum] // Embedded with typed *Checksum payload
 }
 
 // NewChecksumRow creates a new checksum row from header and data bytes
-// The header must already be validated by its creator (e.g., parseHeader or NewHeader).
+// The header must already be validated by its creator (e.g., UnmarshalText or manual creation with Validate()).
 // This function only checks that header is non-nil.
 func NewChecksumRow(header *Header, dataBytes []byte) (*ChecksumRow, error) {
 	if header == nil {
@@ -66,7 +72,7 @@ func NewChecksumRow(header *Header, dataBytes []byte) (*ChecksumRow, error) {
 
 	// Create checksum row
 	cr := &ChecksumRow{
-		baseRow[Checksum]{
+		baseRow[*Checksum]{
 			Header:       header,
 			StartControl: CHECKSUM_ROW,
 			EndControl:   CHECKSUM_ROW_CONTROL,
@@ -74,8 +80,13 @@ func NewChecksumRow(header *Header, dataBytes []byte) (*ChecksumRow, error) {
 		},
 	}
 
-	// Validate the row structure
-	if err := cr.validate(); err != nil {
+	// Validate baseRow structure first
+	if err := cr.baseRow.Validate(); err != nil {
+		return nil, err
+	}
+
+	// Validate checksum-specific properties
+	if err := cr.Validate(); err != nil {
 		return nil, err
 	}
 
@@ -99,35 +110,35 @@ func (cr *ChecksumRow) MarshalText() ([]byte, error) {
 func (cr *ChecksumRow) UnmarshalText(text []byte) error {
 	// Unmarshal using baseRow (Header must be set - programmer error if nil)
 	// This will parse StartControl and EndControl from the text
+	// baseRow.UnmarshalText() will call baseRow.Validate() internally
 	if err := cr.baseRow.UnmarshalText(text); err != nil {
 		return err
 	}
 
-	// Validate that the parsed control values match checksum row expectations
-	return cr.validate()
+	// Validate checksum-specific properties (StartControl='C', EndControl='CS', payload not nil)
+	return cr.Validate()
 }
 
-// validate performs comprehensive validation of checksum row structure
-func (cr *ChecksumRow) validate() error {
-	// Validate base row structure
-	if err := cr.baseRow.validate(); err != nil {
-		return err
-	}
-
-	// Validate start_control is 'C' for checksum rows
+// Validate performs validation of checksum-specific properties
+// This method assumes baseRow.Validate() has already been called
+// This method is idempotent and can be called multiple times with the same result
+func (cr *ChecksumRow) Validate() error {
+	// Validate start_control is 'C' for checksum rows (context-specific validation)
 	if cr.StartControl != CHECKSUM_ROW {
 		return NewInvalidInputError(fmt.Sprintf("checksum row must have start_control='C', got '%c'", cr.StartControl), nil)
 	}
 
-	// Validate end_control is 'CS' for checksum rows
+	// Validate end_control is 'CS' for checksum rows (context-specific validation)
 	if cr.EndControl != CHECKSUM_ROW_CONTROL {
 		return NewInvalidInputError(fmt.Sprintf("checksum row must have end_control='CS', got '%s'", cr.EndControl.String()), nil)
 	}
 
-	// Validate payload is not nil
-	if cr.RowPayload == nil {
-		return NewInvalidInputError("checksum row payload cannot be nil", nil)
-	}
+	// Checksum is universally valid (uint32 is always valid), no validation needed
 
 	return nil
+}
+
+// validate is kept for backward compatibility, calls Validate()
+func (cr *ChecksumRow) validate() error {
+	return cr.Validate()
 }

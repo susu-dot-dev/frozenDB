@@ -88,7 +88,40 @@ func NewFrozenDB(path string, mode string) (*FrozenDB, error) {
 		closed: false,
 	}
 
+	// Validate the FrozenDB instance (ensures internal consistency)
+	if err := db.Validate(); err != nil {
+		cleanupErr = err
+		return nil, err
+	}
+
 	return db, nil
+}
+
+// Validate validates the FrozenDB struct for internal consistency
+// This method is idempotent and can be called multiple times with the same result
+func (db *FrozenDB) Validate() error {
+	// Validate file handle is not nil
+	if db.file == nil {
+		return NewInvalidInputError("FrozenDB file handle cannot be nil", nil)
+	}
+
+	// Validate header is not nil
+	if db.header == nil {
+		return NewInvalidInputError("FrozenDB header cannot be nil", nil)
+	}
+
+	// Validate header is valid (assumes header was validated during construction)
+	// We call Validate() to ensure header remains valid
+	if err := db.header.Validate(); err != nil {
+		return NewCorruptDatabaseError("FrozenDB header validation failed", err)
+	}
+
+	// Validate mode is valid
+	if db.mode != MODE_READ && db.mode != MODE_WRITE {
+		return NewInvalidInputError("FrozenDB mode must be 'read' or 'write'", nil)
+	}
+
+	return nil
 }
 
 // Close releases all resources associated with the database connection
@@ -183,9 +216,9 @@ func readAndValidateHeader(file *os.File) (*Header, error) {
 		)
 	}
 
-	// Parse and validate header
-	header, err := parseHeader(headerBytes)
-	if err != nil {
+	// Parse and validate header using UnmarshalText
+	header := &Header{}
+	if err := header.UnmarshalText(headerBytes); err != nil {
 		return nil, err // Already a CorruptDatabaseError
 	}
 
