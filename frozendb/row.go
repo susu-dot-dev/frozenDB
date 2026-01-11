@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding"
 	"fmt"
+	"reflect"
 )
 
 // Sentinel byte constants
@@ -33,6 +34,17 @@ func (sc StartControl) MarshalText() ([]byte, error) {
 	return []byte{byte(sc)}, nil
 }
 
+// Validate validates the StartControl value
+// This method is idempotent and can be called multiple times with the same result
+func (sc StartControl) Validate() error {
+	switch sc {
+	case START_TRANSACTION, ROW_CONTINUE, CHECKSUM_ROW:
+		return nil
+	default:
+		return NewInvalidInputError(fmt.Sprintf("invalid StartControl byte: 0x%02X", byte(sc)), nil)
+	}
+}
+
 // UnmarshalText parses single byte and validates StartControl
 func (sc *StartControl) UnmarshalText(text []byte) error {
 	if len(text) != 1 {
@@ -42,7 +54,8 @@ func (sc *StartControl) UnmarshalText(text []byte) error {
 	switch StartControl(b) {
 	case START_TRANSACTION, ROW_CONTINUE, CHECKSUM_ROW:
 		*sc = StartControl(b)
-		return nil
+		// Call Validate() after unmarshaling
+		return sc.Validate()
 	default:
 		return NewInvalidInputError(fmt.Sprintf("invalid StartControl byte: 0x%02X", b), nil)
 	}
@@ -69,6 +82,26 @@ func (ec EndControl) MarshalText() ([]byte, error) {
 	return ec[:], nil
 }
 
+// Validate validates the EndControl sequence
+// This method is idempotent and can be called multiple times with the same result
+func (ec EndControl) Validate() error {
+	// Check exact matches against known constants
+	switch ec {
+	case TRANSACTION_COMMIT, ROW_END_CONTROL, CHECKSUM_ROW_CONTROL,
+		SAVEPOINT_COMMIT, SAVEPOINT_CONTINUE, FULL_ROLLBACK:
+		return nil
+	}
+
+	// Special case: R0-R9 and S0-S9 rollback patterns
+	first := ec[0]
+	second := ec[1]
+	if (first == 'R' || first == 'S') && second >= '0' && second <= '9' {
+		return nil
+	}
+
+	return NewInvalidInputError(fmt.Sprintf("invalid EndControl: '%c%c'", first, second), nil)
+}
+
 // UnmarshalText parses 2-byte sequence into EndControl array with validation
 func (ec *EndControl) UnmarshalText(text []byte) error {
 	if len(text) != 2 {
@@ -82,7 +115,8 @@ func (ec *EndControl) UnmarshalText(text []byte) error {
 	case TRANSACTION_COMMIT, ROW_END_CONTROL, CHECKSUM_ROW_CONTROL,
 		SAVEPOINT_COMMIT, SAVEPOINT_CONTINUE, FULL_ROLLBACK:
 		copy(ec[:], text)
-		return nil
+		// Call Validate() after unmarshaling
+		return ec.Validate()
 	}
 
 	// Special case: R0-R9 and S0-S9 rollback patterns
@@ -90,7 +124,8 @@ func (ec *EndControl) UnmarshalText(text []byte) error {
 	second := text[1]
 	if (first == 'R' || first == 'S') && second >= '0' && second <= '9' {
 		copy(ec[:], text)
-		return nil
+		// Call Validate() after unmarshaling
+		return ec.Validate()
 	}
 
 	return NewInvalidInputError(fmt.Sprintf("invalid EndControl: '%c%c'", first, second), nil)
@@ -101,20 +136,25 @@ func (ec EndControl) String() string {
 	return string(ec[:])
 }
 
+// Validator defines the interface for types that can validate themselves
+type Validator interface {
+	Validate() error
+}
+
 // RowPayload defines the interface for row-specific payload data
 type RowPayload interface {
 	encoding.TextMarshaler
 	encoding.TextUnmarshaler
+	Validator
 }
 
 // baseRow provides the generic foundation for all frozenDB row types.
-// T is the element type (e.g., Checksum), and *T must implement RowPayload.
-// The RowPayload field is always a pointer to T (i.e., *T).
-type baseRow[T any] struct {
+// T must implement RowPayload. The RowPayload field stores T directly.
+type baseRow[T RowPayload] struct {
 	Header       *Header      // Header reference for row_size and configuration
 	StartControl StartControl // Single byte control character (position 1)
 	EndControl   EndControl   // Two-byte end control sequence (positions N-5,N-4)
-	RowPayload   *T           // Typed payload data (always a pointer), validated after structural checks
+	RowPayload   T            // Typed payload data, validated after structural checks
 }
 
 // PaddingLength calculates the required null byte padding length
@@ -122,7 +162,7 @@ type baseRow[T any] struct {
 // Takes the marshaled payload bytes to determine actual payload size
 func (br *baseRow[T]) PaddingLength(payloadBytes []byte) int {
 	payloadSize := len(payloadBytes)
-	return br.Header.RowSize - 7 - payloadSize
+	return br.Header.GetRowSize() - 7 - payloadSize
 }
 
 // buildRowBytesUpToParity builds row bytes from ROW_START through end_control (positions [0] through [rowSize-4] inclusive)
@@ -132,11 +172,10 @@ func (br *baseRow[T]) buildRowBytesUpToParity() ([]byte, error) {
 	if br.Header == nil {
 		return nil, NewInvalidInputError("Header is required (programmer error: Header must be set)", nil)
 	}
-	rowSize := br.Header.RowSize
+	rowSize := br.Header.GetRowSize()
 
-	// Marshal payload (type assert *T to RowPayload)
-	payload := any(br.RowPayload).(RowPayload)
-	payloadBytes, err := payload.MarshalText()
+	// Marshal payload (T implements RowPayload)
+	payloadBytes, err := br.RowPayload.MarshalText()
 	if err != nil {
 		return nil, NewInvalidInputError("failed to marshal row payload", err)
 	}
@@ -211,7 +250,7 @@ func (br *baseRow[T]) MarshalText() ([]byte, error) {
 	if br.Header == nil {
 		return nil, NewInvalidInputError("Header is required (programmer error: Header must be set)", nil)
 	}
-	rowSize := br.Header.RowSize
+	rowSize := br.Header.GetRowSize()
 
 	// Build row bytes up to but not including parity
 	rowBytesUpToParity, err := br.buildRowBytesUpToParity()
@@ -248,7 +287,7 @@ func (br *baseRow[T]) UnmarshalText(text []byte) error {
 		return NewInvalidInputError("Header is required (programmer error: Header must be set before UnmarshalText)", nil)
 	}
 
-	rowSize := br.Header.RowSize
+	rowSize := br.Header.GetRowSize()
 	if len(text) != rowSize {
 		return NewInvalidInputError(fmt.Sprintf("row bytes length mismatch: expected %d, got %d", rowSize, len(text)), nil)
 	}
@@ -259,6 +298,7 @@ func (br *baseRow[T]) UnmarshalText(text []byte) error {
 	}
 
 	// Step 1: Parse and validate start_control at position [1]
+	// UnmarshalText() will call Validate() internally
 	if err := br.StartControl.UnmarshalText(text[1:2]); err != nil {
 		return NewInvalidInputError("invalid start_control", err)
 	}
@@ -279,14 +319,26 @@ func (br *baseRow[T]) UnmarshalText(text []byte) error {
 	payloadBytes := text[payloadStart:payloadEnd]
 
 	// Create a new instance of T and unmarshal into it
-	newPayload := new(T)
-	unmarshaler := any(newPayload).(encoding.TextUnmarshaler)
-	if err := unmarshaler.UnmarshalText(payloadBytes); err != nil {
+	// Handle pointer types specially: if T is a pointer type, create a new instance of the underlying type
+	var payload T
+	tType := reflect.TypeOf(payload)
+	if tType.Kind() == reflect.Ptr {
+		// T is a pointer type, create a new instance of the underlying type
+		elemType := tType.Elem()
+		newElem := reflect.New(elemType)
+		payload = newElem.Interface().(T)
+	}
+	if err := payload.UnmarshalText(payloadBytes); err != nil {
 		return NewInvalidInputError("failed to unmarshal payload", err)
 	}
 
-	// Assign the pointer to RowPayload
-	br.RowPayload = newPayload
+	// Validate the unmarshaled payload
+	if err := payload.Validate(); err != nil {
+		return NewInvalidInputError("payload validation failed", err)
+	}
+
+	// Assign the payload
+	br.RowPayload = payload
 
 	// Step 4: Validate that bytes [firstNullIndex..N-6] are all null (padding)
 	for i := firstNullIndex; i < rowSize-6; i++ {
@@ -296,6 +348,7 @@ func (br *baseRow[T]) UnmarshalText(text []byte) error {
 	}
 
 	// Step 5: Validate end_control at positions [N-5..N-4]
+	// UnmarshalText() will call Validate() internally
 	if err := br.EndControl.UnmarshalText(text[rowSize-5 : rowSize-3]); err != nil {
 		return NewInvalidInputError("invalid end_control", err)
 	}
@@ -315,22 +368,41 @@ func (br *baseRow[T]) UnmarshalText(text []byte) error {
 		return NewInvalidInputError(fmt.Sprintf("invalid ROW_END: expected 0x%02X, got 0x%02X", ROW_END, text[rowSize-1]), nil)
 	}
 
-	return nil
+	// Call Validate() after successful unmarshaling
+	return br.Validate()
 }
 
-// validate performs comprehensive validation of baseRow structure
-func (br *baseRow[T]) validate() error {
+// Validate performs comprehensive validation of baseRow structure
+// This method is idempotent and can be called multiple times with the same result
+func (br *baseRow[T]) Validate() error {
 	if br.Header == nil {
 		return NewInvalidInputError("Header is required (programmer error: Header must be set before validation)", nil)
 	}
 
-	// Validate start_control
-	switch br.StartControl {
-	case START_TRANSACTION, ROW_CONTINUE, CHECKSUM_ROW:
-		// Valid
-	default:
-		return NewInvalidInputError(fmt.Sprintf("invalid StartControl: %c", br.StartControl), nil)
+	// Validate start_control (assumes StartControl.Validate() was called during construction)
+	if err := br.StartControl.Validate(); err != nil {
+		return NewInvalidInputError("invalid StartControl in baseRow", err)
+	}
+
+	// Validate end_control (assumes EndControl.Validate() was called during construction)
+	if err := br.EndControl.Validate(); err != nil {
+		return NewInvalidInputError("invalid EndControl in baseRow", err)
+	}
+
+	// Validate the payload itself (T implements RowPayload, so we can call methods directly)
+	// Check for nil using reflection since T is a generic type parameter
+	payloadValue := reflect.ValueOf(br.RowPayload)
+	if payloadValue.Kind() == reflect.Ptr && payloadValue.IsNil() {
+		return NewInvalidInputError("RowPayload is required (programmer error: RowPayload must be set before validation)", nil)
+	}
+	if err := br.RowPayload.Validate(); err != nil {
+		return NewInvalidInputError("payload validation failed", err)
 	}
 
 	return nil
+}
+
+// validate is kept for backward compatibility, calls Validate()
+func (br *baseRow[T]) validate() error {
+	return br.Validate()
 }

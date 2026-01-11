@@ -10,8 +10,10 @@ import (
 // Test_S_003_FR_001_ChecksumRowStructure tests FR-001: System MUST implement a ChecksumRow struct with fields matching v1_file_format.md section 6.1 specification
 func Test_S_003_FR_001_ChecksumRowStructure(t *testing.T) {
 	header := &Header{
-		RowSize: 1024,
-		SkewMs:  5000,
+		signature: "fDB",
+		version:   1,
+		rowSize:   1024,
+		skewMs:    5000,
 	}
 	dataBytes := []byte("test data for checksum")
 
@@ -35,8 +37,10 @@ func Test_S_003_FR_001_ChecksumRowStructure(t *testing.T) {
 // Test_S_003_FR_002_SerializationLayout tests FR-002: System MUST provide serialization method that outputs exact byte layout: ROW_START, start_control='C', crc32_base64 (8 bytes), NULL_BYTE padding, end_control='CS', parity_bytes (2 bytes), ROW_END
 func Test_S_003_FR_002_SerializationLayout(t *testing.T) {
 	header := &Header{
-		RowSize: 1024,
-		SkewMs:  5000,
+		signature: "fDB",
+		version:   1,
+		rowSize:   1024,
+		skewMs:    5000,
 	}
 	dataBytes := []byte("test data for checksum calculation")
 
@@ -51,7 +55,7 @@ func Test_S_003_FR_002_SerializationLayout(t *testing.T) {
 	}
 
 	// Verify exact byte layout per v1_file_format.md section 6.1
-	rowSize := header.RowSize
+	rowSize := header.GetRowSize()
 	if len(rowBytes) != rowSize {
 		t.Errorf("Row size mismatch: expected %d, got %d", rowSize, len(rowBytes))
 	}
@@ -100,8 +104,10 @@ func Test_S_003_FR_002_SerializationLayout(t *testing.T) {
 // Test_S_003_FR_003_Base64Encoding tests FR-003: System MUST encode 4-byte CRC32 values as 8-character Base64 strings with standard padding
 func Test_S_003_FR_003_Base64Encoding(t *testing.T) {
 	header := &Header{
-		RowSize: 1024,
-		SkewMs:  5000,
+		signature: "fDB",
+		version:   1,
+		rowSize:   1024,
+		skewMs:    5000,
 	}
 	dataBytes := []byte("test data for CRC32 calculation")
 
@@ -154,8 +160,10 @@ func Test_S_003_FR_003_Base64Encoding(t *testing.T) {
 // Test_S_003_FR_004_ParityCalculation tests FR-004: System MUST calculate LRC parity bytes using XOR algorithm on bytes [0] through [row_size-4]
 func Test_S_003_FR_004_ParityCalculation(t *testing.T) {
 	header := &Header{
-		RowSize: 1024,
-		SkewMs:  5000,
+		signature: "fDB",
+		version:   1,
+		rowSize:   1024,
+		skewMs:    5000,
 	}
 	dataBytes := []byte("test data for parity calculation")
 
@@ -169,7 +177,7 @@ func Test_S_003_FR_004_ParityCalculation(t *testing.T) {
 		t.Fatalf("MarshalText failed: %v", err)
 	}
 
-	rowSize := header.RowSize
+	rowSize := header.GetRowSize()
 	parityBytes := rowBytes[rowSize-3 : rowSize-1]
 
 	// Calculate expected parity using XOR on bytes [0] through [row_size-4] (inclusive)
@@ -200,8 +208,10 @@ func Test_S_003_FR_004_ParityCalculation(t *testing.T) {
 // Test_S_003_FR_005_ParityValidation tests FR-005: System MUST validate all data rows' parity before calculating block checksums as required by v1_file_format.md section 7.4
 func Test_S_003_FR_005_ParityValidation(t *testing.T) {
 	header := &Header{
-		RowSize: 1024,
-		SkewMs:  5000,
+		signature: "fDB",
+		version:   1,
+		rowSize:   1024,
+		skewMs:    5000,
 	}
 	dataBytes := []byte("test data for checksum")
 
@@ -243,8 +253,10 @@ func Test_S_003_FR_005_ParityValidation(t *testing.T) {
 // Test_S_003_FR_006_SentinelBytes tests FR-006: System MUST handle sentinel bytes correctly: ROW_START (0x1F) and ROW_END (0x0A)
 func Test_S_003_FR_006_SentinelBytes(t *testing.T) {
 	header := &Header{
-		RowSize: 1024,
-		SkewMs:  5000,
+		signature: "fDB",
+		version:   1,
+		rowSize:   1024,
+		skewMs:    5000,
 	}
 	dataBytes := []byte("test data")
 
@@ -264,7 +276,7 @@ func Test_S_003_FR_006_SentinelBytes(t *testing.T) {
 	}
 
 	// Verify ROW_END at position [row_size-1]
-	rowSize := header.RowSize
+	rowSize := header.GetRowSize()
 	if rowBytes[rowSize-1] != ROW_END {
 		t.Errorf("ROW_END mismatch: expected 0x%02X, got 0x%02X", ROW_END, rowBytes[rowSize-1])
 	}
@@ -316,26 +328,26 @@ func Test_S_003_FR_007_RowSizeSupport(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			header := &Header{
-				Signature: "fDB",
-				Version:   1,
-				RowSize:   tc.rowSize,
-				SkewMs:    5000,
+				signature: "fDB",
+				version:   1,
+				rowSize:   tc.rowSize,
+				skewMs:    5000,
 			}
 			dataBytes := []byte("test data")
 
 			// Header validation happens at creation time, not when used
-			// For invalid headers, validateHeaderFields should fail
+			// For invalid headers, Validate() should fail
 			if tc.wantErr {
-				err := validateHeaderFields(header)
+				err := header.Validate()
 				if err == nil {
-					t.Error("validateHeaderFields should fail for invalid row size")
+					t.Error("Validate() should fail for invalid row size")
 				}
 				return
 			}
 
-			// For valid headers, validateHeaderFields should pass
-			if err := validateHeaderFields(header); err != nil {
-				t.Fatalf("validateHeaderFields failed for valid row size %d: %v", tc.rowSize, err)
+			// For valid headers, Validate() should pass
+			if err := header.Validate(); err != nil {
+				t.Fatalf("Validate() failed for valid row size %d: %v", tc.rowSize, err)
 			}
 
 			// Now test NewChecksumRow with validated header
@@ -359,8 +371,10 @@ func Test_S_003_FR_007_RowSizeSupport(t *testing.T) {
 // Test_S_003_FR_008_DeserializationSupport tests FR-008: System MUST provide deserialization method that can parse checksum rows from byte arrays
 func Test_S_003_FR_008_DeserializationSupport(t *testing.T) {
 	header := &Header{
-		RowSize: 1024,
-		SkewMs:  5000,
+		signature: "fDB",
+		version:   1,
+		rowSize:   1024,
+		skewMs:    5000,
 	}
 	dataBytes := []byte("test data for deserialization")
 
@@ -393,8 +407,10 @@ func Test_S_003_FR_008_DeserializationSupport(t *testing.T) {
 // Test_S_003_FR_009_ValidationControlBytes tests FR-009: System MUST validate control byte sequences: start_control='C' and end_control='CS' for checksum rows
 func Test_S_003_FR_009_ValidationControlBytes(t *testing.T) {
 	header := &Header{
-		RowSize: 1024,
-		SkewMs:  5000,
+		signature: "fDB",
+		version:   1,
+		rowSize:   1024,
+		skewMs:    5000,
 	}
 	dataBytes := []byte("test data")
 
@@ -414,7 +430,7 @@ func Test_S_003_FR_009_ValidationControlBytes(t *testing.T) {
 	}
 
 	// Verify end_control is 'CS'
-	rowSize := header.RowSize
+	rowSize := header.GetRowSize()
 	endControl := rowBytes[rowSize-5 : rowSize-3]
 	if endControl[0] != 'C' || endControl[1] != 'S' {
 		t.Errorf("End control mismatch: expected 'CS', got '%c%c'", endControl[0], endControl[1])
@@ -451,11 +467,74 @@ func Test_S_003_FR_009_ValidationControlBytes(t *testing.T) {
 	}
 }
 
+// Test_S_004_FR_009_ValidatesChildContext tests FR-009: System MUST have Validate() check that child struct fields meet parent's contextual requirements (e.g., ChecksumRow requires StartControl='C')
+func Test_S_004_FR_009_ValidatesChildContext(t *testing.T) {
+	// Test ChecksumRow.Validate() checks contextual requirements for StartControl and EndControl
+	header := &Header{
+		signature: "fDB",
+		version:   1,
+		rowSize:   1024,
+		skewMs:    5000,
+	}
+	if err := header.Validate(); err != nil {
+		t.Fatalf("Header validation failed: %v", err)
+	}
+
+	// Create a valid ChecksumRow
+	cr, err := NewChecksumRow(header, []byte("test data"))
+	if err != nil {
+		t.Fatalf("Failed to create ChecksumRow: %v", err)
+	}
+
+	// Verify valid ChecksumRow passes validation
+	err = cr.Validate()
+	if err != nil {
+		t.Errorf("Valid ChecksumRow should pass validation: %v", err)
+	}
+
+	// Test that ChecksumRow.Validate() fails when StartControl is not 'C'
+	// (context-specific validation)
+	invalidCr := &ChecksumRow{
+		baseRow: baseRow[*Checksum]{
+			Header:       header,
+			StartControl: START_TRANSACTION, // Wrong: should be 'C' for checksum
+			EndControl:   CHECKSUM_ROW_CONTROL,
+			RowPayload:   cr.RowPayload,
+		},
+	}
+	err = invalidCr.Validate()
+	if err == nil {
+		t.Error("ChecksumRow.Validate() should fail when StartControl is not 'C'")
+	}
+	if _, ok := err.(*InvalidInputError); !ok {
+		t.Errorf("Expected InvalidInputError, got: %T", err)
+	}
+
+	// Test that ChecksumRow.Validate() fails when EndControl is not 'CS'
+	invalidCr2 := &ChecksumRow{
+		baseRow: baseRow[*Checksum]{
+			Header:       header,
+			StartControl: CHECKSUM_ROW,
+			EndControl:   TRANSACTION_COMMIT, // Wrong: should be 'CS' for checksum
+			RowPayload:   cr.RowPayload,
+		},
+	}
+	err = invalidCr2.Validate()
+	if err == nil {
+		t.Error("ChecksumRow.Validate() should fail when EndControl is not 'CS'")
+	}
+	if _, ok := err.(*InvalidInputError); !ok {
+		t.Errorf("Expected InvalidInputError, got: %T", err)
+	}
+}
+
 // Test_S_003_FR_010_CompleteValidation tests FR-010: System MUST validate EVERY bit of the string when deserializing a checksum row, including sentinel bits, parity correctness, padding, and control characters
 func Test_S_003_FR_010_CompleteValidation(t *testing.T) {
 	header := &Header{
-		RowSize: 1024,
-		SkewMs:  5000,
+		signature: "fDB",
+		version:   1,
+		rowSize:   1024,
+		skewMs:    5000,
 	}
 	dataBytes := []byte("test data for complete validation")
 

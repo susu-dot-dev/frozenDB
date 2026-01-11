@@ -132,13 +132,13 @@ func TestHeaderValidation_EdgeCases(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			header := &Header{
-				Signature: HEADER_SIGNATURE,
-				Version:   1,
-				RowSize:   tt.rowSize,
-				SkewMs:    tt.skewMs,
+				signature: HEADER_SIGNATURE,
+				version:   1,
+				rowSize:   tt.rowSize,
+				skewMs:    tt.skewMs,
 			}
 
-			err := validateHeaderFields(header)
+			err := header.Validate()
 
 			if tt.expectError && err == nil {
 				t.Error("Expected error, got nil")

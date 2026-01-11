@@ -273,6 +273,8 @@ func TestDB_Add(t *testing.T) {
 - CRC32 checksums and LRC parity for data integrity
 - Go 1.25.5 + Standard library only (encoding/base64, encoding/json, hash/crc32) (003-checksum-row)
 - Single file-based frozenDB database (.fdb extension) (003-checksum-row)
+- Go 1.25.5 + Go standard library only (os, encoding/json, sync, etc.) (004-struct-validation)
+- Single-file append-only database (.fdb extension) (004-struct-validation)
 
 ## Recent Changes
 - Updated with v1_file_format.md concepts for append-only architecture

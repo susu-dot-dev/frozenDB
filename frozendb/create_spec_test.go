@@ -74,9 +74,9 @@ func Test_S_001_FR_004_RejectUnprivilegedUser(t *testing.T) {
 	tempDir := t.TempDir()
 
 	config := CreateConfig{
-		Path:    filepath.Join(tempDir, "test.fdb"),
-		RowSize: 1024,
-		SkewMs:  5000,
+		path:    filepath.Join(tempDir, "test.fdb"),
+		rowSize: 1024,
+		skewMs:  5000,
 	}
 
 	// Test unprivileged user rejection
@@ -172,9 +172,9 @@ func Test_S_001_FR_006_AtomicFileCreation(t *testing.T) {
 	defer restoreRealFS()
 
 	config := CreateConfig{
-		Path:    dbPath,
-		RowSize: 1024,
-		SkewMs:  5000,
+		path:    dbPath,
+		rowSize: 1024,
+		skewMs:  5000,
 	}
 
 	// First creation should succeed
@@ -215,9 +215,9 @@ func Test_S_001_FR_007_FilePermissions(t *testing.T) {
 	defer restoreRealFS()
 
 	config := CreateConfig{
-		Path:    dbPath,
-		RowSize: 1024,
-		SkewMs:  5000,
+		path:    dbPath,
+		rowSize: 1024,
+		skewMs:  5000,
 	}
 
 	err := Create(config)
@@ -252,9 +252,9 @@ func Test_S_001_FR_008_HeaderFormat(t *testing.T) {
 	defer restoreRealFS()
 
 	config := CreateConfig{
-		Path:    dbPath,
-		RowSize: 1024,
-		SkewMs:  5000,
+		path:    dbPath,
+		rowSize: 1024,
+		skewMs:  5000,
 	}
 
 	err := Create(config)
@@ -318,9 +318,9 @@ func Test_S_001_FR_009_FdatasyncBeforeAttributes(t *testing.T) {
 	defer restoreRealFS()
 
 	config := CreateConfig{
-		Path:    dbPath,
-		RowSize: 1024,
-		SkewMs:  5000,
+		path:    dbPath,
+		rowSize: 1024,
+		skewMs:  5000,
 	}
 
 	err := Create(config)
@@ -354,9 +354,9 @@ func Test_S_001_FR_010_SetAppendOnlyAttribute(t *testing.T) {
 	// Test Case 1: Test append-only attribute setting through Create function with successful ioctl mocking
 	t.Run("successful_append_only_setting", func(t *testing.T) {
 		config := CreateConfig{
-			Path:    filepath.Join(tempDir, "success.fdb"),
-			RowSize: 1024,
-			SkewMs:  5000,
+			path:    filepath.Join(tempDir, "success.fdb"),
+			rowSize: 1024,
+			skewMs:  5000,
 		}
 		setupMockFS(fsOperations{
 			Ioctl: func(trap uintptr, a1 uintptr, a2 uintptr, a3 uintptr) (r1 uintptr, r2 uintptr, err syscall.Errno) {
@@ -379,7 +379,7 @@ func Test_S_001_FR_010_SetAppendOnlyAttribute(t *testing.T) {
 			t.Errorf("Create should succeed with mocked append-only operations, got: %v", err)
 		} else {
 			// Verify file was created successfully
-			if _, statErr := os.Stat(config.Path); statErr != nil {
+			if _, statErr := os.Stat(config.GetPath()); statErr != nil {
 				t.Errorf("Database file was not created: %v", statErr)
 			}
 		}
@@ -388,9 +388,9 @@ func Test_S_001_FR_010_SetAppendOnlyAttribute(t *testing.T) {
 	// Test Case 2: Test append-only attribute failure when ioctl fails
 	t.Run("ioctl_failure_handling", func(t *testing.T) {
 		config := CreateConfig{
-			Path:    filepath.Join(tempDir, "failure.fdb"),
-			RowSize: 1024,
-			SkewMs:  5000,
+			path:    filepath.Join(tempDir, "failure.fdb"),
+			rowSize: 1024,
+			skewMs:  5000,
 		}
 
 		// Setup mocks for successful file creation but failed append-only attribute setting
@@ -499,9 +499,9 @@ func Test_S_001_FR_012_AttributeTimingSequence(t *testing.T) {
 	defer cleanup()
 
 	config := CreateConfig{
-		Path:    dbPath,
-		RowSize: 1024,
-		SkewMs:  5000,
+		path:    dbPath,
+		rowSize: 1024,
+		skewMs:  5000,
 	}
 
 	err := Create(config)
@@ -591,9 +591,9 @@ func Test_S_001_FR_013_SetFileOwnership(t *testing.T) {
 
 		// Create a sudo context
 		sudoCtx := &SudoContext{
-			User: "testuser",
-			UID:  testUID,
-			GID:  testGID,
+			user: "testuser",
+			uid:  testUID,
+			gid:  testGID,
 		}
 
 		// Test setOwnership function
@@ -633,9 +633,9 @@ func Test_S_001_FR_013_SetFileOwnership(t *testing.T) {
 
 		// Create a sudo context with different UID/GID
 		sudoCtx := &SudoContext{
-			User: "testuser2",
-			UID:  testUID,
-			GID:  testGID,
+			user: "testuser2",
+			uid:  testUID,
+			gid:  testGID,
 		}
 
 		err = setOwnership(tempFile.Name(), sudoCtx)
@@ -688,9 +688,9 @@ func Test_S_001_FR_013_SetFileOwnership(t *testing.T) {
 		defer restoreRealFS()
 
 		sudoCtx := &SudoContext{
-			User: "testuser",
-			UID:  testUID,
-			GID:  testGID,
+			user: "testuser",
+			uid:  testUID,
+			gid:  testGID,
 		}
 
 		err = setOwnership(tempFile.Name(), sudoCtx)
@@ -718,9 +718,9 @@ func Test_S_001_FR_013_CreateIntegration(t *testing.T) {
 	tempDir := t.TempDir()
 
 	config := CreateConfig{
-		Path:    filepath.Join(tempDir, "test_integration.fdb"),
-		RowSize: 1024,
-		SkewMs:  5000,
+		path:    filepath.Join(tempDir, "test_integration.fdb"),
+		rowSize: 1024,
+		skewMs:  5000,
 	}
 
 	testUID := 1000
@@ -786,8 +786,8 @@ func Test_S_001_FR_013_CreateIntegration(t *testing.T) {
 	// Verify chown was called with correct parameters
 	if len(chownCalls) == 1 {
 		call := chownCalls[0]
-		if call.Path != config.Path {
-			t.Errorf("Expected chown to be called with path %s, got %s", config.Path, call.Path)
+		if call.Path != config.GetPath() {
+			t.Errorf("Expected chown to be called with path %s, got %s", config.GetPath(), call.Path)
 		}
 		if call.UID != testUID {
 			t.Errorf("Expected chown to be called with UID %d, got %d", testUID, call.UID)
@@ -798,7 +798,7 @@ func Test_S_001_FR_013_CreateIntegration(t *testing.T) {
 	}
 
 	// Verify that file was actually created
-	if _, statErr := os.Stat(config.Path); statErr != nil {
+	if _, statErr := os.Stat(config.GetPath()); statErr != nil {
 		t.Errorf("Database file was not created: %v", statErr)
 	}
 }
@@ -814,9 +814,9 @@ func Test_S_001_FR_014_SyscallChownUsage(t *testing.T) {
 	defer cleanup()
 
 	config := CreateConfig{
-		Path:    filepath.Join(tempDir, "test_syscall_chown.fdb"),
-		RowSize: 1024,
-		SkewMs:  5000,
+		path:    filepath.Join(tempDir, "test_syscall_chown.fdb"),
+		rowSize: 1024,
+		skewMs:  5000,
 	}
 
 	// Enable user story 1 mocking for successful creation
@@ -829,7 +829,7 @@ func Test_S_001_FR_014_SyscallChownUsage(t *testing.T) {
 	}
 
 	// Verify file ownership was set correctly
-	fileInfo, err := os.Stat(config.Path)
+	fileInfo, err := os.Stat(config.GetPath())
 	if err != nil {
 		t.Errorf("Failed to stat created file: %v", err)
 		return
@@ -876,9 +876,9 @@ func Test_S_001_FR_015_ValidateRowSizeRange(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			config := CreateConfig{
-				Path:    "/tmp/test.fdb",
-				RowSize: tt.rowSize,
-				SkewMs:  5000,
+				path:    "/tmp/test.fdb",
+				rowSize: tt.rowSize,
+				skewMs:  5000,
 			}
 			err := config.ValidateInputs()
 			if (err != nil) != tt.wantErr {
@@ -914,9 +914,9 @@ func Test_S_001_FR_016_ValidateSkewMsRange(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			config := CreateConfig{
-				Path:    "/tmp/test.fdb",
-				RowSize: 1024,
-				SkewMs:  tt.skewMs,
+				path:    "/tmp/test.fdb",
+				rowSize: 1024,
+				skewMs:  tt.skewMs,
 			}
 			err := config.ValidateInputs()
 			if (err != nil) != tt.wantErr {
@@ -954,9 +954,9 @@ func Test_S_001_FR_017_ValidatePathExtension(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			config := CreateConfig{
-				Path:    tt.path,
-				RowSize: 1024,
-				SkewMs:  5000,
+				path:    tt.path,
+				rowSize: 1024,
+				skewMs:  5000,
 			}
 			err := config.ValidateInputs()
 			if (err != nil) != tt.wantErr {
@@ -980,9 +980,9 @@ func Test_S_001_FR_018_ValidateParentDirectory(t *testing.T) {
 
 	// Test with existing writable directory
 	config := CreateConfig{
-		Path:    filepath.Join(tempDir, "test.fdb"),
-		RowSize: 1024,
-		SkewMs:  5000,
+		path:    filepath.Join(tempDir, "test.fdb"),
+		rowSize: 1024,
+		skewMs:  5000,
 	}
 	err := config.Validate()
 	if err != nil {
@@ -991,9 +991,9 @@ func Test_S_001_FR_018_ValidateParentDirectory(t *testing.T) {
 
 	// Test with non-existent parent directory
 	config = CreateConfig{
-		Path:    filepath.Join(tempDir, "nonexistent", "test.fdb"),
-		RowSize: 1024,
-		SkewMs:  5000,
+		path:    filepath.Join(tempDir, "nonexistent", "test.fdb"),
+		rowSize: 1024,
+		skewMs:  5000,
 	}
 	err = config.Validate()
 	if err == nil {
@@ -1033,9 +1033,9 @@ func Test_S_001_FR_019_CleanupOnFailure(t *testing.T) {
 	defer cleanup()
 
 	config := CreateConfig{
-		Path:    dbPath,
-		RowSize: 1024,
-		SkewMs:  5000,
+		path:    dbPath,
+		rowSize: 1024,
+		skewMs:  5000,
 	}
 
 	err := Create(config)
@@ -1102,9 +1102,9 @@ func Test_S_001_FR_020_PathValidation(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			config := CreateConfig{
-				Path:    tc.path,
-				RowSize: 1024,
-				SkewMs:  5000,
+				path:    tc.path,
+				rowSize: 1024,
+				skewMs:  5000,
 			}
 
 			// For valid paths that don't exist, we need to check validation
@@ -1285,9 +1285,9 @@ func Test_S_001_FR_022_RelativePathHandling(t *testing.T) {
 
 	// Use relative path (should be relative to tempDir)
 	config := CreateConfig{
-		Path:    "./relative_test.fdb",
-		RowSize: 1024,
-		SkewMs:  5000,
+		path:    "./relative_test.fdb",
+		rowSize: 1024,
+		skewMs:  5000,
 	}
 
 	// Enable user story 1 mocking for successful creation
@@ -1312,9 +1312,9 @@ func Test_S_001_FR_023_NoShellExpansion(t *testing.T) {
 	// Using ~ in path should be treated literally, not expanded to home directory
 
 	config := CreateConfig{
-		Path:    "~/literal_test.fdb", // Should be treated literally, not expanded
-		RowSize: 1024,
-		SkewMs:  5000,
+		path:    "~/literal_test.fdb", // Should be treated literally, not expanded
+		rowSize: 1024,
+		skewMs:  5000,
 	}
 
 	// Validate should fail because parent directory "~" doesn't exist literally
@@ -1359,9 +1359,9 @@ func Test_S_001_FR_024_FilesystemPathValidation(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			config := CreateConfig{
-				Path:    tc.path,
-				RowSize: 1024,
-				SkewMs:  5000,
+				path:    tc.path,
+				rowSize: 1024,
+				skewMs:  5000,
 			}
 
 			err := config.Validate()
@@ -1389,9 +1389,9 @@ func Test_S_001_FR_025_AllowHiddenFiles(t *testing.T) {
 	defer cleanup()
 
 	config := CreateConfig{
-		Path:    filepath.Join(tempDir, ".hidden_test.fdb"), // Hidden file
-		RowSize: 1024,
-		SkewMs:  5000,
+		path:    filepath.Join(tempDir, ".hidden_test.fdb"), // Hidden file
+		rowSize: 1024,
+		skewMs:  5000,
 	}
 
 	// Enable user story 1 mocking for successful creation
@@ -1404,8 +1404,8 @@ func Test_S_001_FR_025_AllowHiddenFiles(t *testing.T) {
 	}
 
 	// Verify hidden file was created successfully
-	if _, err := os.Stat(config.Path); os.IsNotExist(err) {
-		t.Errorf("Hidden file was not created: %s", config.Path)
+	if _, err := os.Stat(config.GetPath()); os.IsNotExist(err) {
+		t.Errorf("Hidden file was not created: %s", config.GetPath())
 	}
 }
 
@@ -1429,9 +1429,9 @@ func Test_S_001_FR_026_PathLengthHandling(t *testing.T) {
 	}
 
 	config := CreateConfig{
-		Path:    longPath,
-		RowSize: 1024,
-		SkewMs:  5000,
+		path:    longPath,
+		rowSize: 1024,
+		skewMs:  5000,
 	}
 
 	// Validate should pass for long but valid path
@@ -1505,9 +1505,9 @@ func Test_S_001_FR_027_PathCharacterValidation(t *testing.T) {
 			}
 
 			config := CreateConfig{
-				Path:    tc.path,
-				RowSize: 1024,
-				SkewMs:  5000,
+				path:    tc.path,
+				rowSize: 1024,
+				skewMs:  5000,
 			}
 
 			// Test input validation (not filesystem validation)
@@ -1554,9 +1554,9 @@ func Test_S_001_FR_028_ThreadSafety(t *testing.T) {
 
 				dbPath := filepath.Join(tempDir, fmt.Sprintf("test_%d_%d.fdb", goroutineID, iterationID))
 				config := CreateConfig{
-					Path:    dbPath,
-					RowSize: 1024,
-					SkewMs:  5000,
+					path:    dbPath,
+					rowSize: 1024,
+					skewMs:  5000,
 				}
 
 				err := Create(config)
@@ -1603,9 +1603,9 @@ func Test_S_001_FR_029_ProcessAtomicity(t *testing.T) {
 	defer restoreRealFS()
 
 	config := CreateConfig{
-		Path:    dbPath,
-		RowSize: 1024,
-		SkewMs:  5000,
+		path:    dbPath,
+		rowSize: 1024,
+		skewMs:  5000,
 	}
 
 	const numGoroutines = 10
@@ -1674,9 +1674,9 @@ func Test_S_001_FR_030_FixedMemoryUsage(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			dbPath := filepath.Join(tempDir, fmt.Sprintf("test_%s.fdb", tc.name))
 			config := CreateConfig{
-				Path:    dbPath,
-				RowSize: tc.rowSize,
-				SkewMs:  tc.skewMs,
+				path:    dbPath,
+				rowSize: tc.rowSize,
+				skewMs:  tc.skewMs,
 			}
 
 			// The test passes if function completes without errors
@@ -1705,9 +1705,9 @@ func Test_S_001_FR_031_MinimizedDiskOperations(t *testing.T) {
 	defer restoreRealFS()
 
 	config := CreateConfig{
-		Path:    dbPath,
-		RowSize: 1024,
-		SkewMs:  5000,
+		path:    dbPath,
+		rowSize: 1024,
+		skewMs:  5000,
 	}
 
 	err := Create(config)
@@ -1748,9 +1748,9 @@ func Test_S_001_FR_032_EarlyValidation(t *testing.T) {
 		{
 			name: "empty path",
 			config: CreateConfig{
-				Path:    "",
-				RowSize: 1024,
-				SkewMs:  5000,
+				path:    "",
+				rowSize: 1024,
+				skewMs:  5000,
 			},
 			wantErr: true,
 			errType: "*InvalidInputError",
@@ -1758,9 +1758,9 @@ func Test_S_001_FR_032_EarlyValidation(t *testing.T) {
 		{
 			name: "invalid row size",
 			config: CreateConfig{
-				Path:    filepath.Join(tempDir, "test.fdb"),
-				RowSize: 64, // Too small
-				SkewMs:  5000,
+				path:    filepath.Join(tempDir, "test.fdb"),
+				rowSize: 64, // Too small
+				skewMs:  5000,
 			},
 			wantErr: true,
 			errType: "*InvalidInputError",
@@ -1768,9 +1768,9 @@ func Test_S_001_FR_032_EarlyValidation(t *testing.T) {
 		{
 			name: "invalid skew ms",
 			config: CreateConfig{
-				Path:    filepath.Join(tempDir, "test.fdb"),
-				RowSize: 1024,
-				SkewMs:  -1, // Negative
+				path:    filepath.Join(tempDir, "test.fdb"),
+				rowSize: 1024,
+				skewMs:  -1, // Negative
 			},
 			wantErr: true,
 			errType: "*InvalidInputError",
@@ -1778,9 +1778,9 @@ func Test_S_001_FR_032_EarlyValidation(t *testing.T) {
 		{
 			name: "wrong extension",
 			config: CreateConfig{
-				Path:    filepath.Join(tempDir, "test.txt"),
-				RowSize: 1024,
-				SkewMs:  5000,
+				path:    filepath.Join(tempDir, "test.txt"),
+				rowSize: 1024,
+				skewMs:  5000,
 			},
 			wantErr: true,
 			errType: "*InvalidInputError",
@@ -1788,9 +1788,9 @@ func Test_S_001_FR_032_EarlyValidation(t *testing.T) {
 		{
 			name: "valid config",
 			config: CreateConfig{
-				Path:    filepath.Join(tempDir, "test.fdb"),
-				RowSize: 1024,
-				SkewMs:  5000,
+				path:    filepath.Join(tempDir, "test.fdb"),
+				rowSize: 1024,
+				skewMs:  5000,
 			},
 			wantErr: false,
 			errType: "",
@@ -1821,4 +1821,137 @@ func Test_S_001_FR_032_EarlyValidation(t *testing.T) {
 	}
 
 	t.Log("FR-032 early validation test completed: all validations tested")
+}
+
+// Test_S_004_FR_007_ValidatesNonStructFields tests FR-007: System MUST have Validate() check non-struct fields for validity (primitive types, strings, numbers, etc.)
+func Test_S_004_FR_007_ValidatesNonStructFields(t *testing.T) {
+	// Test CreateConfig.Validate() checks non-struct fields (path, rowSize, skewMs)
+	// Path validation (non-empty string)
+	config := CreateConfig{
+		path:    "", // Empty path should fail
+		rowSize: 1024,
+		skewMs:  5000,
+	}
+	err := config.Validate()
+	if err == nil {
+		t.Error("CreateConfig.Validate() should fail for empty path")
+	}
+
+	// RowSize validation (range check)
+	config = CreateConfig{
+		path:    filepath.Join(t.TempDir(), "test.fdb"),
+		rowSize: 50, // Below minimum
+		skewMs:  5000,
+	}
+	err = config.Validate()
+	if err == nil {
+		t.Error("CreateConfig.Validate() should fail for rowSize below minimum")
+	}
+
+	// SkewMs validation (range check)
+	config = CreateConfig{
+		path:    filepath.Join(t.TempDir(), "test.fdb"),
+		rowSize: 1024,
+		skewMs:  -1, // Below minimum
+	}
+	err = config.Validate()
+	if err == nil {
+		t.Error("CreateConfig.Validate() should fail for negative skewMs")
+	}
+
+	// Test Header.Validate() checks non-struct fields (signature, version, rowSize, skewMs)
+	header := &Header{
+		signature: "XXX", // Invalid signature
+		version:   1,
+		rowSize:   1024,
+		skewMs:    5000,
+	}
+	err = header.Validate()
+	if err == nil {
+		t.Error("Header.Validate() should fail for invalid signature")
+	}
+
+	header = &Header{
+		signature: "fDB",
+		version:   2, // Invalid version
+		rowSize:   1024,
+		skewMs:    5000,
+	}
+	err = header.Validate()
+	if err == nil {
+		t.Error("Header.Validate() should fail for invalid version")
+	}
+
+	// Test SudoContext.Validate() checks non-struct fields (user, uid, gid)
+	ctx := &SudoContext{
+		user: "", // Empty user should fail
+		uid:  1000,
+		gid:  1000,
+	}
+	err = ctx.Validate()
+	if err == nil {
+		t.Error("SudoContext.Validate() should fail for empty user")
+	}
+
+	ctx = &SudoContext{
+		user: "testuser",
+		uid:  0, // Invalid UID
+		gid:  1000,
+	}
+	err = ctx.Validate()
+	if err == nil {
+		t.Error("SudoContext.Validate() should fail for UID <= 0")
+	}
+
+	ctx = &SudoContext{
+		user: "testuser",
+		uid:  1000,
+		gid:  0, // Invalid GID
+	}
+	err = ctx.Validate()
+	if err == nil {
+		t.Error("SudoContext.Validate() should fail for GID <= 0")
+	}
+}
+
+// Test_S_004_FR_003_ConstructorCallsValidate tests FR-003: System MUST call Validate() in all NewStruct() constructor functions before returning the struct instance
+func Test_S_004_FR_003_ConstructorCallsValidate(t *testing.T) {
+	// Test that Create() function calls Validate() on CreateConfig
+	// This is already tested in existing tests, but we verify the pattern
+	// CreateConfig.Validate() is called in Create() function
+
+	// Test with valid config - should succeed (validation passes)
+	testPath := filepath.Join(t.TempDir(), "test.fdb")
+	cleanup := setupValidSudoEnv(t)
+	defer cleanup()
+	setupUserStory1Mocks()
+	defer restoreRealFS()
+
+	config := CreateConfig{
+		path:    testPath,
+		rowSize: 1024,
+		skewMs:  5000,
+	}
+
+	// Create() should call Validate() internally and succeed for valid config
+	err := Create(config)
+	if err != nil {
+		t.Errorf("Create() with valid config should succeed, got: %v", err)
+	}
+
+	// Test with invalid config - Create() should call Validate() and fail
+	invalidConfig := CreateConfig{
+		path:    testPath,
+		rowSize: 50, // Invalid: below minimum
+		skewMs:  5000,
+	}
+
+	err = Create(invalidConfig)
+	if err == nil {
+		t.Error("Create() with invalid config should fail validation")
+	}
+	// Verify it's an InvalidInputError from validation
+	if _, ok := err.(*InvalidInputError); !ok {
+		t.Errorf("Expected InvalidInputError from validation, got: %T", err)
+	}
 }

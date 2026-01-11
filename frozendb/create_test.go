@@ -70,63 +70,63 @@ func TestValidateInputs(t *testing.T) {
 		{
 			name: "valid config",
 			config: CreateConfig{
-				Path:    "/tmp/test.fdb",
-				RowSize: 1024,
-				SkewMs:  5000,
+				path:    "/tmp/test.fdb",
+				rowSize: 1024,
+				skewMs:  5000,
 			},
 			wantErr: false,
 		},
 		{
 			name: "empty path",
 			config: CreateConfig{
-				Path:    "",
-				RowSize: 1024,
-				SkewMs:  5000,
+				path:    "",
+				rowSize: 1024,
+				skewMs:  5000,
 			},
 			wantErr: true,
 		},
 		{
 			name: "invalid extension",
 			config: CreateConfig{
-				Path:    "/tmp/test.txt",
-				RowSize: 1024,
-				SkewMs:  5000,
+				path:    "/tmp/test.txt",
+				rowSize: 1024,
+				skewMs:  5000,
 			},
 			wantErr: true,
 		},
 		{
 			name: "rowSize too small",
 			config: CreateConfig{
-				Path:    "/tmp/test.fdb",
-				RowSize: 64,
-				SkewMs:  5000,
+				path:    "/tmp/test.fdb",
+				rowSize: 64,
+				skewMs:  5000,
 			},
 			wantErr: true,
 		},
 		{
 			name: "rowSize too large",
 			config: CreateConfig{
-				Path:    "/tmp/test.fdb",
-				RowSize: 100000,
-				SkewMs:  5000,
+				path:    "/tmp/test.fdb",
+				rowSize: 100000,
+				skewMs:  5000,
 			},
 			wantErr: true,
 		},
 		{
 			name: "negative skewMs",
 			config: CreateConfig{
-				Path:    "/tmp/test.fdb",
-				RowSize: 1024,
-				SkewMs:  -1,
+				path:    "/tmp/test.fdb",
+				rowSize: 1024,
+				skewMs:  -1,
 			},
 			wantErr: true,
 		},
 		{
 			name: "skewMs too large",
 			config: CreateConfig{
-				Path:    "/tmp/test.fdb",
-				RowSize: 1024,
-				SkewMs:  100000000,
+				path:    "/tmp/test.fdb",
+				rowSize: 1024,
+				skewMs:  100000000,
 			},
 			wantErr: true,
 		},
@@ -222,16 +222,16 @@ func TestDetectSudoContext(t *testing.T) {
 	if ctx == nil {
 		t.Error("detectSudoContext() should return context when SUDO_USER is set")
 	} else {
-		if ctx.User != currentUser.Username {
-			t.Errorf("detectSudoContext() user = %s, want %s", ctx.User, currentUser.Username)
+		if ctx.GetUser() != currentUser.Username {
+			t.Errorf("detectSudoContext() user = %s, want %s", ctx.GetUser(), currentUser.Username)
 		}
 		uid, _ := strconv.Atoi(currentUser.Uid)
-		if ctx.UID != uid {
-			t.Errorf("detectSudoContext() UID = %d, want %s", ctx.UID, currentUser.Uid)
+		if ctx.GetUID() != uid {
+			t.Errorf("detectSudoContext() UID = %d, want %s", ctx.GetUID(), currentUser.Uid)
 		}
 		gid, _ := strconv.Atoi(currentUser.Gid)
-		if ctx.GID != gid {
-			t.Errorf("detectSudoContext() GID = %d, want %s", ctx.GID, currentUser.Gid)
+		if ctx.GetGID() != gid {
+			t.Errorf("detectSudoContext() GID = %d, want %s", ctx.GetGID(), currentUser.Gid)
 		}
 	}
 }

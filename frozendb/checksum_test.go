@@ -151,8 +151,10 @@ func TestNewChecksumRow(t *testing.T) {
 		{
 			name: "valid checksum row",
 			header: &Header{
-				RowSize: 1024,
-				SkewMs:  5000,
+				signature: "fDB",
+				version:   1,
+				rowSize:   1024,
+				skewMs:    5000,
 			},
 			dataBytes: []byte("test data"),
 			wantErr:   false,
@@ -166,8 +168,10 @@ func TestNewChecksumRow(t *testing.T) {
 		{
 			name: "empty data bytes",
 			header: &Header{
-				RowSize: 1024,
-				SkewMs:  5000,
+				signature: "fDB",
+				version:   1,
+				rowSize:   1024,
+				skewMs:    5000,
 			},
 			dataBytes: []byte{},
 			wantErr:   true,
@@ -175,14 +179,16 @@ func TestNewChecksumRow(t *testing.T) {
 		{
 			name: "nil data bytes",
 			header: &Header{
-				RowSize: 1024,
-				SkewMs:  5000,
+				signature: "fDB",
+				version:   1,
+				rowSize:   1024,
+				skewMs:    5000,
 			},
 			dataBytes: nil,
 			wantErr:   true,
 		},
 		// Note: Header field validation (e.g., RowSize) is the responsibility
-		// of the Header creator (parseHeader, NewHeader, or manual creation with validate()).
+		// of the Header creator (UnmarshalText or manual creation with Validate()).
 		// NewChecksumRow only checks that header is non-nil.
 	}
 
@@ -210,8 +216,10 @@ func TestNewChecksumRow(t *testing.T) {
 
 func TestChecksumRow_GetChecksum(t *testing.T) {
 	header := &Header{
-		RowSize: 1024,
-		SkewMs:  5000,
+		signature: "fDB",
+		version:   1,
+		rowSize:   1024,
+		skewMs:    5000,
 	}
 	dataBytes := []byte("test data for GetChecksum")
 
@@ -241,8 +249,10 @@ func TestChecksumRow_GetChecksum_NilPayload(t *testing.T) {
 
 func TestChecksumRow_MarshalText(t *testing.T) {
 	header := &Header{
-		RowSize: 1024,
-		SkewMs:  5000,
+		signature: "fDB",
+		version:   1,
+		rowSize:   1024,
+		skewMs:    5000,
 	}
 	dataBytes := []byte("test data for MarshalText")
 
@@ -256,15 +266,17 @@ func TestChecksumRow_MarshalText(t *testing.T) {
 		t.Fatalf("MarshalText() error = %v", err)
 	}
 
-	if len(got) != header.RowSize {
-		t.Errorf("MarshalText() length = %d, want %d", len(got), header.RowSize)
+	if len(got) != header.GetRowSize() {
+		t.Errorf("MarshalText() length = %d, want %d", len(got), header.GetRowSize())
 	}
 }
 
 func TestChecksumRow_UnmarshalText(t *testing.T) {
 	header := &Header{
-		RowSize: 1024,
-		SkewMs:  5000,
+		signature: "fDB",
+		version:   1,
+		rowSize:   1024,
+		skewMs:    5000,
 	}
 	dataBytes := []byte("test data for UnmarshalText")
 
@@ -291,8 +303,10 @@ func TestChecksumRow_UnmarshalText(t *testing.T) {
 
 func TestChecksumRow_UnmarshalText_WithoutHeader(t *testing.T) {
 	header := &Header{
-		RowSize: 1024,
-		SkewMs:  5000,
+		signature: "fDB",
+		version:   1,
+		rowSize:   1024,
+		skewMs:    5000,
 	}
 	dataBytes := []byte("test data")
 
@@ -322,7 +336,7 @@ func TestChecksumRow_validate(t *testing.T) {
 		{
 			name: "valid checksum row",
 			setup: func() *ChecksumRow {
-				header := &Header{RowSize: 1024, SkewMs: 5000}
+				header := &Header{signature: "fDB", version: 1, rowSize: 1024, skewMs: 5000}
 				cr, _ := NewChecksumRow(header, []byte("test"))
 				return cr
 			},
@@ -338,7 +352,7 @@ func TestChecksumRow_validate(t *testing.T) {
 		{
 			name: "wrong start control",
 			setup: func() *ChecksumRow {
-				header := &Header{RowSize: 1024, SkewMs: 5000}
+				header := &Header{signature: "fDB", version: 1, rowSize: 1024, skewMs: 5000}
 				cr, _ := NewChecksumRow(header, []byte("test"))
 				cr.StartControl = START_TRANSACTION
 				return cr
@@ -348,7 +362,7 @@ func TestChecksumRow_validate(t *testing.T) {
 		{
 			name: "wrong end control",
 			setup: func() *ChecksumRow {
-				header := &Header{RowSize: 1024, SkewMs: 5000}
+				header := &Header{signature: "fDB", version: 1, rowSize: 1024, skewMs: 5000}
 				cr, _ := NewChecksumRow(header, []byte("test"))
 				cr.EndControl = TRANSACTION_COMMIT
 				return cr
@@ -358,9 +372,9 @@ func TestChecksumRow_validate(t *testing.T) {
 		{
 			name: "nil payload",
 			setup: func() *ChecksumRow {
-				header := &Header{RowSize: 1024, SkewMs: 5000}
+				header := &Header{signature: "fDB", version: 1, rowSize: 1024, skewMs: 5000}
 				return &ChecksumRow{
-					baseRow[Checksum]{
+					baseRow[*Checksum]{
 						Header:       header,
 						StartControl: CHECKSUM_ROW,
 						EndControl:   CHECKSUM_ROW_CONTROL,
@@ -369,15 +383,32 @@ func TestChecksumRow_validate(t *testing.T) {
 				}
 			},
 			wantErr: true,
+			// Note: nil payload validation is now in baseRow.Validate(), not ChecksumRow.Validate()
+			// This test verifies that baseRow.Validate() catches nil payload
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			cr := tt.setup()
-			err := cr.validate()
-			if (err != nil) != tt.wantErr {
-				t.Errorf("ChecksumRow.validate() error = %v, wantErr %v", err, tt.wantErr)
+			// For nil payload test, validate baseRow first (which checks payload)
+			// Then validate ChecksumRow-specific properties
+			if tt.name == "nil payload" {
+				// baseRow.Validate() should catch nil payload
+				if err := cr.baseRow.Validate(); err == nil {
+					t.Error("baseRow.Validate() should fail for nil payload")
+				}
+				// ChecksumRow.Validate() only checks checksum-specific properties
+				// It assumes baseRow is already valid
+				err := cr.Validate()
+				if err != nil {
+					t.Errorf("ChecksumRow.Validate() should not fail for nil payload (baseRow.Validate() handles it): %v", err)
+				}
+			} else {
+				err := cr.validate()
+				if (err != nil) != tt.wantErr {
+					t.Errorf("ChecksumRow.validate() error = %v, wantErr %v", err, tt.wantErr)
+				}
 			}
 		})
 	}

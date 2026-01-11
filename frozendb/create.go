@@ -87,25 +87,75 @@ func setupMockFS(overrides fsOperations) {
 
 // CreateConfig holds configuration for creating a new frozenDB database file
 type CreateConfig struct {
-	Path    string // Filesystem path for the database file
-	RowSize int    // Size of each data row in bytes (128-65536)
-	SkewMs  int    // Time skew window in milliseconds (0-86400000)
+	path    string // Filesystem path for the database file
+	rowSize int    // Size of each data row in bytes (128-65536)
+	skewMs  int    // Time skew window in milliseconds (0-86400000)
+}
+
+// GetPath returns the filesystem path for the database file
+func (cfg *CreateConfig) GetPath() string {
+	return cfg.path
+}
+
+// GetRowSize returns the row size in bytes
+func (cfg *CreateConfig) GetRowSize() int {
+	return cfg.rowSize
+}
+
+// GetSkewMs returns the time skew window in milliseconds
+func (cfg *CreateConfig) GetSkewMs() int {
+	return cfg.skewMs
 }
 
 // Header represents frozenDB v1 text-based header format
 // Header is exactly 64 bytes: JSON content + null padding + newline
 type Header struct {
-	Signature string // Always "fDB"
-	Version   int    // Always 1 for v1 format
-	RowSize   int    // Size of each data row in bytes (128-65536)
-	SkewMs    int    // Time skew window in milliseconds (0-86400000)
+	signature string // Always "fDB"
+	version   int    // Always 1 for v1 format
+	rowSize   int    // Size of each data row in bytes (128-65536)
+	skewMs    int    // Time skew window in milliseconds (0-86400000)
+}
+
+// GetSignature returns the header signature
+func (h *Header) GetSignature() string {
+	return h.signature
+}
+
+// GetVersion returns the header version
+func (h *Header) GetVersion() int {
+	return h.version
+}
+
+// GetRowSize returns the row size in bytes
+func (h *Header) GetRowSize() int {
+	return h.rowSize
+}
+
+// GetSkewMs returns the time skew window in milliseconds
+func (h *Header) GetSkewMs() int {
+	return h.skewMs
 }
 
 // SudoContext contains information about the sudo environment
 type SudoContext struct {
-	User string // Original username from SUDO_USER
-	UID  int    // Original user ID from SUDO_UID
-	GID  int    // Original group ID from SUDO_GID
+	user string // Original username from SUDO_USER
+	uid  int    // Original user ID from SUDO_UID
+	gid  int    // Original group ID from SUDO_GID
+}
+
+// GetUser returns the original username from SUDO_USER
+func (sc *SudoContext) GetUser() string {
+	return sc.user
+}
+
+// GetUID returns the original user ID from SUDO_UID
+func (sc *SudoContext) GetUID() int {
+	return sc.uid
+}
+
+// GetGID returns the original group ID from SUDO_GID
+func (sc *SudoContext) GetGID() int {
+	return sc.gid
 }
 
 // Constants for frozenDB v1 format
@@ -202,11 +252,39 @@ func detectSudoContext() (*SudoContext, error) {
 		return nil, NewWriteError("SUDO_UID does not match SUDO_USER", nil)
 	}
 
-	return &SudoContext{
-		User: sudoUser,
-		UID:  uid,
-		GID:  gid,
-	}, nil
+	ctx := &SudoContext{
+		user: sudoUser,
+		uid:  uid,
+		gid:  gid,
+	}
+
+	// Validate the SudoContext before returning
+	if err := ctx.Validate(); err != nil {
+		return nil, err
+	}
+
+	return ctx, nil
+}
+
+// Validate validates the SudoContext struct fields
+// This method is idempotent and can be called multiple times with the same result
+func (sc *SudoContext) Validate() error {
+	// Validate user is not empty
+	if sc.user == "" {
+		return NewWriteError("SudoContext user cannot be empty", nil)
+	}
+
+	// Validate UID is positive
+	if sc.uid <= 0 {
+		return NewWriteError("SudoContext UID must be greater than 0", nil)
+	}
+
+	// Validate GID is positive
+	if sc.gid <= 0 {
+		return NewWriteError("SudoContext GID must be greater than 0", nil)
+	}
+
+	return nil
 }
 
 // Validate validates the CreateConfig and returns appropriate error types
@@ -214,7 +292,7 @@ func (cfg *CreateConfig) Validate() error {
 	if err := validateInputs(*cfg); err != nil {
 		return err
 	}
-	if err := validatePath(cfg.Path); err != nil {
+	if err := validatePath(cfg.path); err != nil {
 		return err
 	}
 	return nil
@@ -249,7 +327,7 @@ func Create(config CreateConfig) error {
 	}
 
 	// Create file atomically
-	file, err := createFile(config.Path)
+	file, err := createFile(config.path)
 	if err != nil {
 		return err
 	}
@@ -258,7 +336,7 @@ func Create(config CreateConfig) error {
 	defer func() {
 		if err != nil {
 			_ = file.Close()
-			_ = os.Remove(config.Path) // Clean up partial file
+			_ = os.Remove(config.path) // Clean up partial file
 		}
 	}()
 
@@ -273,7 +351,7 @@ func Create(config CreateConfig) error {
 	}
 
 	// Set ownership to original user (if running under sudo)
-	if err = setOwnership(config.Path, sudoCtx); err != nil {
+	if err = setOwnership(config.path, sudoCtx); err != nil {
 		return err
 	}
 
@@ -295,27 +373,27 @@ func Create(config CreateConfig) error {
 // validateInputs performs all input validation from CreateConfig (no side effects)
 func validateInputs(config CreateConfig) error {
 	// Validate path is not empty
-	if config.Path == "" {
+	if config.path == "" {
 		return NewInvalidInputError("path cannot be empty", nil)
 	}
 
 	// Validate path has .fdb extension
-	if !strings.HasSuffix(config.Path, FILE_EXTENSION) || len(config.Path) <= len(FILE_EXTENSION) {
+	if !strings.HasSuffix(config.path, FILE_EXTENSION) || len(config.path) <= len(FILE_EXTENSION) {
 		return NewInvalidInputError("path must have .fdb extension", nil)
 	}
 
 	// Validate rowSize range
-	if config.RowSize < MIN_ROW_SIZE || config.RowSize > MAX_ROW_SIZE {
+	if config.rowSize < MIN_ROW_SIZE || config.rowSize > MAX_ROW_SIZE {
 		return NewInvalidInputError(
-			fmt.Sprintf("rowSize must be between %d and %d, got %d", MIN_ROW_SIZE, MAX_ROW_SIZE, config.RowSize),
+			fmt.Sprintf("rowSize must be between %d and %d, got %d", MIN_ROW_SIZE, MAX_ROW_SIZE, config.rowSize),
 			nil,
 		)
 	}
 
 	// Validate skewMs range
-	if config.SkewMs < 0 || config.SkewMs > MAX_SKEW_MS {
+	if config.skewMs < 0 || config.skewMs > MAX_SKEW_MS {
 		return NewInvalidInputError(
-			fmt.Sprintf("skewMs must be between 0 and %d, got %d", MAX_SKEW_MS, config.SkewMs),
+			fmt.Sprintf("skewMs must be between 0 and %d, got %d", MAX_SKEW_MS, config.skewMs),
 			nil,
 		)
 	}
@@ -370,7 +448,7 @@ func createFile(path string) (*os.File, error) {
 
 // writeHeader writes the frozenDB v1 header to file
 func writeHeader(file *os.File, config CreateConfig) error {
-	header, err := generateHeader(config.RowSize, config.SkewMs)
+	header, err := generateHeader(config.rowSize, config.skewMs)
 	if err != nil {
 		return NewWriteError("failed to generate header", err)
 	}
@@ -415,7 +493,7 @@ func setAppendOnlyAttr(fd int) error {
 // setOwnership changes file ownership if running under sudo
 func setOwnership(path string, sudoCtx *SudoContext) error {
 	// Use fsInterface.Chown to change ownership to original user
-	err := fsInterface.Chown(path, sudoCtx.UID, sudoCtx.GID)
+	err := fsInterface.Chown(path, sudoCtx.uid, sudoCtx.gid)
 	if err != nil {
 		return NewWriteError("failed to set file ownership", err)
 	}
