@@ -4,7 +4,7 @@ This document contains build commands and coding standards for agentic developme
 
 ## Build & Development Commands
 
-This is a Go project. Standard Go toolchain commands:
+This is a Go 1.25.5 project using only standard library dependencies:
 
 ```bash
 # Run all tests (unit + spec)
@@ -13,11 +13,11 @@ go test ./...
 # Run tests with verbose output
 go test -v ./...
 
-# Run spec tests only
+# Run spec tests only (Test_S_ prefix)
 go test -v ./... -run "^Test_S_"
 
-# Run unit tests only
-go test -v ./... -run "^Test[^S]"
+# Run unit tests only (exclude Test_S_ prefix)
+go test -v ./... -run "^Test[^_]"
 
 # Run a specific test
 go test -run TestFunctionName ./path/to/package
@@ -30,31 +30,33 @@ go test -cover ./... -run "^Test_S_"
 
 # Run benchmarks
 go test -bench=. ./...
+
+# Format code (gofmt)
+gofmt -w .
+
+# Vet code for potential issues
+go vet ./...
 ```
 
 ## Project Structure
 
 ```
 frozenDB/
+├── frozendb/      # Core database package (public API)
 ├── cmd/           # CLI applications
-├── internal/      # Internal packages (not importable by others)
-│   ├── db/        # Core database implementation
-│   ├── storage/   # File storage layer
-├── pkg/           # Public API packages
-├── test/          # Integration tests
-└── examples/      # Usage examples
+├── docs/          # Documentation including file format specs
+├── specs/         # Feature specifications and requirements
+└── test/          # Integration tests
 ```
 
-## Context Files
+## Essential Context Files
 
-During implementation, the following files should be used for context:
-- `specs/001-create-db/tasks.md` - Complete task breakdown and execution plan
-- `specs/001-create-db/plan.md` - Technical architecture and design decisions
-- `specs/001-create-db/data-model.md` - Entity definitions and data structures
-- `specs/001-create-db/contracts/api-contract.md` - API specifications and requirements
-- `specs/001-create-db/research.md` - Technical research and dependency analysis
-- `specs/001-create-db/quickstart.md` - Usage examples and integration scenarios
+**CRITICAL:** When implementing any database file or in-memory structure features, ALWAYS load:
+- `docs/v1_file_format.md` - Complete file format specification
+
+**Additional context for implementation:**
 - `docs/spec_testing.md` - Spec testing guidelines and requirements
+- Relevant spec files in `specs/` directory for feature requirements
 - `AGENTS.md` - This file for coding standards and build commands
 
 ## Code Style Guidelines
@@ -228,9 +230,50 @@ func TestDB_Add(t *testing.T) {
 - Support JSON-serializable values
 - Enable efficient enumeration and counting operations
 
+## File Format Implementation Requirements
+
+**CRITICAL:** When implementing any database file or in-memory structure features, you MUST understand:
+
+### Append-Only Architecture
+- Data is never modified in place—only appended
+- Enables safe concurrent reads during writes
+- Simplifies crash recovery (no partial overwrites)
+- Provides natural audit trail of all operations
+
+### Fixed-Width Rows
+- Enables O(1) seeking to any row by index
+- Allows binary search on sorted keys
+- Eliminates need for index files or offset tables
+- Simplifies memory-mapped access patterns
+
+### Transaction Semantics
+- All writes occur within transactions
+- Use start_control `T` for transaction begin, `R` for continuation
+- End_control encodes savepoints and termination (TC, RE, SC, SE, R0-R9, S0-S9)
+- "Rollback" marks rows as invalid, doesn't delete them
+- Savepoints numbered 1-9, with 0 representing full rollback
+
+### Row Structure
+- ROW_START (0x1F) and ROW_END (0x0A) sentinels
+- Base64-encoded UUIDv7 keys (24 bytes)
+- JSON payload with NULL_BYTE padding
+- Parity bytes for integrity (LRC checksum)
+- Checksum rows every 10,000 data rows (CRC32)
+
+### Key Implementation Points
+- Validate UUIDv7 timestamp ordering with configurable skew_ms
+- Handle incomplete transaction detection via sentinels
+- Implement two-tier integrity: checksum blocks + per-row parity
+- Support both read and read+write modes with proper OS file locking
+
 ## Active Technologies
-- Go 1.25.5 + Standard library only (os, syscall, encoding/json, sync) (002-open-frozendb)
-- Single file-based database with append-only immutability (002-open-frozendb)
+- Go 1.25.5 + Standard library only (os, syscall, encoding/json, sync)
+- Single file-based database with append-only immutability
+- UUIDv7 for time-ordered keys
+- CRC32 checksums and LRC parity for data integrity
+- Go 1.25.5 + Standard library only (encoding/base64, encoding/json, hash/crc32) (003-checksum-row)
+- Single file-based frozenDB database (.fdb extension) (003-checksum-row)
 
 ## Recent Changes
-- 002-open-frozendb: Added Go 1.25.5 + Standard library only (os, syscall, encoding/json, sync)
+- Updated with v1_file_format.md concepts for append-only architecture
+- Added transaction semantics and row structure requirements
