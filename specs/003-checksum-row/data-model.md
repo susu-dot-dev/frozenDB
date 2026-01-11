@@ -164,12 +164,6 @@ func (cr *ChecksumRow) GetChecksum() Checksum {
 Header (64 bytes)
     ↓
 ChecksumRow (row_size bytes)
-    ↓
-DataRow (row_size bytes each) [0-9999]
-    ↓
-ChecksumRow (row_size bytes)
-    ↓
-DataRow (row_size bytes each) [10000-19999]
 ```
 
 **Key Relationships**:

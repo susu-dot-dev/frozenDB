@@ -6,8 +6,6 @@ This guide provides step-by-step instructions for implementing and using checksu
 
 The checksum row implementation provides:
 - **ChecksumRow**: Specific implementation for integrity checking
-- **DataRow**: For key-value data rows with JSON payloads
-- **BinaryRow**: For key-value data rows with binary payloads
 - **Control Enums**: Type-safe control byte handling
 - **Parity Calculation**: LRC checksum for per-row integrity
 - **CRC32 Integration**: IEEE standard for block integrity
@@ -108,30 +106,6 @@ if err != nil {
     panic(err)
 }
 fmt.Printf("Row bytes: %x\n", rowBytes[:20])
-```
-
-### DataRow Usage
-
-```go
-// Create data row using constructor function
-header := &frozendb.Header{RowSize: 1024, SkewMs: 5000}
-key := uuid.MustParse("0189b3c0-3c1b-7b8b-8b8b-8b8b8b8b8b8b")
-value := map[string]interface{}{"name": "test", "value": 42}
-
-dataRow, err := frozendb.NewDataRow(header, key, value)
-if err != nil {
-    panic(err)
-}
-
-// Access data via typed methods
-rowKey := dataRow.GetKey() // Returns uuid.UUID
-payload := dataRow.GetValue() // Returns JSONPayload
-
-// Serialize to bytes
-rowBytes, err := dataRow.MarshalText()
-if err != nil {
-    panic(err)
-}
 ```
 
 ### Checksum Operations
