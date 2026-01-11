@@ -18,7 +18,7 @@ func Benchmark_NewFrozenDB_ReadMode(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		db, err := NewFrozenDB(testPath, ModeRead)
+		db, err := NewFrozenDB(testPath, MODE_READ)
 		if err != nil {
 			b.Fatal(err)
 		}
@@ -37,7 +37,7 @@ func Benchmark_NewFrozenDB_WriteMode(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		db, err := NewFrozenDB(testPath, ModeWrite)
+		db, err := NewFrozenDB(testPath, MODE_WRITE)
 		if err != nil {
 			b.Fatal(err)
 		}
@@ -56,7 +56,7 @@ func Benchmark_Close(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		b.StopTimer()
-		db, _ := NewFrozenDB(testPath, ModeRead)
+		db, _ := NewFrozenDB(testPath, MODE_READ)
 		b.StartTimer()
 		db.Close()
 	}
@@ -73,7 +73,7 @@ func Benchmark_ConcurrentReaders(b *testing.B) {
 	b.ResetTimer()
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
-			db, err := NewFrozenDB(testPath, ModeRead)
+			db, err := NewFrozenDB(testPath, MODE_READ)
 			if err != nil {
 				b.Error(err)
 				return
@@ -93,25 +93,25 @@ func TestHeaderValidation_EdgeCases(t *testing.T) {
 	}{
 		{
 			name:        "Minimum valid row size",
-			rowSize:     MinRowSize,
+			rowSize:     MIN_ROW_SIZE,
 			skewMs:      0,
 			expectError: false,
 		},
 		{
 			name:        "Maximum valid row size",
-			rowSize:     MaxRowSize,
-			skewMs:      MaxSkewMs,
+			rowSize:     MAX_ROW_SIZE,
+			skewMs:      MAX_SKEW_MS,
 			expectError: false,
 		},
 		{
 			name:        "Row size below minimum",
-			rowSize:     MinRowSize - 1,
+			rowSize:     MIN_ROW_SIZE - 1,
 			skewMs:      5000,
 			expectError: true,
 		},
 		{
 			name:        "Row size above maximum",
-			rowSize:     MaxRowSize + 1,
+			rowSize:     MAX_ROW_SIZE + 1,
 			skewMs:      5000,
 			expectError: true,
 		},
@@ -124,7 +124,7 @@ func TestHeaderValidation_EdgeCases(t *testing.T) {
 		{
 			name:        "Skew above maximum",
 			rowSize:     1024,
-			skewMs:      MaxSkewMs + 1,
+			skewMs:      MAX_SKEW_MS + 1,
 			expectError: true,
 		},
 	}
@@ -132,7 +132,7 @@ func TestHeaderValidation_EdgeCases(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			header := &Header{
-				Signature: HeaderSignature,
+				Signature: HEADER_SIGNATURE,
 				Version:   1,
 				RowSize:   tt.rowSize,
 				SkewMs:    tt.skewMs,
@@ -170,7 +170,7 @@ func TestConcurrentStress(t *testing.T) {
 		go func(readerID int) {
 			defer wg.Done()
 			for j := 0; j < iterations; j++ {
-				db, err := NewFrozenDB(testPath, ModeRead)
+				db, err := NewFrozenDB(testPath, MODE_READ)
 				if err != nil {
 					errors <- err
 					return
@@ -206,7 +206,7 @@ func TestFileDescriptorLeaks(t *testing.T) {
 
 	// Open and close database many times
 	for i := 0; i < 100; i++ {
-		db, err := NewFrozenDB(testPath, ModeRead)
+		db, err := NewFrozenDB(testPath, MODE_READ)
 		if err != nil {
 			t.Fatalf("Failed to open database: %v", err)
 		}

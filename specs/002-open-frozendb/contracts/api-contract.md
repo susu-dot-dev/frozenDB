@@ -65,8 +65,8 @@ func (db *FrozenDB) Close() error
 
 ```go
 const (
-    ModeRead  string = "read"  // Read-only access, no lock needed
-    ModeWrite string = "write" // Read-write access with exclusive lock
+    MODE_READ  string = "read"  // Read-only access, no lock needed
+    MODE_WRITE string = "write" // Read-write access with exclusive lock
 )
 ```
 
@@ -88,7 +88,7 @@ type FrozenDB struct {
 
 ```go
 // Open database for reading
-    db, err := NewFrozenDB("/data/mydb.fdb", ModeRead)
+    db, err := NewFrozenDB("/data/mydb.fdb", MODE_READ)
 if err != nil {
     log.Fatal("Failed to open database:", err)
 }
@@ -102,7 +102,7 @@ defer db.Close()
 
 ```go
 // Open database for writing
-    db, err := NewFrozenDB("/data/mydb.fdb", ModeWrite)
+    db, err := NewFrozenDB("/data/mydb.fdb", MODE_WRITE)
 if err != nil {
     log.Fatal("Failed to open database for writing:", err)
 }
@@ -115,7 +115,7 @@ defer db.Close()
 ### Error Handling
 
 ```go
-    db, err := NewFrozenDB("/data/mydb.fdb", ModeRead)
+    db, err := NewFrozenDB("/data/mydb.fdb", MODE_READ)
 if err != nil {
     switch e := err.(type) {
     case *InvalidInputError:
@@ -140,7 +140,7 @@ defer db.Close()
 // Multiple readers are safe
 for i := 0; i < 5; i++ {
     go func() {
-        db, err := NewFrozenDB("/data/mydb.fdb", ModeRead)
+        db, err := NewFrozenDB("/data/mydb.fdb", MODE_READ)
         if err != nil {
             log.Printf("Reader %d failed: %v", i, err)
             return
@@ -153,7 +153,7 @@ for i := 0; i < 5; i++ {
 }
 
 // Only one writer succeeds
-    db, err := NewFrozenDB("/data/mydb.fdb", ModeWrite)
+    db, err := NewFrozenDB("/data/mydb.fdb", MODE_WRITE)
 if err != nil {
     if errors.Is(err, &WriteError{}) {
         log.Println("Another writer has the database locked")
@@ -168,10 +168,10 @@ defer db.Close()
 | API Function | FR Requirement | Behavior |
 |--------------|----------------|----------|
 | NewFrozenDB | FR-001 | Provides NewFrozenDB(path string, mode string) (*FrozenDB, error) |
-| Constants | FR-002 | Defines ModeRead = "read" and ModeWrite = "write" |
+| Constants | FR-002 | Defines MODE_READ = "read" and MODE_WRITE = "write" |
 | NewFrozenDB | FR-003 | Validates mode parameter and uses spec 001 file path semantics |
 | NewFrozenDB | FR-004 | Opens file descriptor, then validates frozenDB v1 header |
-| NewFrozenDB | FR-005 | Acquires exclusive lock only after valid header AND mode is ModeWrite |
+| NewFrozenDB | FR-005 | Acquires exclusive lock only after valid header AND mode is MODE_WRITE |
 | NewFrozenDB | FR-006 | Maintains open file descriptor and lock until Close() is called |
 | Close | FR-007 | Provides idempotent Close() method that flushes, closes fd, and releases locks |
 | NewFrozenDB | FR-008 | Allows multiple readers (no locks) and at most one writer (exclusive lock) to open concurrently |

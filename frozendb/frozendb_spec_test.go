@@ -46,7 +46,7 @@ func Test_S_002_FR_001_NewFrozenDBFunctionSignature(t *testing.T) {
 	createTestDatabase(t, testPath)
 
 	// Call NewFrozenDB with valid parameters
-	db, err := NewFrozenDB(testPath, ModeRead)
+	db, err := NewFrozenDB(testPath, MODE_READ)
 
 	// Verify return types
 	if err != nil {
@@ -66,22 +66,22 @@ func Test_S_002_FR_001_NewFrozenDBFunctionSignature(t *testing.T) {
 	}
 }
 
-// Test_S_002_FR_002_ModeConstants validates ModeRead and ModeWrite constants
-// FR-002: ModeRead constant must be "read" and ModeWrite constant must be "write"
+// Test_S_002_FR_002_ModeConstants validates MODE_READ and MODE_WRITE constants
+// FR-002: MODE_READ constant must be "read" and MODE_WRITE constant must be "write"
 func Test_S_002_FR_002_ModeConstants(t *testing.T) {
-	// Verify ModeRead constant value
-	if ModeRead != "read" {
-		t.Errorf("ModeRead constant: expected 'read', got '%s'", ModeRead)
+	// Verify MODE_READ constant value
+	if MODE_READ != "read" {
+		t.Errorf("MODE_READ constant: expected 'read', got '%s'", MODE_READ)
 	}
 
-	// Verify ModeWrite constant value
-	if ModeWrite != "write" {
-		t.Errorf("ModeWrite constant: expected 'write', got '%s'", ModeWrite)
+	// Verify MODE_WRITE constant value
+	if MODE_WRITE != "write" {
+		t.Errorf("MODE_WRITE constant: expected 'write', got '%s'", MODE_WRITE)
 	}
 
 	// Verify constants are distinct
-	if ModeRead == ModeWrite {
-		t.Error("ModeRead and ModeWrite must have different values")
+	if MODE_READ == MODE_WRITE {
+		t.Error("MODE_READ and MODE_WRITE must have different values")
 	}
 }
 
@@ -98,12 +98,12 @@ func Test_S_002_FR_003_ModeParameterValidation(t *testing.T) {
 	}{
 		{
 			name:        "Valid mode: read",
-			mode:        ModeRead,
+			mode:        MODE_READ,
 			expectError: false,
 		},
 		{
 			name:        "Valid mode: write",
-			mode:        ModeWrite,
+			mode:        MODE_WRITE,
 			expectError: false,
 		},
 		{
@@ -231,7 +231,7 @@ func Test_S_002_FR_004_FileDescriptorAndHeaderValidation(t *testing.T) {
 			testPath := filepath.Join(t.TempDir(), "test.fdb")
 			tt.setupFile(t, testPath)
 
-			db, err := NewFrozenDB(testPath, ModeRead)
+			db, err := NewFrozenDB(testPath, MODE_READ)
 
 			if tt.expectError {
 				if err == nil {
@@ -286,7 +286,7 @@ func Test_S_002_FR_008_MultipleConcurrentReaders(t *testing.T) {
 			defer wg.Done()
 
 			// Open database in read mode
-			db, err := NewFrozenDB(testPath, ModeRead)
+			db, err := NewFrozenDB(testPath, MODE_READ)
 			if err != nil {
 				errors <- fmt.Errorf("reader %d failed to open: %w", readerID, err)
 				return
@@ -331,7 +331,7 @@ func Test_S_002_FR_011_FixedMemoryUsage(t *testing.T) {
 	var m1 runtime.MemStats
 	runtime.ReadMemStats(&m1)
 
-	db1, err := NewFrozenDB(smallPath, ModeRead)
+	db1, err := NewFrozenDB(smallPath, MODE_READ)
 	if err != nil {
 		t.Fatalf("Failed to open small database: %v", err)
 	}
@@ -347,7 +347,7 @@ func Test_S_002_FR_011_FixedMemoryUsage(t *testing.T) {
 	var m3 runtime.MemStats
 	runtime.ReadMemStats(&m3)
 
-	db2, err := NewFrozenDB(largePath, ModeRead)
+	db2, err := NewFrozenDB(largePath, MODE_READ)
 	if err != nil {
 		t.Fatalf("Failed to open large database: %v", err)
 	}
@@ -381,17 +381,17 @@ func Test_S_002_FR_015_InvalidInputErrorHandling(t *testing.T) {
 		{
 			name: "Empty path",
 			path: "",
-			mode: ModeRead,
+			mode: MODE_READ,
 		},
 		{
 			name: "Path without .fdb extension",
 			path: "/tmp/test.txt",
-			mode: ModeRead,
+			mode: MODE_READ,
 		},
 		{
 			name: "Path with only extension",
 			path: ".fdb",
-			mode: ModeRead,
+			mode: MODE_READ,
 		},
 		{
 			name: "Invalid mode value",
@@ -444,7 +444,7 @@ func Test_S_002_FR_016_PathErrorHandling(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			path := tt.setupPath(t)
-			db, err := NewFrozenDB(path, ModeRead)
+			db, err := NewFrozenDB(path, MODE_READ)
 
 			if err == nil {
 				t.Fatal("Expected error, got nil")
@@ -463,13 +463,13 @@ func Test_S_002_FR_016_PathErrorHandling(t *testing.T) {
 }
 
 // Test_S_002_FR_005_ExclusiveLockAfterValidation validates exclusive lock acquisition after header validation
-// FR-005: NewFrozenDB must acquire exclusive lock AFTER header validation when mode is ModeWrite
+// FR-005: NewFrozenDB must acquire exclusive lock AFTER header validation when mode is MODE_WRITE
 func Test_S_002_FR_005_ExclusiveLockAfterValidation(t *testing.T) {
 	testPath := filepath.Join(t.TempDir(), "test.fdb")
 	createTestDatabase(t, testPath)
 
 	// Open database in write mode
-	db, err := NewFrozenDB(testPath, ModeWrite)
+	db, err := NewFrozenDB(testPath, MODE_WRITE)
 	if err != nil {
 		t.Fatalf("Failed to open database in write mode: %v", err)
 	}
@@ -481,7 +481,7 @@ func Test_S_002_FR_005_ExclusiveLockAfterValidation(t *testing.T) {
 	}
 
 	// Try to acquire another write lock (should fail)
-	db2, err := NewFrozenDB(testPath, ModeWrite)
+	db2, err := NewFrozenDB(testPath, MODE_WRITE)
 	if err == nil {
 		db2.Close()
 		t.Fatal("Expected lock acquisition to fail for second writer")
@@ -500,13 +500,13 @@ func Test_S_002_FR_006_MaintainDescriptorAndLock(t *testing.T) {
 	createTestDatabase(t, testPath)
 
 	// Open database in write mode
-	db, err := NewFrozenDB(testPath, ModeWrite)
+	db, err := NewFrozenDB(testPath, MODE_WRITE)
 	if err != nil {
 		t.Fatalf("Failed to open database in write mode: %v", err)
 	}
 
 	// Try to acquire another write lock while first is open (should fail)
-	db2, err := NewFrozenDB(testPath, ModeWrite)
+	db2, err := NewFrozenDB(testPath, MODE_WRITE)
 	if err == nil {
 		db2.Close()
 		t.Fatal("Expected lock to be held by first database instance")
@@ -518,7 +518,7 @@ func Test_S_002_FR_006_MaintainDescriptorAndLock(t *testing.T) {
 	}
 
 	// Now second writer should succeed
-	db3, err := NewFrozenDB(testPath, ModeWrite)
+	db3, err := NewFrozenDB(testPath, MODE_WRITE)
 	if err != nil {
 		t.Fatalf("Expected lock acquisition to succeed after Close(), got: %v", err)
 	}
@@ -532,14 +532,14 @@ func Test_S_002_FR_009_WriteErrorMultipleWriters(t *testing.T) {
 	createTestDatabase(t, testPath)
 
 	// First writer opens successfully
-	db1, err := NewFrozenDB(testPath, ModeWrite)
+	db1, err := NewFrozenDB(testPath, MODE_WRITE)
 	if err != nil {
 		t.Fatalf("First writer failed to open: %v", err)
 	}
 	defer db1.Close()
 
 	// Second writer should fail with WriteError
-	db2, err := NewFrozenDB(testPath, ModeWrite)
+	db2, err := NewFrozenDB(testPath, MODE_WRITE)
 	if err == nil {
 		db2.Close()
 		t.Fatal("Expected WriteError for second writer, got nil")
@@ -565,13 +565,13 @@ func Test_S_002_FR_010_DifferentFileIndependence(t *testing.T) {
 	createTestDatabase(t, db2Path)
 
 	// Open both in write mode (should succeed since different files)
-	db1, err := NewFrozenDB(db1Path, ModeWrite)
+	db1, err := NewFrozenDB(db1Path, MODE_WRITE)
 	if err != nil {
 		t.Fatalf("Failed to open first database: %v", err)
 	}
 	defer db1.Close()
 
-	db2, err := NewFrozenDB(db2Path, ModeWrite)
+	db2, err := NewFrozenDB(db2Path, MODE_WRITE)
 	if err != nil {
 		t.Fatalf("Failed to open second database: %v", err)
 	}
@@ -583,13 +583,13 @@ func Test_S_002_FR_010_DifferentFileIndependence(t *testing.T) {
 	}
 
 	// Verify we can also open readers on different files
-	db1Reader, err := NewFrozenDB(db1Path, ModeRead)
+	db1Reader, err := NewFrozenDB(db1Path, MODE_READ)
 	if err != nil {
 		t.Fatalf("Failed to open reader on first database: %v", err)
 	}
 	defer db1Reader.Close()
 
-	db2Reader, err := NewFrozenDB(db2Path, ModeRead)
+	db2Reader, err := NewFrozenDB(db2Path, MODE_READ)
 	if err != nil {
 		t.Fatalf("Failed to open reader on second database: %v", err)
 	}
@@ -603,14 +603,14 @@ func Test_S_002_FR_014_WriteErrorLockFailures(t *testing.T) {
 	createTestDatabase(t, testPath)
 
 	// Acquire write lock with first instance
-	db1, err := NewFrozenDB(testPath, ModeWrite)
+	db1, err := NewFrozenDB(testPath, MODE_WRITE)
 	if err != nil {
 		t.Fatalf("First writer failed to open: %v", err)
 	}
 	defer db1.Close()
 
 	// Try to acquire write lock with second instance (should fail)
-	db2, err := NewFrozenDB(testPath, ModeWrite)
+	db2, err := NewFrozenDB(testPath, MODE_WRITE)
 	if err == nil {
 		db2.Close()
 		t.Fatal("Expected error for lock acquisition failure")
@@ -772,7 +772,7 @@ func Test_S_002_FR_013_CorruptDatabaseErrorForHeaderValidationFailures(t *testin
 			testPath := filepath.Join(t.TempDir(), "test.fdb")
 			tt.setupFile(t, testPath)
 
-			db, err := NewFrozenDB(testPath, ModeRead)
+			db, err := NewFrozenDB(testPath, MODE_READ)
 
 			if err == nil {
 				if db != nil {
@@ -811,11 +811,11 @@ func Test_S_002_FR_007_IdempotentCloseMethod(t *testing.T) {
 	}{
 		{
 			name: "Read mode - multiple close calls",
-			mode: ModeRead,
+			mode: MODE_READ,
 		},
 		{
 			name: "Write mode - multiple close calls",
-			mode: ModeWrite,
+			mode: MODE_WRITE,
 		},
 	}
 
@@ -845,7 +845,7 @@ func Test_S_002_FR_007_IdempotentCloseMethod(t *testing.T) {
 
 	// Test concurrent Close() calls (thread safety)
 	t.Run("Concurrent close calls", func(t *testing.T) {
-		db, err := NewFrozenDB(testPath, ModeRead)
+		db, err := NewFrozenDB(testPath, MODE_READ)
 		if err != nil {
 			t.Fatalf("Failed to open database: %v", err)
 		}
@@ -888,14 +888,14 @@ func Test_S_002_FR_012_ResourceCleanupOnErrors(t *testing.T) {
 			setupFile: func(t *testing.T, path string) {
 				// Don't create file
 			},
-			mode: ModeRead,
+			mode: MODE_READ,
 		},
 		{
 			name: "File not found - write mode",
 			setupFile: func(t *testing.T, path string) {
 				// Don't create file
 			},
-			mode: ModeWrite,
+			mode: MODE_WRITE,
 		},
 		{
 			name: "Invalid header - corrupt database",
@@ -904,7 +904,7 @@ func Test_S_002_FR_012_ResourceCleanupOnErrors(t *testing.T) {
 				defer file.Close()
 				file.Write([]byte("corrupt data"))
 			},
-			mode: ModeRead,
+			mode: MODE_READ,
 		},
 		{
 			name: "Truncated header",
@@ -913,7 +913,7 @@ func Test_S_002_FR_012_ResourceCleanupOnErrors(t *testing.T) {
 				defer file.Close()
 				file.Write([]byte("short"))
 			},
-			mode: ModeWrite,
+			mode: MODE_WRITE,
 		},
 	}
 
@@ -953,7 +953,7 @@ func Test_S_002_FR_012_ResourceCleanupOnErrors(t *testing.T) {
 		createTestDatabase(t, testPath)
 
 		// First writer acquires lock
-		db1, err := NewFrozenDB(testPath, ModeWrite)
+		db1, err := NewFrozenDB(testPath, MODE_WRITE)
 		if err != nil {
 			t.Fatalf("First writer failed: %v", err)
 		}
@@ -963,7 +963,7 @@ func Test_S_002_FR_012_ResourceCleanupOnErrors(t *testing.T) {
 		initialFDs := countOpenFileDescriptors(t)
 
 		// Second writer fails to acquire lock
-		db2, err := NewFrozenDB(testPath, ModeWrite)
+		db2, err := NewFrozenDB(testPath, MODE_WRITE)
 		if err == nil {
 			db2.Close()
 			t.Fatal("Expected lock acquisition to fail")

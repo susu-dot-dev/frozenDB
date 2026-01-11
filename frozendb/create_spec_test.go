@@ -269,18 +269,18 @@ func Test_S_001_FR_008_HeaderFormat(t *testing.T) {
 	}
 	defer file.Close()
 
-	header := make([]byte, HeaderSize)
+	header := make([]byte, HEADER_SIZE)
 	n, err := file.Read(header)
 	if err != nil {
 		t.Fatalf("Failed to read header: %v", err)
 	}
-	if n != HeaderSize {
-		t.Fatalf("Expected to read %d bytes, got %d", HeaderSize, n)
+	if n != HEADER_SIZE {
+		t.Fatalf("Expected to read %d bytes, got %d", HEADER_SIZE, n)
 	}
 
 	// Verify header is exactly 64 bytes
-	if len(header) != HeaderSize {
-		t.Errorf("Expected header length %d, got %d", HeaderSize, len(header))
+	if len(header) != HEADER_SIZE {
+		t.Errorf("Expected header length %d, got %d", HEADER_SIZE, len(header))
 	}
 
 	// Verify byte 63 is newline
@@ -339,8 +339,8 @@ func Test_S_001_FR_009_FdatasyncBeforeAttributes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to stat file: %v", err)
 	}
-	if stat.Size() != HeaderSize {
-		t.Errorf("Expected file size %d, got %d", HeaderSize, stat.Size())
+	if stat.Size() != HEADER_SIZE {
+		t.Errorf("Expected file size %d, got %d", HEADER_SIZE, stat.Size())
 	}
 
 	// Log test completion to use fmt package
@@ -1665,9 +1665,9 @@ func Test_S_001_FR_030_FixedMemoryUsage(t *testing.T) {
 		rowSize int
 		skewMs  int
 	}{
-		{"small parameters", MinRowSize, 0},
+		{"small parameters", MIN_ROW_SIZE, 0},
 		{"medium parameters", 1024, 5000},
-		{"large parameters", MaxRowSize, MaxSkewMs},
+		{"large parameters", MAX_ROW_SIZE, MAX_SKEW_MS},
 	}
 
 	for _, tc := range testCases {
@@ -1722,8 +1722,8 @@ func Test_S_001_FR_031_MinimizedDiskOperations(t *testing.T) {
 	}
 
 	// File should be exactly 64 bytes (header only)
-	if stat.Size() != HeaderSize {
-		t.Errorf("Expected file size %d, got %d (extra writes detected)", HeaderSize, stat.Size())
+	if stat.Size() != HEADER_SIZE {
+		t.Errorf("Expected file size %d, got %d (extra writes detected)", HEADER_SIZE, stat.Size())
 	}
 
 	// File should have correct permissions (0644)

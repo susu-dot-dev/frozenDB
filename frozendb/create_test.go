@@ -178,8 +178,8 @@ func TestGenerateHeader(t *testing.T) {
 			}
 
 			if !tt.wantErr {
-				if len(header) != HeaderSize {
-					t.Errorf("generateHeader() header length = %d, want %d", len(header), HeaderSize)
+				if len(header) != HEADER_SIZE {
+					t.Errorf("generateHeader() header length = %d, want %d", len(header), HEADER_SIZE)
 				}
 
 				if header[63] != '\n' {
