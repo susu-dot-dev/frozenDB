@@ -17,22 +17,22 @@ type Header struct {
 }
 
 const (
-    HeaderSize = 64                // Fixed header size in bytes
-    HeaderSignature = "fDB"        // Signature string for format identification
-    MinRowSize = 128               // Minimum allowed row size
-    MaxRowSize = 65536             // Maximum allowed row size  
-    MaxSkewMs  = 86400000          // Maximum time skew (24 hours)
-    PaddingChar = '\x00'             // Null character for header padding
-    HeaderNewline = '\n'            // Byte 63 must be newline
+    HEADER_SIZE      = 64                // Fixed header size in bytes
+    HEADER_SIGNATURE = "fDB"             // Signature string for format identification
+    MIN_ROW_SIZE     = 128               // Minimum allowed row size
+    MAX_ROW_SIZE     = 65536             // Maximum allowed row size  
+    MAX_SKEW_MS      = 86400000          // Maximum time skew (24 hours)
+    PADDING_CHAR     = '\x00'            // Null character for header padding
+    HEADER_NEWLINE   = '\n'              // Byte 63 must be newline
 )
 ```
 
 ### Header Format String
 
 ```go
-// HeaderFormat defines the exact text format for frozenDB v1 headers
+// HEADER_FORMAT defines the exact text format for frozenDB v1 headers
 // Format: {"sig":"fDB","ver":1,"row_size":<size>,"skew_ms":<skew>}\x00\x00\x00\x00\x00\x00\n
-const HeaderFormat = `{"sig":"fDB","ver":1,"row_size":%d,"skew_ms":%d}`
+const HEADER_FORMAT = `{"sig":"fDB","ver":1,"row_size":%d,"skew_ms":%d}`
 ```
 
 ### Header Generation
@@ -41,7 +41,7 @@ const HeaderFormat = `{"sig":"fDB","ver":1,"row_size":%d,"skew_ms":%d}`
 // GenerateHeader creates the 64-byte header string with proper padding
 func GenerateHeader(rowSize, skewMs int) ([]byte, error) {
     // Generate JSON content
-    jsonContent := fmt.Sprintf(HeaderFormat, rowSize, skewMs)
+    jsonContent := fmt.Sprintf(HEADER_FORMAT, rowSize, skewMs)
     
     // Calculate padding needed (total 64 bytes, minus newline at end)
     contentLength := len(jsonContent)
@@ -51,10 +51,10 @@ func GenerateHeader(rowSize, skewMs int) ([]byte, error) {
     
     // Calculate padding: 63 - jsonContent length (byte 63 is newline)
     paddingLength := 63 - contentLength
-    padding := strings.Repeat(string(PaddingChar), paddingLength)
+    padding := strings.Repeat(string(PADDING_CHAR), paddingLength)
     
     // Assemble header: JSON + padding + newline
-    header := jsonContent + padding + string(HeaderNewline)
+    header := jsonContent + padding + string(HEADER_NEWLINE)
     
     return []byte(header), nil
 }
@@ -151,7 +151,7 @@ func cleanupOnFailure(path string)
 ```go
 const (
     // File permissions: 0644 (owner rw, group/others r)
-    FilePermissions = 0644
+    FILE_PERMISSIONS = 0644
     
     // Atomic file creation flags
     O_CREAT_EXCL = syscall.O_CREAT | syscall.O_EXCL
@@ -170,15 +170,15 @@ const (
 ```go
 const (
     // Parameter validation ranges
-    MinRowSize = 128
-    MaxRowSize = 65536
-    MaxSkewMs  = 86400000  // 24 hours in milliseconds
+    MIN_ROW_SIZE = 128
+    MAX_ROW_SIZE = 65536
+    MAX_SKEW_MS  = 86400000  // 24 hours in milliseconds
     
     // File extension requirement
-    FileExtension = ".fdb"
+    FILE_EXTENSION = ".fdb"
     
     // Header signature string
-    HeaderSignature = "fDB"
+    HEADER_SIGNATURE = "fDB"
 )
 ```
 

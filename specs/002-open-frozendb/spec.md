@@ -70,10 +70,10 @@ A developer needs to properly manage database resources by closing connections a
 ### Functional Requirements
 
 - **FR-001**: System MUST provide NewFrozenDB(path string, mode string) (*FrozenDB, error) function for opening database files
-- **FR-002**: System MUST support ModeRead = "read" and ModeWrite = "write" constants for file access modes
+- **FR-002**: System MUST support MODE_READ = "read" and MODE_WRITE = "write" constants for file access modes
 - **FR-003**: System MUST validate mode parameter and use spec 001 file path semantics
 - **FR-004**: System MUST open file descriptor, then validate frozenDB v1 header per v1_file_format.md
-- **FR-005**: System MUST acquire exclusive lock only after valid header AND mode is ModeWrite
+- **FR-005**: System MUST acquire exclusive lock only after valid header AND mode is MODE_WRITE
 - **FR-006**: System MUST maintain open file descriptor and lock until Close() is called
 - **FR-007**: System MUST provide idempotent Close() method that flushes, closes fd, and releases locks
 - **FR-008**: System MUST allow multiple readers and at most one writer to open a new instance concurrently

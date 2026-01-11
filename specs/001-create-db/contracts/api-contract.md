@@ -127,7 +127,7 @@ The Create function implementation will contain all necessary internal helper fu
     O_CREAT_EXCL = syscall.O_CREAT | syscall.O_EXCL
     
     // File permissions: 0644 (owner read/write, group/others read)
-    FilePermissions = 0644
+    FILE_PERMISSIONS = 0644
 )
 ```
 
@@ -147,17 +147,17 @@ type Header struct {
 
 // Header constants
 const (
-    HeaderSize     = 64                // Fixed header size in bytes
-    HeaderSignature = "fDB"            // Signature string for format validation
-    MinRowSize     = 128               // Minimum allowed row size
-    MaxRowSize     = 65536             // Maximum allowed row size
-    MaxSkewMs      = 86400000          // Maximum time skew (24 hours)
-    PaddingChar     = '\x00'            // Null character for header padding
-    HeaderNewline   = '\n'             // Byte 63 must be newline
+    HEADER_SIZE      = 64                // Fixed header size in bytes
+    HEADER_SIGNATURE = "fDB"             // Signature string for format validation
+    MIN_ROW_SIZE     = 128               // Minimum allowed row size
+    MAX_ROW_SIZE     = 65536             // Maximum allowed row size
+    MAX_SKEW_MS      = 86400000          // Maximum time skew (24 hours)
+    PADDING_CHAR     = '\x00'            // Null character for header padding
+    HEADER_NEWLINE   = '\n'              // Byte 63 must be newline
 )
 
 // Header format string for generating JSON content
-const HeaderFormat = `{"sig":"fDB","ver":1,"row_size":%d,"skew_ms":%d}`
+const HEADER_FORMAT = `{"sig":"fDB","ver":1,"row_size":%d,"skew_ms":%d}`
 ```
 
 ## Performance Contracts

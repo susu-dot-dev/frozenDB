@@ -20,15 +20,15 @@ type headerJSON struct {
 // Returns Header struct on success, CorruptDatabaseError on validation failure
 func parseHeader(headerBytes []byte) (*Header, error) {
 	// Validate fixed 64-byte size
-	if len(headerBytes) != HeaderSize {
+	if len(headerBytes) != HEADER_SIZE {
 		return nil, NewCorruptDatabaseError(
-			fmt.Sprintf("header must be exactly %d bytes, got %d", HeaderSize, len(headerBytes)),
+			fmt.Sprintf("header must be exactly %d bytes, got %d", HEADER_SIZE, len(headerBytes)),
 			nil,
 		)
 	}
 
 	// Verify byte 63 is newline
-	if headerBytes[63] != HeaderNewline {
+	if headerBytes[63] != HEADER_NEWLINE {
 		return nil, NewCorruptDatabaseError(
 			fmt.Sprintf("byte 63 must be newline, got 0x%02x", headerBytes[63]),
 			nil,
@@ -36,7 +36,7 @@ func parseHeader(headerBytes []byte) (*Header, error) {
 	}
 
 	// Find null terminator position
-	nullPos := bytes.IndexByte(headerBytes, PaddingChar)
+	nullPos := bytes.IndexByte(headerBytes, PADDING_CHAR)
 	if nullPos == -1 {
 		return nil, NewCorruptDatabaseError("no null terminator found in header", nil)
 	}
@@ -46,7 +46,7 @@ func parseHeader(headerBytes []byte) (*Header, error) {
 
 	// Validate padding region (null bytes from nullPos to 62, newline at 63)
 	for i := nullPos; i < 63; i++ {
-		if headerBytes[i] != PaddingChar {
+		if headerBytes[i] != PADDING_CHAR {
 			return nil, NewCorruptDatabaseError(
 				fmt.Sprintf("padding byte at position %d must be null, got 0x%02x", i, headerBytes[i]),
 				nil,
@@ -79,9 +79,9 @@ func parseHeader(headerBytes []byte) (*Header, error) {
 // validateHeaderFields validates header field values against specification
 func validateHeaderFields(header *Header) error {
 	// Validate signature
-	if header.Signature != HeaderSignature {
+	if header.Signature != HEADER_SIGNATURE {
 		return NewCorruptDatabaseError(
-			fmt.Sprintf("invalid signature: expected '%s', got '%s'", HeaderSignature, header.Signature),
+			fmt.Sprintf("invalid signature: expected '%s', got '%s'", HEADER_SIGNATURE, header.Signature),
 			nil,
 		)
 	}
@@ -95,17 +95,17 @@ func validateHeaderFields(header *Header) error {
 	}
 
 	// Validate row size range
-	if header.RowSize < MinRowSize || header.RowSize > MaxRowSize {
+	if header.RowSize < MIN_ROW_SIZE || header.RowSize > MAX_ROW_SIZE {
 		return NewCorruptDatabaseError(
-			fmt.Sprintf("row_size must be between %d and %d, got %d", MinRowSize, MaxRowSize, header.RowSize),
+			fmt.Sprintf("row_size must be between %d and %d, got %d", MIN_ROW_SIZE, MAX_ROW_SIZE, header.RowSize),
 			nil,
 		)
 	}
 
 	// Validate skew_ms range
-	if header.SkewMs < 0 || header.SkewMs > MaxSkewMs {
+	if header.SkewMs < 0 || header.SkewMs > MAX_SKEW_MS {
 		return NewCorruptDatabaseError(
-			fmt.Sprintf("skew_ms must be between 0 and %d, got %d", MaxSkewMs, header.SkewMs),
+			fmt.Sprintf("skew_ms must be between 0 and %d, got %d", MAX_SKEW_MS, header.SkewMs),
 			nil,
 		)
 	}

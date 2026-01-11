@@ -9,13 +9,13 @@ import (
 
 // Access mode constants for opening frozenDB database files
 const (
-	// ModeRead opens the database in read-only mode with no lock
+	// MODE_READ opens the database in read-only mode with no lock
 	// Multiple readers can access the same file concurrently
-	ModeRead = "read"
+	MODE_READ = "read"
 
-	// ModeWrite opens the database in read-write mode with exclusive lock
+	// MODE_WRITE opens the database in read-write mode with exclusive lock
 	// Only one writer can access the file at a time
-	ModeWrite = "write"
+	MODE_WRITE = "write"
 )
 
 // FrozenDB represents an open connection to a frozenDB database file
@@ -37,7 +37,7 @@ type FrozenDB struct {
 // NewFrozenDB opens an existing frozenDB database file with specified access mode
 // Parameters:
 //   - path: Filesystem path to existing frozenDB database file (.fdb extension required)
-//   - mode: Access mode - ModeRead for read-only, ModeWrite for read-write
+//   - mode: Access mode - MODE_READ for read-only, MODE_WRITE for read-write
 //
 // Returns:
 //   - *FrozenDB: Database instance ready for operations
@@ -72,7 +72,7 @@ func NewFrozenDB(path string, mode string) (*FrozenDB, error) {
 	}
 
 	// Acquire lock if write mode (readers need no locks)
-	if mode == ModeWrite {
+	if mode == MODE_WRITE {
 		err = acquireFileLock(file, syscall.LOCK_EX, false)
 		if err != nil {
 			cleanupErr = err
@@ -107,7 +107,7 @@ func (db *FrozenDB) Close() error {
 	db.closed = true
 
 	// Release file lock if in write mode
-	if db.mode == ModeWrite && db.file != nil {
+	if db.mode == MODE_WRITE && db.file != nil {
 		// Ignore lock release errors during cleanup
 		_ = releaseFileLock(db.file)
 	}
@@ -130,12 +130,12 @@ func validateOpenInputs(path string, mode string) error {
 	}
 
 	// Validate path has .fdb extension
-	if !strings.HasSuffix(path, FileExtension) || len(path) <= len(FileExtension) {
+	if !strings.HasSuffix(path, FILE_EXTENSION) || len(path) <= len(FILE_EXTENSION) {
 		return NewInvalidInputError("path must have .fdb extension", nil)
 	}
 
 	// Validate mode value
-	if mode != ModeRead && mode != ModeWrite {
+	if mode != MODE_READ && mode != MODE_WRITE {
 		return NewInvalidInputError("mode must be 'read' or 'write'", nil)
 	}
 
@@ -146,9 +146,9 @@ func validateOpenInputs(path string, mode string) error {
 func openDatabaseFile(path string, mode string) (*os.File, error) {
 	// Determine open flags based on mode
 	var flags int
-	if mode == ModeRead {
+	if mode == MODE_READ {
 		flags = os.O_RDONLY
-	} else { // ModeWrite
+	} else { // MODE_WRITE
 		flags = os.O_RDWR
 	}
 
@@ -170,13 +170,13 @@ func openDatabaseFile(path string, mode string) (*os.File, error) {
 // readAndValidateHeader reads first 64 bytes and validates frozenDB v1 header
 func readAndValidateHeader(file *os.File) (*Header, error) {
 	// Read first 64 bytes
-	headerBytes := make([]byte, HeaderSize)
+	headerBytes := make([]byte, HEADER_SIZE)
 	n, err := file.Read(headerBytes)
 	if err != nil {
 		return nil, NewCorruptDatabaseError("failed to read header", err)
 	}
 
-	if n != HeaderSize {
+	if n != HEADER_SIZE {
 		return nil, NewCorruptDatabaseError(
 			"incomplete header read",
 			nil,

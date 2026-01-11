@@ -144,7 +144,7 @@ type Header struct {
     SkewMs    int      // Time skew window in milliseconds (0-86400000)
 }
 
-const HeaderSize = 64 // Fixed header size in bytes
+const HEADER_SIZE = 64 // Fixed header size in bytes
 ```
 
 **Header Format String:**

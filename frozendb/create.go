@@ -110,28 +110,28 @@ type SudoContext struct {
 
 // Constants for frozenDB v1 format
 const (
-	HeaderSize      = 64       // Fixed header size in bytes
-	HeaderSignature = "fDB"    // Signature string for format identification
-	MinRowSize      = 128      // Minimum allowed row size
-	MaxRowSize      = 65536    // Maximum allowed row size
-	MaxSkewMs       = 86400000 // Maximum time skew (24 hours)
-	PaddingChar     = '\x00'   // Null character for header padding
-	HeaderNewline   = '\n'     // Byte 63 must be newline
+	HEADER_SIZE      = 64       // Fixed header size in bytes
+	HEADER_SIGNATURE = "fDB"    // Signature string for format identification
+	MIN_ROW_SIZE     = 128      // Minimum allowed row size
+	MAX_ROW_SIZE     = 65536    // Maximum allowed row size
+	MAX_SKEW_MS      = 86400000 // Maximum time skew (24 hours)
+	PADDING_CHAR     = '\x00'   // Null character for header padding
+	HEADER_NEWLINE   = '\n'     // Byte 63 must be newline
 )
 
 // Header format string for generating JSON content
-const HeaderFormat = `{"sig":"fDB","ver":1,"row_size":%d,"skew_ms":%d}`
+const HEADER_FORMAT = `{"sig":"fDB","ver":1,"row_size":%d,"skew_ms":%d}`
 
 // File system constants
 const (
 	// File permissions: 0644 (owner rw, group/others r)
-	FilePermissions = 0644
+	FILE_PERMISSIONS = 0644
 
 	// Atomic file creation flags
 	O_CREAT_EXCL = syscall.O_CREAT | syscall.O_EXCL
 
 	// File extension requirement
-	FileExtension = ".fdb"
+	FILE_EXTENSION = ".fdb"
 )
 
 // Linux syscall constants for append-only attribute
@@ -144,7 +144,7 @@ const (
 // generateHeader creates the 64-byte header string with proper padding
 func generateHeader(rowSize, skewMs int) ([]byte, error) {
 	// Generate JSON content
-	jsonContent := fmt.Sprintf(HeaderFormat, rowSize, skewMs)
+	jsonContent := fmt.Sprintf(HEADER_FORMAT, rowSize, skewMs)
 
 	// Calculate padding needed (total 64 bytes, minus newline at end)
 	contentLength := len(jsonContent)
@@ -154,10 +154,10 @@ func generateHeader(rowSize, skewMs int) ([]byte, error) {
 
 	// Calculate padding: 63 - jsonContent length (byte 63 is newline)
 	paddingLength := 63 - contentLength
-	padding := strings.Repeat(string(PaddingChar), paddingLength)
+	padding := strings.Repeat(string(PADDING_CHAR), paddingLength)
 
 	// Assemble header: JSON + padding + newline
-	header := jsonContent + padding + string(HeaderNewline)
+	header := jsonContent + padding + string(HEADER_NEWLINE)
 
 	return []byte(header), nil
 }
@@ -300,22 +300,22 @@ func validateInputs(config CreateConfig) error {
 	}
 
 	// Validate path has .fdb extension
-	if !strings.HasSuffix(config.Path, FileExtension) || len(config.Path) <= len(FileExtension) {
+	if !strings.HasSuffix(config.Path, FILE_EXTENSION) || len(config.Path) <= len(FILE_EXTENSION) {
 		return NewInvalidInputError("path must have .fdb extension", nil)
 	}
 
 	// Validate rowSize range
-	if config.RowSize < MinRowSize || config.RowSize > MaxRowSize {
+	if config.RowSize < MIN_ROW_SIZE || config.RowSize > MAX_ROW_SIZE {
 		return NewInvalidInputError(
-			fmt.Sprintf("rowSize must be between %d and %d, got %d", MinRowSize, MaxRowSize, config.RowSize),
+			fmt.Sprintf("rowSize must be between %d and %d, got %d", MIN_ROW_SIZE, MAX_ROW_SIZE, config.RowSize),
 			nil,
 		)
 	}
 
 	// Validate skewMs range
-	if config.SkewMs < 0 || config.SkewMs > MaxSkewMs {
+	if config.SkewMs < 0 || config.SkewMs > MAX_SKEW_MS {
 		return NewInvalidInputError(
-			fmt.Sprintf("skewMs must be between 0 and %d, got %d", MaxSkewMs, config.SkewMs),
+			fmt.Sprintf("skewMs must be between 0 and %d, got %d", MAX_SKEW_MS, config.SkewMs),
 			nil,
 		)
 	}
@@ -360,7 +360,7 @@ func validatePath(path string) error {
 // createFile atomically creates the file with proper permissions
 func createFile(path string) (*os.File, error) {
 	// Create file with O_CREAT|O_EXCL for atomic creation using fsInterface
-	file, err := fsInterface.Open(path, O_CREAT_EXCL|syscall.O_WRONLY, FilePermissions)
+	file, err := fsInterface.Open(path, O_CREAT_EXCL|syscall.O_WRONLY, FILE_PERMISSIONS)
 	if err != nil {
 		return nil, NewPathError("failed to create file atomically", err)
 	}
@@ -382,9 +382,9 @@ func writeHeader(file *os.File, config CreateConfig) error {
 	}
 
 	// Ensure all 64 bytes were written
-	if n != HeaderSize {
+	if n != HEADER_SIZE {
 		return NewWriteError(
-			fmt.Sprintf("expected to write %d bytes, wrote %d", HeaderSize, n),
+			fmt.Sprintf("expected to write %d bytes, wrote %d", HEADER_SIZE, n),
 			nil,
 		)
 	}

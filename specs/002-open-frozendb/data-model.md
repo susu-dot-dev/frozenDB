@@ -46,8 +46,8 @@ Enumeration of supported database access modes.
 type AccessMode string
 
 const (
-    ModeRead  AccessMode = "read"  // Read-only access, no lock needed
-    ModeWrite AccessMode = "write" // Read-write access with exclusive lock
+    MODE_READ  AccessMode = "read"  // Read-only access, no lock needed
+    MODE_WRITE AccessMode = "write" // Read-write access with exclusive lock
 )
 ```
 

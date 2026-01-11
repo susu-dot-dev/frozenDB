@@ -25,7 +25,7 @@ import (
 
 func main() {
     // Open database file for read-only access
-    db, err := frozendb.NewFrozenDB("data/mydatabase.fdb", frozendb.ModeRead)
+    db, err := frozendb.NewFrozenDB("data/mydatabase.fdb", frozendb.MODE_READ)
     if err != nil {
         log.Fatal("Failed to open database:", err)
     }
@@ -49,7 +49,7 @@ import (
 
 func main() {
     // Open database file for read-write access
-    db, err := frozendb.NewFrozenDB("data/mydatabase.fdb", frozendb.ModeWrite)
+    db, err := frozendb.NewFrozenDB("data/mydatabase.fdb", frozendb.MODE_WRITE)
     if err != nil {
         log.Fatal("Failed to open database for writing:", err)
     }
@@ -75,7 +75,7 @@ import (
 )
 
 func main() {
-    db, err := frozendb.NewFrozenDB("data/mydatabase.fdb", frozendb.ModeRead)
+    db, err := frozendb.NewFrozenDB("data/mydatabase.fdb", frozendb.MODE_READ)
     if err != nil {
         handleOpenError(err)
         return
@@ -119,7 +119,7 @@ func handleOpenError(err error) {
 
 ```go
 func safeDatabaseOperation(path string) error {
-    db, err := frozendb.NewFrozenDB(path, frozendb.ModeRead)
+    db, err := frozendb.NewFrozenDB(path, frozendb.MODE_READ)
     if err != nil {
         return err
     }
@@ -141,7 +141,7 @@ func safeDatabaseOperation(path string) error {
 
 ```go
 func concurrentCloseExample(path string) error {
-    db, err := frozendb.NewFrozenDB(path, frozendb.ModeRead)
+    db, err := frozendb.NewFrozenDB(path, frozendb.MODE_READ)
     if err != nil {
         return err
     }
@@ -172,7 +172,7 @@ func concurrentReaders(path string) error {
     // No locks needed - append-only files are safe for concurrent reads
     for i := 0; i < 5; i++ {
         go func(readerID int) {
-            db, err := frozendb.NewFrozenDB(path, frozendb.ModeRead)
+            db, err := frozendb.NewFrozenDB(path, frozendb.MODE_READ)
             if err != nil {
                 log.Printf("Reader %d failed: %v", readerID, err)
                 return
@@ -191,7 +191,7 @@ func concurrentReaders(path string) error {
 
 ```go
 func attemptWriteAccess(path string) error {
-    db, err := frozendb.NewFrozenDB(path, frozendb.ModeWrite)
+    db, err := frozendb.NewFrozenDB(path, frozendb.MODE_WRITE)
     if err != nil {
         var writeErr *frozendb.WriteError
         if errors.As(err, &writeErr) {
@@ -226,7 +226,7 @@ func createAndOpenDatabase(path string) error {
     }
     
     // Then open it for operations
-    db, err := frozendb.NewFrozenDB(path, frozendb.ModeWrite)
+    db, err := frozendb.NewFrozenDB(path, frozendb.MODE_WRITE)
     if err != nil {
         return fmt.Errorf("open failed: %w", err)
     }
@@ -243,7 +243,7 @@ func createAndOpenDatabase(path string) error {
 
 ```go
 func analyzeDatabase(path string) error {
-    db, err := frozendb.NewFrozenDB(path, frozendb.ModeRead)
+    db, err := frozendb.NewFrozenDB(path, frozendb.MODE_READ)
     if err != nil {
         return err
     }
@@ -261,7 +261,7 @@ func analyzeDatabase(path string) error {
 
 ```go
 func ingestData(path string) error {
-    db, err := frozendb.NewFrozenDB(path, frozendb.ModeWrite)
+    db, err := frozendb.NewFrozenDB(path, frozendb.MODE_WRITE)
     if err != nil {
         return fmt.Errorf("cannot open for writing: %w", err)
     }
@@ -282,7 +282,7 @@ func ingestData(path string) error {
 ```go
 // Good: Always close database
 func goodExample() {
-    db, err := frozendb.NewFrozenDB("data.db", frozendb.ModeRead)
+    db, err := frozendb.NewFrozenDB("data.db", frozendb.MODE_READ)
     if err != nil {
         log.Fatal(err)
     }
@@ -292,7 +292,7 @@ func goodExample() {
 
 // Bad: Resource leak
 func badExample() {
-    db, err := frozendb.NewFrozenDB("data.db", frozendb.ModeRead)
+    db, err := frozendb.NewFrozenDB("data.db", frozendb.MODE_READ)
     if err != nil {
         log.Fatal(err)
     }
@@ -310,8 +310,8 @@ func openWithValidation(path, mode string) error {
         return fmt.Errorf("path must have .fdb extension")
     }
     
-    if mode != frozendb.ModeRead && mode != frozendb.ModeWrite {
-        return fmt.Errorf("mode must be frozendb.ModeRead or frozendb.ModeWrite")
+    if mode != frozendb.MODE_READ && mode != frozendb.MODE_WRITE {
+        return fmt.Errorf("mode must be frozendb.MODE_READ or frozendb.MODE_WRITE")
     }
     
     db, err := frozendb.NewFrozenDB(path, mode)
@@ -332,7 +332,7 @@ func openWithValidation(path, mode string) error {
 func concurrentSafe(path string) {
     for i := 0; i < 10; i++ {
         go func() {
-            db, err := frozendb.NewFrozenDB(path, frozendb.ModeRead)
+            db, err := frozendb.NewFrozenDB(path, frozendb.MODE_READ)
             if err != nil {
                 log.Printf("Goroutine failed: %v", err)
                 return
@@ -347,7 +347,7 @@ func concurrentSafe(path string) {
 
 // Bad: Sharing instances across goroutines
 func concurrentUnsafe(path string) {
-    db, err := frozendb.NewFrozenDB(path, frozendb.ModeRead)
+    db, err := frozendb.NewFrozenDB(path, frozendb.MODE_READ)
     if err != nil {
         log.Fatal(err)
     }
@@ -394,7 +394,7 @@ func debugOpen(path, mode string) {
 func setupDatabaseMiddleware(path string) func(http.Handler) http.Handler {
     return func(next http.Handler) http.Handler {
         return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-            db, err := frozendb.NewFrozenDB(path, frozendb.ModeRead)
+            db, err := frozendb.NewFrozenDB(path, frozendb.MODE_READ)
             if err != nil {
                 http.Error(w, "Database unavailable", http.StatusInternalServerError)
                 return
