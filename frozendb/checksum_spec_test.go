@@ -172,9 +172,9 @@ func Test_S_003_FR_004_ParityCalculation(t *testing.T) {
 	rowSize := header.RowSize
 	parityBytes := rowBytes[rowSize-3 : rowSize-1]
 
-	// Calculate expected parity using XOR on bytes [0] through [row_size-4]
+	// Calculate expected parity using XOR on bytes [0] through [row_size-4] (inclusive)
 	var expectedXOR byte = 0
-	for i := 0; i < rowSize-4; i++ {
+	for i := 0; i < rowSize-3; i++ {
 		expectedXOR ^= rowBytes[i]
 	}
 
@@ -217,6 +217,7 @@ func Test_S_003_FR_005_ParityValidation(t *testing.T) {
 
 	// Verify parity is correct by validating the row
 	var parsedRow ChecksumRow
+	parsedRow.Header = header // Set Header before unmarshaling
 	if err := parsedRow.UnmarshalText(rowBytes); err != nil {
 		t.Fatalf("UnmarshalText failed on valid row: %v", err)
 	}
@@ -228,6 +229,7 @@ func Test_S_003_FR_005_ParityValidation(t *testing.T) {
 	corruptedBytes[len(corruptedBytes)-2] = 0xFF // Corrupt second parity byte
 
 	var corruptedRow ChecksumRow
+	corruptedRow.Header = header // Set Header before unmarshaling
 	if err := corruptedRow.UnmarshalText(corruptedBytes); err == nil {
 		t.Error("UnmarshalText should fail on row with corrupted parity bytes")
 	} else {
@@ -273,6 +275,7 @@ func Test_S_003_FR_006_SentinelBytes(t *testing.T) {
 	corruptedBytes[0] = 0x00 // Wrong ROW_START
 
 	var corruptedRow ChecksumRow
+	corruptedRow.Header = header // Set Header before unmarshaling
 	if err := corruptedRow.UnmarshalText(corruptedBytes); err == nil {
 		t.Error("UnmarshalText should fail on row with wrong ROW_START")
 	} else {
@@ -285,6 +288,7 @@ func Test_S_003_FR_006_SentinelBytes(t *testing.T) {
 	copy(corruptedBytes, rowBytes)
 	corruptedBytes[rowSize-1] = 0x00 // Wrong ROW_END
 
+	corruptedRow.Header = header // Set Header before unmarshaling
 	if err := corruptedRow.UnmarshalText(corruptedBytes); err == nil {
 		t.Error("UnmarshalText should fail on row with wrong ROW_END")
 	} else {
@@ -297,9 +301,9 @@ func Test_S_003_FR_006_SentinelBytes(t *testing.T) {
 // Test_S_003_FR_007_RowSizeSupport tests FR-007: System MUST support row sizes from 128 to 65536 bytes as specified in header format
 func Test_S_003_FR_007_RowSizeSupport(t *testing.T) {
 	testCases := []struct {
-		name     string
-		rowSize  int
-		wantErr  bool
+		name    string
+		rowSize int
+		wantErr bool
 	}{
 		{"minimum row size", 128, false},
 		{"medium row size", 1024, false},
@@ -312,19 +316,30 @@ func Test_S_003_FR_007_RowSizeSupport(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			header := &Header{
-				RowSize: tc.rowSize,
-				SkewMs:  5000,
+				Signature: "fDB",
+				Version:   1,
+				RowSize:   tc.rowSize,
+				SkewMs:    5000,
 			}
 			dataBytes := []byte("test data")
 
-			checksumRow, err := NewChecksumRow(header, dataBytes)
+			// Header validation happens at creation time, not when used
+			// For invalid headers, validateHeaderFields should fail
 			if tc.wantErr {
+				err := validateHeaderFields(header)
 				if err == nil {
-					t.Error("NewChecksumRow should fail for invalid row size")
+					t.Error("validateHeaderFields should fail for invalid row size")
 				}
 				return
 			}
 
+			// For valid headers, validateHeaderFields should pass
+			if err := validateHeaderFields(header); err != nil {
+				t.Fatalf("validateHeaderFields failed for valid row size %d: %v", tc.rowSize, err)
+			}
+
+			// Now test NewChecksumRow with validated header
+			checksumRow, err := NewChecksumRow(header, dataBytes)
 			if err != nil {
 				t.Fatalf("NewChecksumRow failed for valid row size %d: %v", tc.rowSize, err)
 			}
@@ -362,6 +377,7 @@ func Test_S_003_FR_008_DeserializationSupport(t *testing.T) {
 
 	// Deserialize back
 	var parsedRow ChecksumRow
+	parsedRow.Header = header // Set Header before unmarshaling
 	if err := parsedRow.UnmarshalText(rowBytes); err != nil {
 		t.Fatalf("UnmarshalText failed: %v", err)
 	}
@@ -410,6 +426,7 @@ func Test_S_003_FR_009_ValidationControlBytes(t *testing.T) {
 	corruptedBytes[1] = 'T' // Wrong start_control
 
 	var corruptedRow ChecksumRow
+	corruptedRow.Header = header // Set Header before unmarshaling
 	if err := corruptedRow.UnmarshalText(corruptedBytes); err == nil {
 		t.Error("UnmarshalText should fail on row with wrong start_control")
 	} else {
@@ -424,6 +441,7 @@ func Test_S_003_FR_009_ValidationControlBytes(t *testing.T) {
 	corruptedBytes[rowSize-5] = 'T' // Wrong end_control
 	corruptedBytes[rowSize-4] = 'C'
 
+	corruptedRow.Header = header // Set Header before unmarshaling
 	if err := corruptedRow.UnmarshalText(corruptedBytes); err == nil {
 		t.Error("UnmarshalText should fail on row with wrong end_control")
 	} else {
@@ -453,6 +471,7 @@ func Test_S_003_FR_010_CompleteValidation(t *testing.T) {
 
 	// Test that valid row passes validation
 	var validRow ChecksumRow
+	validRow.Header = header // Set Header before unmarshaling
 	if err := validRow.UnmarshalText(rowBytes); err != nil {
 		t.Fatalf("Valid row should pass validation, got error: %v", err)
 	}
@@ -463,15 +482,15 @@ func Test_S_003_FR_010_CompleteValidation(t *testing.T) {
 		corruptFunc func([]byte)
 	}{
 		{
-			name: "corrupt ROW_START",
+			name:        "corrupt ROW_START",
 			corruptFunc: func(b []byte) { b[0] = 0x00 },
 		},
 		{
-			name: "corrupt ROW_END",
+			name:        "corrupt ROW_END",
 			corruptFunc: func(b []byte) { b[len(b)-1] = 0x00 },
 		},
 		{
-			name: "corrupt start_control",
+			name:        "corrupt start_control",
 			corruptFunc: func(b []byte) { b[1] = 'T' },
 		},
 		{
@@ -482,7 +501,7 @@ func Test_S_003_FR_010_CompleteValidation(t *testing.T) {
 			},
 		},
 		{
-			name: "corrupt padding",
+			name:        "corrupt padding",
 			corruptFunc: func(b []byte) { b[10] = 0xFF },
 		},
 		{
@@ -501,6 +520,7 @@ func Test_S_003_FR_010_CompleteValidation(t *testing.T) {
 			tc.corruptFunc(corruptedBytes)
 
 			var corruptedRow ChecksumRow
+			corruptedRow.Header = header // Set Header before unmarshaling
 			if err := corruptedRow.UnmarshalText(corruptedBytes); err == nil {
 				t.Errorf("UnmarshalText should fail for %s", tc.name)
 			} else {

@@ -28,7 +28,7 @@ type baseRow[P RowPayload] struct {
 - `MarshalText() ([]byte, error)` - Serialize row to exact byte format
 - `UnmarshalText(text []byte) error` - Deserialize from bytes with automatic validation
 - `validate() error` - Internal verification of row structure and integrity
-- `GetParity() string` - Calculate XOR parity bytes dynamically
+- `GetParity() ([2]byte, error)` - Calculate XOR parity bytes dynamically by serializing the row
 - `PaddingLength() int` - Calculate required null byte padding
 
 **Note**: These methods are unexported and called by exported row type methods.
@@ -114,7 +114,7 @@ func (cr *ChecksumRow) validate() error // Internal validation
 func (cr *ChecksumRow) GetChecksum() Checksum // Direct return, no error
 
 // Parity and padding calculations (generic methods)
-func (br *baseRow[P]) GetParity() string
+func (br *baseRow[P]) GetParity() ([2]byte, error)
 func (br *baseRow[P]) PaddingLength() int
 ```
 
