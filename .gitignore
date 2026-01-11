@@ -31,3 +31,7 @@ go.work.sum
 # .idea/
 # .vscode/
 tasks.md
+
+# Opencode files
+.opencode/node_modules
+.opencode/bun.lock
