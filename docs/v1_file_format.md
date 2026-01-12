@@ -45,7 +45,16 @@ All database writes MUST occur within a transaction. A transaction provides atom
 Begin() → Add(k1,v1) → Add(k2,v2) → Commit()
 ```
 
-The first row in a transaction uses start_control `T` (Transaction begin). Subsequent rows use start_control `R` (Row continuation). The final row's end_control indicates how the transaction ended.
+**Transaction Constraints:**
+- Transactions cannot be nested. A new transaction cannot begin until the previous transaction has ended.
+- A transaction cannot contain more than 100 data rows.
+- A transaction can contain up to 9 user-defined savepoints.
+- A transaction must contain exactly one transaction-ending command (commit or rollback).
+
+**Transaction Validity:**
+- A committed transaction makes all rows from the transaction start through the commit command (inclusive) valid.
+- A rolled back transaction makes rows from the start through a specified savepoint (inclusive) valid, and invalidates all rows after that savepoint through the rollback command (inclusive).
+- A full rollback (to savepoint 0) invalidates all rows in the transaction, including the rollback command itself.
 
 ### 2.2. Savepoints
 
@@ -53,7 +62,7 @@ Savepoints allow partial rollbacks within a transaction. When a savepoint is cre
 
 **Key insight**: Since the file is append-only, "rollback" doesn't delete rows—it marks them as invalid. Readers parse the transaction to its end, check for rollback markers, and exclude invalidated rows.
 
-**Savepoint numbering**: Savepoints are numbered 1-9 in creation order. Savepoint 0 represents the transaction start (full rollback).
+**Savepoint numbering**: Savepoints are numbered 1-9 in creation order within a transaction. Savepoint 0 represents the transaction start (full rollback). A transaction can contain up to 9 user-defined savepoints.
 
 **Example with savepoint:**
 ```
@@ -131,12 +140,12 @@ Begin() → Add(k1,v1) → Add(k2,v2) → Rollback(0)
 
 When reading a frozenDB file, implementations MUST:
 
-1. Parse each transaction from its first row (start_control `T`) to its terminating row (end_control ending in `C` or `0-9`)
-2. Check the terminating row's end_control:
-   - If `*C` (commit): Include all rows in the transaction
-   - If `*0` (rollback to 0): Exclude all rows in the transaction
-   - If `*N` where N > 0: Include rows up to and including savepoint N; exclude rows after
-3. Savepoints are numbered by counting rows with `S` as their first end_control character, in order (first = 1, second = 2, etc.)
+1. Parse each transaction from its first row (transaction start) to its terminating row (transaction-ending command)
+2. Check the terminating row's transaction-ending command:
+   - If commit: Include all rows in the transaction from start through commit (inclusive)
+   - If rollback to 0: Exclude all rows in the transaction (entire transaction rolled back)
+   - If rollback to N where N > 0: Include rows from start through savepoint N (inclusive); exclude all rows after savepoint N through the rollback command (inclusive)
+3. Savepoints are numbered by counting savepoint-creating rows within the transaction, in order (first = 1, second = 2, etc.)
 
 ## 3. File Structure
 
@@ -317,8 +326,8 @@ All positions use zero-based indexing.
 
 | Code | When Valid |
 |------|------------|
-| `T` | First row of file, or previous row ended with `*C` or `*0-9` (transaction boundary) |
-| `R` | Previous row ended with `*E` (transaction continues) |
+| `T` | First data row of file, or after a transaction-ending command (`*C` or `*0-9`). Zero or one checksum rows may appear between the transaction end and the next `T`. |
+| `R` | Previous data row ended with `*E` (transaction continues). Checksum rows do not affect this rule. |
 
 ### 8.3. End Control Rules
 
@@ -332,6 +341,8 @@ All positions use zero-based indexing.
 | `R1-R9` | Rollback to savepoint N | Closed |
 | `S0` | Savepoint + Full rollback | Closed |
 | `S1-S9` | Savepoint + Rollback to savepoint N | Closed |
+
+**Important**: For `S0-S9` sequences, the savepoint is created on the current row first (incrementing the savepoint counter), and then the rollback is performed. This maps to user behavior: `Add()` (adds the row), `Savepoint()` (saves the current row), `Rollback()` (rolls back to a savepoint). For example, `S1` means: create a savepoint on this row, then rollback to savepoint 1. This allows saving the current row before calling rollback.
 
 ### 8.4. UUIDv7 Requirements
 
@@ -347,34 +358,86 @@ padding_bytes = row_size - len(json_payload) - 31
 
 Where 31 = 1 (ROW_START) + 1 (start_control) + 24 (UUID) + 2 (end_control) + 2 (parity) + 1 (ROW_END)
 
-## 9. Transaction Validation
+## 9. Transaction Specification
 
-### 9.1. State Machine
+### 9.1. Transaction Structure
+
+A transaction SHALL be defined as follows:
+
+1. **Transaction Start**: A transaction always starts with a data row that has start_control `T` (transaction begin).
+
+2. **Transaction Continuation**: Subsequent rows within the transaction use start_control `R` (row continuation) and end_control `*E` (continue).
+
+3. **Transaction End**: A transaction ends with the first subsequent data row that has an end_control ending in `C` (commit) or `0-9` (rollback). The transaction-ending end_control sequences are: `TC`, `SC`, `R0-R9`, or `S0-S9`.
+
+4. **Transaction Boundaries**: After a transaction ends (with any transaction-ending command), the next data row encountered MUST have start_control `T` to begin a new transaction. Zero or one checksum rows MAY appear between the end of one transaction and the start of the next transaction.
+
+### 9.2. Transaction Constraints
+
+Implementations MUST enforce the following constraints:
+
+1. **No Nested Transactions**: Transactions cannot be nested. A new transaction start (`T` start_control) MUST NOT occur until the previous transaction has ended (with a transaction-ending command).
+
+2. **Transaction Start Requirement**: After a transaction ends, the next data row (after any checksum rows) MUST have start_control `T`. There MUST NOT be any data rows with start_control `R` between transactions.
+
+3. **Maximum Data Rows**: A transaction MUST NOT contain more than 100 data rows.
+
+4. **Maximum Savepoints**: A transaction MUST NOT contain more than 9 user-defined savepoints (savepoints numbered 1-9).
+
+5. **Single Transaction-Ending Command**: A transaction MUST contain exactly one transaction-ending command. Once a row with end_control ending in `C` or `0-9` is encountered, the transaction is ended and no further rows can be added to that transaction.
+
+### 9.3. Transaction Validity Rules
+
+When reading transactions, implementations SHALL apply the following validity rules:
+
+1. **Committed Transactions**: If a transaction ends with a commit command (`TC` or `SC`), all rows from the transaction start (the row with start_control `T`) through the commit row (inclusive) are valid.
+
+2. **Rolled Back Transactions**: If a transaction ends with a rollback command:
+   - **Full Rollback (`R0` or `S0`)**: All rows from the transaction start through the rollback row (inclusive) are invalidated. The entire transaction is rolled back.
+   - **Partial Rollback (`R1-R9` or `S1-S9`)**: 
+     - Rows from the transaction start through and including the savepoint specified by the rollback number are valid (committed).
+     - All rows after that savepoint through and including the rollback row are invalidated (reverted).
+
+### 9.4. Savepoint Tracking
+
+Within a transaction, savepoints are tracked as follows:
+
+1. Count rows where the first character of end_control is `S` (savepoint created on this row).
+2. The first such row creates savepoint 1, the second creates savepoint 2, etc.
+3. Savepoint 0 represents the transaction start (used for full rollback).
+4. A transaction MUST NOT contain more than 9 user-defined savepoints (numbered 1-9).
+
+**Savepoint creation order for `S0-S9`**: When an end_control sequence `S0-S9` is encountered, the savepoint is created on the current row first (incrementing the savepoint counter), and then the rollback is performed. This means:
+- `S1` on a row with no previous savepoints: creates savepoint 1, then rolls back to savepoint 1 (the row just created).
+- `S2` on a row with one previous savepoint: creates savepoint 2, then rolls back to savepoint 2 (the row just created).
+- `S1` on a row with two previous savepoints: creates savepoint 3, then rolls back to savepoint 1 (the first savepoint).
+
+### 9.5. State Machine
 
 Implementations SHALL track transaction state:
 
-1. **Closed**: Expecting `T` start_control
+1. **Closed**: Expecting `T` start_control (or checksum row with start_control `C`)
 2. **Open**: Expecting `R` start_control
 
 Transitions:
-- Encountering a row with `T` start_control → Open state
-- Encountering a row with `*E` end_control → remain Open
-- Encountering a row with `*C` or `*0-9` end_control → Closed state
+- Encountering a data row with `T` start_control:
+  - If end_control is `*E` → Open state (transaction continues)
+  - If end_control is `*C` or `*0-9` → Closed state (single-row transaction ends)
+- Encountering a data row with `R` start_control:
+  - If end_control is `*E` → remain Open (transaction continues)
+  - If end_control is `*C` or `*0-9` → Closed state (transaction ends)
+- Encountering a checksum row (start_control `C`) → state unchanged (checksum rows are ignored for transaction state)
 
-### 9.2. Savepoint Tracking
-
-Within a transaction:
-1. Count rows with `S` as first end_control character
-2. First `S` row = savepoint 1, second = savepoint 2, etc.
-3. Maximum 9 savepoints per transaction
-
-### 9.3. Invalid Sequences
+### 9.6. Invalid Sequences
 
 Implementations MUST reject:
-- `R` start_control when transaction is Closed
+- `R` start_control when transaction is Closed (unless preceded by a checksum row)
 - `T` start_control when transaction is Open
-- Rollback to savepoint N when fewer than N savepoints exist
-- Savepoint numbers > 9
+- Rollback to savepoint N when fewer than N savepoints exist in the transaction
+- Savepoint numbers > 9 in rollback commands
+- More than 100 data rows in a single transaction
+- More than 9 savepoints in a single transaction
+- More than one transaction-ending command in a single transaction
 
 ## 10. Algorithm Details
 
