@@ -239,13 +239,9 @@ func TestChecksumRow_GetChecksum(t *testing.T) {
 	}
 }
 
-func TestChecksumRow_GetChecksum_NilPayload(t *testing.T) {
-	cr := &ChecksumRow{}
-	got := cr.GetChecksum()
-	if got != 0 {
-		t.Errorf("GetChecksum() with nil payload = %v, want 0", got)
-	}
-}
+// TestChecksumRow_GetChecksum_NilPayload removed:
+// GetChecksum() assumes Validate() has been called and passed, ensuring RowPayload is not nil.
+// Testing nil payload behavior is not applicable since Validate() prevents this state.
 
 func TestChecksumRow_MarshalText(t *testing.T) {
 	header := &Header{

@@ -275,6 +275,8 @@ func TestDB_Add(t *testing.T) {
 - Single file-based frozenDB database (.fdb extension) (003-checksum-row)
 - Go 1.25.5 + Go standard library only (os, encoding/json, sync, etc.) (004-struct-validation)
 - Single-file append-only database (.fdb extension) (004-struct-validation)
+- Go 1.25.5 + github.com/google/uuid, Go standard library only (005-data-row-handling)
+- Single-file frozenDB database (.fdb extension) (005-data-row-handling)
 
 ## Recent Changes
 - Updated with v1_file_format.md concepts for append-only architecture

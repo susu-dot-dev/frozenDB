@@ -93,11 +93,9 @@ func NewChecksumRow(header *Header, dataBytes []byte) (*ChecksumRow, error) {
 	return cr, nil
 }
 
-// GetChecksum extracts the CRC32 checksum value (no type assertion needed)
+// GetChecksum extracts the CRC32 checksum value (no type assertion needed).
+// This method assumes Validate() has been called and passed, ensuring RowPayload is not nil.
 func (cr *ChecksumRow) GetChecksum() Checksum {
-	if cr.RowPayload == nil {
-		return 0
-	}
 	return *cr.RowPayload
 }
 
