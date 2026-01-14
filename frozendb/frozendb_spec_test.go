@@ -712,7 +712,13 @@ func Test_S_002_FR_013_CorruptDatabaseErrorForHeaderValidationFailures(t *testin
 			setupFile: func(t *testing.T, path string) {
 				file, _ := os.Create(path)
 				defer file.Close()
-				header, _ := generateHeader(1024, 5000)
+				h := &Header{
+					signature: HEADER_SIGNATURE,
+					version:   1,
+					rowSize:   1024,
+					skewMs:    5000,
+				}
+				header, _ := h.MarshalText()
 				header[63] = 'X' // Replace newline with invalid character
 				file.Write(header)
 			},
@@ -734,7 +740,13 @@ func Test_S_002_FR_013_CorruptDatabaseErrorForHeaderValidationFailures(t *testin
 			setupFile: func(t *testing.T, path string) {
 				file, _ := os.Create(path)
 				defer file.Close()
-				header, _ := generateHeader(1024, 5000)
+				h := &Header{
+					signature: HEADER_SIGNATURE,
+					version:   1,
+					rowSize:   1024,
+					skewMs:    5000,
+				}
+				header, _ := h.MarshalText()
 				// Corrupt a padding byte (after JSON content but before newline)
 				// The JSON content ends with a null terminator, padding starts after that
 				// Find first null byte after JSON and corrupt the next byte
@@ -1677,7 +1689,13 @@ func Test_S_007_FR_002_ComprehensiveValidation(t *testing.T) {
 					return err
 				}
 				defer file.Close()
-				header, _ := generateHeader(rowSize, 5000)
+				h := &Header{
+					signature: HEADER_SIGNATURE,
+					version:   1,
+					rowSize:   rowSize,
+					skewMs:    5000,
+				}
+				header, _ := h.MarshalText()
 				file.Write(header)
 				return nil
 			},
@@ -2153,7 +2171,7 @@ func Test_S_007_FR_003_BufferOverflowProtection(t *testing.T) {
 	}
 }
 
-func Test_S_007_FR_004_RowSizeSecurityValidation(t *testing.T) {
+func Test_S_007_FR_004_rowSizeSecurityValidation(t *testing.T) {
 	tests := []struct {
 		name        string
 		setupFile   func(t *testing.T, path string, rowSize int) error

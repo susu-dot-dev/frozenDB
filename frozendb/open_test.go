@@ -7,12 +7,23 @@ import (
 	"testing"
 )
 
+func createTestHeaderBytes() []byte {
+	header := &Header{
+		signature: HEADER_SIGNATURE,
+		version:   1,
+		rowSize:   1024,
+		skewMs:    5000,
+	}
+	bytes, _ := header.MarshalText()
+	return bytes
+}
+
 // Benchmark_NewFrozenDB_ReadMode benchmarks opening database in read mode
 func Benchmark_NewFrozenDB_ReadMode(b *testing.B) {
 	// Create test database
 	testPath := filepath.Join(b.TempDir(), "bench.fdb")
 	file, _ := os.Create(testPath)
-	header, _ := generateHeader(1024, 5000)
+	header := createTestHeaderBytes()
 	file.Write(header)
 	file.Close()
 
@@ -31,7 +42,7 @@ func Benchmark_NewFrozenDB_WriteMode(b *testing.B) {
 	// Create test database
 	testPath := filepath.Join(b.TempDir(), "bench.fdb")
 	file, _ := os.Create(testPath)
-	header, _ := generateHeader(1024, 5000)
+	header := createTestHeaderBytes()
 	file.Write(header)
 	file.Close()
 
@@ -49,7 +60,7 @@ func Benchmark_NewFrozenDB_WriteMode(b *testing.B) {
 func Benchmark_Close(b *testing.B) {
 	testPath := filepath.Join(b.TempDir(), "bench.fdb")
 	file, _ := os.Create(testPath)
-	header, _ := generateHeader(1024, 5000)
+	header := createTestHeaderBytes()
 	file.Write(header)
 	file.Close()
 
@@ -66,7 +77,7 @@ func Benchmark_Close(b *testing.B) {
 func Benchmark_ConcurrentReaders(b *testing.B) {
 	testPath := filepath.Join(b.TempDir(), "bench.fdb")
 	file, _ := os.Create(testPath)
-	header, _ := generateHeader(1024, 5000)
+	header := createTestHeaderBytes()
 	file.Write(header)
 	file.Close()
 
