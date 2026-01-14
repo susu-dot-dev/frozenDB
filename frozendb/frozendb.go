@@ -2,7 +2,6 @@ package frozendb
 
 import (
 	"os"
-	"strings"
 	"sync"
 	"syscall"
 )
@@ -64,8 +63,7 @@ func NewFrozenDB(path string, mode string) (*FrozenDB, error) {
 		}
 	}()
 
-	// Read and validate header
-	header, err := readAndValidateHeader(file)
+	header, err := validateDatabaseFile(file)
 	if err != nil {
 		cleanupErr = err
 		return nil, err
@@ -153,74 +151,4 @@ func (db *FrozenDB) Close() error {
 	}
 
 	return nil
-}
-
-// validateOpenInputs validates input parameters for NewFrozenDB
-func validateOpenInputs(path string, mode string) error {
-	// Validate path is not empty
-	if path == "" {
-		return NewInvalidInputError("path cannot be empty", nil)
-	}
-
-	// Validate path has .fdb extension
-	if !strings.HasSuffix(path, FILE_EXTENSION) || len(path) <= len(FILE_EXTENSION) {
-		return NewInvalidInputError("path must have .fdb extension", nil)
-	}
-
-	// Validate mode value
-	if mode != MODE_READ && mode != MODE_WRITE {
-		return NewInvalidInputError("mode must be 'read' or 'write'", nil)
-	}
-
-	return nil
-}
-
-// openDatabaseFile opens the database file with appropriate flags for the mode
-func openDatabaseFile(path string, mode string) (*os.File, error) {
-	// Determine open flags based on mode
-	var flags int
-	if mode == MODE_READ {
-		flags = os.O_RDONLY
-	} else { // MODE_WRITE
-		flags = os.O_RDWR
-	}
-
-	// Open file using fsInterface for testability
-	file, err := fsInterface.Open(path, flags, 0)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, NewPathError("database file does not exist", err)
-		}
-		if os.IsPermission(err) {
-			return nil, NewPathError("permission denied to access database file", err)
-		}
-		return nil, NewPathError("failed to open database file", err)
-	}
-
-	return file, nil
-}
-
-// readAndValidateHeader reads first 64 bytes and validates frozenDB v1 header
-func readAndValidateHeader(file *os.File) (*Header, error) {
-	// Read first 64 bytes
-	headerBytes := make([]byte, HEADER_SIZE)
-	n, err := file.Read(headerBytes)
-	if err != nil {
-		return nil, NewCorruptDatabaseError("failed to read header", err)
-	}
-
-	if n != HEADER_SIZE {
-		return nil, NewCorruptDatabaseError(
-			"incomplete header read",
-			nil,
-		)
-	}
-
-	// Parse and validate header using UnmarshalText
-	header := &Header{}
-	if err := header.UnmarshalText(headerBytes); err != nil {
-		return nil, err // Already a CorruptDatabaseError
-	}
-
-	return header, nil
 }

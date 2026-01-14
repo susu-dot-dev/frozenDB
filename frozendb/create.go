@@ -1,6 +1,8 @@
 package frozendb
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/user"
@@ -134,6 +136,93 @@ func (h *Header) GetRowSize() int {
 // GetSkewMs returns the time skew window in milliseconds
 func (h *Header) GetSkewMs() int {
 	return h.skewMs
+}
+
+type headerJSON struct {
+	Sig     string `json:"sig"`
+	Ver     int    `json:"ver"`
+	RowSize int    `json:"row_size"`
+	SkewMs  int    `json:"skew_ms"`
+}
+
+// UnmarshalText parses a frozenDB v1 header from 64-byte buffer
+// This method automatically calls Validate() before returning
+func (h *Header) UnmarshalText(headerBytes []byte) error {
+	if len(headerBytes) != HEADER_SIZE {
+		return NewCorruptDatabaseError(
+			fmt.Sprintf("header must be exactly %d bytes, got %d", HEADER_SIZE, len(headerBytes)),
+			nil,
+		)
+	}
+
+	if headerBytes[63] != HEADER_NEWLINE {
+		return NewCorruptDatabaseError(
+			fmt.Sprintf("byte 63 must be newline, got 0x%02x", headerBytes[63]),
+			nil,
+		)
+	}
+
+	nullPos := bytes.IndexByte(headerBytes, PADDING_CHAR)
+	if nullPos == -1 {
+		return NewCorruptDatabaseError("no null terminator found in header", nil)
+	}
+
+	jsonContent := headerBytes[:nullPos]
+
+	for i := nullPos; i < 63; i++ {
+		if headerBytes[i] != PADDING_CHAR {
+			return NewCorruptDatabaseError(
+				fmt.Sprintf("padding byte at position %d must be null, got 0x%02x", i, headerBytes[i]),
+				nil,
+			)
+		}
+	}
+
+	var hdr headerJSON
+	if err := json.Unmarshal(jsonContent, &hdr); err != nil {
+		return NewCorruptDatabaseError("failed to parse JSON header", err)
+	}
+
+	h.signature = hdr.Sig
+	h.version = hdr.Ver
+	h.rowSize = hdr.RowSize
+	h.skewMs = hdr.SkewMs
+
+	return h.Validate()
+}
+
+// Validate validates the Header struct field values
+// This method is idempotent and can be called multiple times with the same result
+func (h *Header) Validate() error {
+	if h.signature != HEADER_SIGNATURE {
+		return NewCorruptDatabaseError(
+			fmt.Sprintf("invalid signature: expected '%s', got '%s'", HEADER_SIGNATURE, h.signature),
+			nil,
+		)
+	}
+
+	if h.version != 1 {
+		return NewCorruptDatabaseError(
+			fmt.Sprintf("unsupported version: expected 1, got %d", h.version),
+			nil,
+		)
+	}
+
+	if h.rowSize < MIN_ROW_SIZE || h.rowSize > MAX_ROW_SIZE {
+		return NewCorruptDatabaseError(
+			fmt.Sprintf("row_size must be between %d and %d, got %d", MIN_ROW_SIZE, MAX_ROW_SIZE, h.rowSize),
+			nil,
+		)
+	}
+
+	if h.skewMs < 0 || h.skewMs > MAX_SKEW_MS {
+		return NewCorruptDatabaseError(
+			fmt.Sprintf("skew_ms must be between 0 and %d, got %d", MAX_SKEW_MS, h.skewMs),
+			nil,
+		)
+	}
+
+	return nil
 }
 
 // SudoContext contains information about the sudo environment
@@ -304,6 +393,8 @@ func (cfg *CreateConfig) ValidateInputs() error {
 }
 
 // Create creates a new frozenDB database file with the given configuration
+// The file is created with a 64-byte header followed by an initial checksum row
+// that covers the header bytes [0..63] using CRC32 IEEE polynomial
 func Create(config CreateConfig) error {
 	// Validate all inputs first (no side effects)
 	if err := config.Validate(); err != nil {
@@ -335,14 +426,49 @@ func Create(config CreateConfig) error {
 	// Defer cleanup on any error
 	defer func() {
 		if err != nil {
-			_ = file.Close()
-			_ = os.Remove(config.path) // Clean up partial file
+			_ = os.Remove(config.path)
 		}
 	}()
 
-	// Write header
-	if err = writeHeader(file, config); err != nil {
-		return err
+	// Generate header bytes
+	headerBytes, err := generateHeader(config.rowSize, config.skewMs)
+	if err != nil {
+		return NewWriteError("failed to generate header", err)
+	}
+
+	// Create Header struct for checksum calculation
+	header := &Header{
+		signature: HEADER_SIGNATURE,
+		version:   1,
+		rowSize:   config.rowSize,
+		skewMs:    config.skewMs,
+	}
+
+	// Calculate CRC32 for header bytes [0..63] (entire header)
+	checksumRow, err := NewChecksumRow(header, headerBytes)
+	if err != nil {
+		return NewWriteError("failed to create checksum row", err)
+	}
+
+	// Marshal checksum row to bytes
+	checksumBytes, err := checksumRow.MarshalText()
+	if err != nil {
+		return NewWriteError("failed to marshal checksum row", err)
+	}
+
+	// Write header and checksum row atomically in a single write operation
+	// This ensures both are written together or neither is written
+	totalSize := HEADER_SIZE + config.rowSize
+	writeBuffer := make([]byte, totalSize)
+	copy(writeBuffer[0:HEADER_SIZE], headerBytes)
+	copy(writeBuffer[HEADER_SIZE:], checksumBytes)
+
+	n, err := file.Write(writeBuffer)
+	if err != nil {
+		return NewWriteError("failed to write header and checksum row", err)
+	}
+	if n != totalSize {
+		return NewWriteError(fmt.Sprintf("expected to write %d bytes, wrote %d", totalSize, n), nil)
 	}
 
 	// Sync data to disk before setting attributes (fdatasync equivalent)
@@ -355,18 +481,15 @@ func Create(config CreateConfig) error {
 		return err
 	}
 
-	// Set append-only attribute using ioctl
+	// Set append-only attribute using ioctl (must be done while file is open)
 	if err = setAppendOnlyAttr(int(file.Fd())); err != nil {
 		return err
 	}
 
-	// Close file successfully
+	// Close file before validation - we'll re-open for reading
 	if err = file.Close(); err != nil {
-		return NewWriteError("failed to close file", err)
+		return NewWriteError("failed to close file before validation", err)
 	}
-
-	// Clear defer error since we succeeded
-	err = nil
 	return nil
 }
 
@@ -444,30 +567,6 @@ func createFile(path string) (*os.File, error) {
 	}
 
 	return file, nil
-}
-
-// writeHeader writes the frozenDB v1 header to file
-func writeHeader(file *os.File, config CreateConfig) error {
-	header, err := generateHeader(config.rowSize, config.skewMs)
-	if err != nil {
-		return NewWriteError("failed to generate header", err)
-	}
-
-	// Write header to file
-	n, err := file.Write(header)
-	if err != nil {
-		return NewWriteError("failed to write header", err)
-	}
-
-	// Ensure all 64 bytes were written
-	if n != HEADER_SIZE {
-		return NewWriteError(
-			fmt.Sprintf("expected to write %d bytes, wrote %d", HEADER_SIZE, n),
-			nil,
-		)
-	}
-
-	return nil
 }
 
 // setAppendOnlyAttr sets the append-only attribute using ioctl

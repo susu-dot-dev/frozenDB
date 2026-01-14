@@ -17,6 +17,13 @@ var (
 	mockGetFlagsReturnValue uint32
 )
 
+// Mock UID/GID values used in tests to detect when mocks aren't being used
+const (
+	MOCK_UID  = "12345"
+	MOCK_GID  = "12345"
+	MOCK_USER = "testuser"
+)
+
 // Helper function to set up mock syscalls for testing
 func setupMockSyscalls(failGet, failSet bool) {
 	mockGetFlagsReturnValue = 0x12345678 // Some dummy flags
@@ -25,11 +32,16 @@ func setupMockSyscalls(failGet, failSet bool) {
 
 	SetFSInterface(fsOperations{
 		Getuid: os.Getuid,
-		Lookup: user.Lookup,
-		Open:   os.OpenFile,
-		Stat:   os.Stat,
-		Mkdir:  os.Mkdir,
-		Chown:  os.Chown,
+		Lookup: func(username string) (*user.User, error) {
+			// Always return mock values to ensure consistency and detect when mocks aren't used
+			return &user.User{Uid: MOCK_UID, Gid: MOCK_GID, Username: username}, nil
+		},
+		Open:  os.OpenFile,
+		Stat:  os.Stat,
+		Mkdir: os.Mkdir,
+		Chown: func(name string, uid, gid int) error {
+			return nil
+		},
 		Ioctl: func(trap uintptr, a1 uintptr, a2 uintptr, a3 uintptr) (uintptr, uintptr, syscall.Errno) {
 			switch a2 {
 			case FS_IOC_GETFLAGS:

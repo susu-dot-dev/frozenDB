@@ -169,7 +169,7 @@ Offset:    0          64        64+row_size   64+2*row_size
 - **ROW_END**: Byte value 0x0A (UTF-8: U+000A, newline) marking row end
 - **start_control**: Single byte representing an uppercase alphanumeric character (UTF-8: U+0030-U+0039 for digits 0-9, U+0041-U+005A for letters A-Z) identifying row type
 - **end_control**: Two bytes, each representing an uppercase alphanumeric character (same range as start_control) indicating row termination
-- **parity_bytes**: Two bytes representing uppercase hexadecimal digits (UTF-8: U+0030-U+0039, U+0041-U+0046) for LRC checksum
+- **parity_bytes**: Two bytes representing uppercase hexadecimal digits (UTF-8: U+0030-U+0039, U+0041-U+0046) for LRC parity calculations
 
 **Padding Characters:**
 - **NULL_BYTE**: Byte value 0x00 (UTF-8: U+0000, null character) used for padding
@@ -251,12 +251,12 @@ For checksum rows: start_control = `C`, end_control = `CS`
 ### 6.2. CRC32 Calculation
 
 - Algorithm: IEEE CRC32 (polynomial 0xedb88320)
-- Input: All bytes covered since previous checksum row (or from offset 64 for first checksum)
+- Input: All bytes covered since previous checksum row (or from the beginning of the file for first checksum)
 - Encoding: Standard Base64 of 4-byte CRC32 value (8 bytes output with "==" padding)
 
 ### 6.3. Placement Rules
 
-1. First checksum row: Immediately after header (offset 64). This checksum row MUST be present and MUST be validated when reading the file.
+1. First checksum row: Immediately after header (offset 64). This checksum row MUST be present and MUST be validated when reading the file. Since there is no previous row, this checksum MUST cover bytes [0..63] (length 64) to cover the entire header
 2. Subsequent: After every 10,000 data rows. A checksum row MUST be placed before the 10,001st data row is written. Implementations MAY choose to write the checksum immediately after writing the 10,000th row, or defer it until just before writing the 10,001st row.
 3. File may end after any number of data rows. If a file ends with fewer than 10,000 data rows since the last checksum, no final checksum is required.
 
@@ -264,7 +264,7 @@ For checksum rows: start_control = `C`, end_control = `CS`
 
 ### 7.1. Initial Checksum Row Validation
 
-When reading a frozenDB file, implementations MUST parse and validate the checksum row that immediately follows the header (at offset 64). This checksum row covers the initial data rows and MUST be validated to ensure data integrity. The header itself does not contain a checksum, but the first checksum row MUST be present and validated.
+When reading a frozenDB file, implementations MUST parse and validate the checksum row that immediately follows the header (at offset 64). This checksum row covers the header and MUST be validated to ensure data integrity.
 
 ### 7.2. Row Coverage and Validation Strategy
 
@@ -282,7 +282,7 @@ When performing data validation (see section 7.3 for when validation is optional
 
 **Example:** For a file with 12,000 data rows:
 - Rows 0-9,999: If validated, use checksum (parity may be ignored)
-- Rows 10,000-11,999: If validated, use parity bytes
+- Rows 10,000-11,999: Use parity bytes for each row
 
 ### 7.3. Validation Requirements
 

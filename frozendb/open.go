@@ -1,119 +1,18 @@
 package frozendb
 
 import (
-	"bytes"
-	"encoding/json"
 	"fmt"
+	"hash/crc32"
+	"io"
 	"os"
+	"strings"
 	"syscall"
 )
 
-// headerJSON is used for JSON unmarshaling
-type headerJSON struct {
-	Sig     string `json:"sig"`
-	Ver     int    `json:"ver"`
-	RowSize int    `json:"row_size"`
-	SkewMs  int    `json:"skew_ms"`
-}
-
-// UnmarshalText parses a frozenDB v1 header from 64-byte buffer
-// This method automatically calls Validate() before returning
-func (h *Header) UnmarshalText(headerBytes []byte) error {
-	// Validate fixed 64-byte size
-	if len(headerBytes) != HEADER_SIZE {
-		return NewCorruptDatabaseError(
-			fmt.Sprintf("header must be exactly %d bytes, got %d", HEADER_SIZE, len(headerBytes)),
-			nil,
-		)
-	}
-
-	// Verify byte 63 is newline
-	if headerBytes[63] != HEADER_NEWLINE {
-		return NewCorruptDatabaseError(
-			fmt.Sprintf("byte 63 must be newline, got 0x%02x", headerBytes[63]),
-			nil,
-		)
-	}
-
-	// Find null terminator position
-	nullPos := bytes.IndexByte(headerBytes, PADDING_CHAR)
-	if nullPos == -1 {
-		return NewCorruptDatabaseError("no null terminator found in header", nil)
-	}
-
-	// Extract JSON content (before null terminator)
-	jsonContent := headerBytes[:nullPos]
-
-	// Validate padding region (null bytes from nullPos to 62, newline at 63)
-	for i := nullPos; i < 63; i++ {
-		if headerBytes[i] != PADDING_CHAR {
-			return NewCorruptDatabaseError(
-				fmt.Sprintf("padding byte at position %d must be null, got 0x%02x", i, headerBytes[i]),
-				nil,
-			)
-		}
-	}
-
-	// Parse JSON using standard library
-	var hdr headerJSON
-	if err := json.Unmarshal(jsonContent, &hdr); err != nil {
-		return NewCorruptDatabaseError("failed to parse JSON header", err)
-	}
-
-	// Set Header struct fields
-	h.signature = hdr.Sig
-	h.version = hdr.Ver
-	h.rowSize = hdr.RowSize
-	h.skewMs = hdr.SkewMs
-
-	// Validate field values (UnmarshalText automatically calls Validate())
-	return h.Validate()
-}
-
-// validateHeaderFields validates header field values against specification
-func (h *Header) Validate() error {
-	// Validate signature
-	if h.signature != HEADER_SIGNATURE {
-		return NewCorruptDatabaseError(
-			fmt.Sprintf("invalid signature: expected '%s', got '%s'", HEADER_SIGNATURE, h.signature),
-			nil,
-		)
-	}
-
-	// Validate version
-	if h.version != 1 {
-		return NewCorruptDatabaseError(
-			fmt.Sprintf("unsupported version: expected 1, got %d", h.version),
-			nil,
-		)
-	}
-
-	// Validate row size range
-	if h.rowSize < MIN_ROW_SIZE || h.rowSize > MAX_ROW_SIZE {
-		return NewCorruptDatabaseError(
-			fmt.Sprintf("row_size must be between %d and %d, got %d", MIN_ROW_SIZE, MAX_ROW_SIZE, h.rowSize),
-			nil,
-		)
-	}
-
-	// Validate skew_ms range
-	if h.skewMs < 0 || h.skewMs > MAX_SKEW_MS {
-		return NewCorruptDatabaseError(
-			fmt.Sprintf("skew_ms must be between 0 and %d, got %d", MAX_SKEW_MS, h.skewMs),
-			nil,
-		)
-	}
-
-	return nil
-}
-
-// acquireFileLock acquires a file lock with specified mode
-// mode: syscall.LOCK_SH for shared (read), syscall.LOCK_EX for exclusive (write)
-// Returns error on lock acquisition failure
 func acquireFileLock(file *os.File, mode int, blocking bool) error {
 	lockMode := mode
 	if !blocking {
-		lockMode |= syscall.LOCK_NB // Non-blocking
+		lockMode |= syscall.LOCK_NB
 	}
 
 	err := syscall.Flock(int(file.Fd()), lockMode)
@@ -127,11 +26,152 @@ func acquireFileLock(file *os.File, mode int, blocking bool) error {
 	return nil
 }
 
-// releaseFileLock releases the file lock
 func releaseFileLock(file *os.File) error {
 	err := syscall.Flock(int(file.Fd()), syscall.LOCK_UN)
 	if err != nil {
 		return NewWriteError("failed to release file lock", err)
 	}
 	return nil
+}
+
+func validateDatabaseFile(file *os.File) (*Header, error) {
+	info, err := file.Stat()
+	if err != nil {
+		return nil, NewCorruptDatabaseError("failed to stat file", err)
+	}
+
+	if info.Size() < int64(HEADER_SIZE) {
+		return nil, NewCorruptDatabaseError(
+			fmt.Sprintf("file too small for header: expected at least %d bytes, got %d",
+				HEADER_SIZE, info.Size()),
+			nil,
+		)
+	}
+
+	headerBytes := make([]byte, HEADER_SIZE)
+	n, err := file.Read(headerBytes)
+	if err != nil {
+		return nil, NewCorruptDatabaseError("failed to read header", err)
+	}
+	if n != HEADER_SIZE {
+		return nil, NewCorruptDatabaseError(
+			fmt.Sprintf("incomplete header read: expected %d bytes, got %d", HEADER_SIZE, n),
+			nil,
+		)
+	}
+
+	header := &Header{}
+	if err := header.UnmarshalText(headerBytes); err != nil {
+		return nil, err
+	}
+
+	rowSize := header.GetRowSize()
+	expectedMinSize := int64(HEADER_SIZE + rowSize)
+	if info.Size() < expectedMinSize {
+		return nil, NewCorruptDatabaseError(
+			fmt.Sprintf("file too small: expected at least %d bytes (header + checksum row), got %d",
+				expectedMinSize, info.Size()),
+			nil,
+		)
+	}
+
+	checksumRowBytes := make([]byte, rowSize)
+	_, err = file.ReadAt(checksumRowBytes, int64(HEADER_SIZE))
+	if err != nil && err != io.EOF {
+		return nil, NewCorruptDatabaseError("failed to read checksum row", err)
+	}
+
+	if checksumRowBytes[0] != ROW_START {
+		return nil, NewCorruptDatabaseError(
+			fmt.Sprintf("checksum row must start with ROW_START sentinel (0x%02X), got 0x%02X",
+				ROW_START, checksumRowBytes[0]),
+			nil,
+		)
+	}
+
+	if checksumRowBytes[1] != byte(CHECKSUM_ROW) {
+		return nil, NewCorruptDatabaseError(
+			fmt.Sprintf("checksum row start_control must be 'C', got 0x%02X", checksumRowBytes[1]),
+			nil,
+		)
+	}
+
+	endCtrlPos := rowSize - 5
+	if checksumRowBytes[endCtrlPos] != 'C' || checksumRowBytes[endCtrlPos+1] != 'S' {
+		return nil, NewCorruptDatabaseError(
+			fmt.Sprintf("checksum row end_control must be 'CS', got '%c%c'",
+				checksumRowBytes[endCtrlPos], checksumRowBytes[endCtrlPos+1]),
+			nil,
+		)
+	}
+
+	if checksumRowBytes[rowSize-1] != ROW_END {
+		return nil, NewCorruptDatabaseError(
+			fmt.Sprintf("checksum row must end with ROW_END sentinel (0x%02X), got 0x%02X",
+				ROW_END, checksumRowBytes[rowSize-1]),
+			nil,
+		)
+	}
+
+	expectedCRC := crc32.ChecksumIEEE(headerBytes)
+
+	checksumPayloadPos := int64(HEADER_SIZE) + 2
+	checksumBytes := make([]byte, 8)
+	_, err = file.ReadAt(checksumBytes, checksumPayloadPos)
+	if err != nil && err != io.EOF {
+		return nil, NewCorruptDatabaseError("failed to read checksum value", err)
+	}
+
+	var storedCRC Checksum
+	if err := storedCRC.UnmarshalText(checksumBytes); err != nil {
+		return nil, NewCorruptDatabaseError("invalid checksum format in checksum row", err)
+	}
+
+	if uint32(storedCRC) != expectedCRC {
+		return nil, NewCorruptDatabaseError(
+			fmt.Sprintf("CRC32 verification failed: calculated 0x%08X, stored 0x%08X",
+				expectedCRC, uint32(storedCRC)),
+			nil,
+		)
+	}
+
+	return header, nil
+}
+
+func validateOpenInputs(path string, mode string) error {
+	if path == "" {
+		return NewInvalidInputError("path cannot be empty", nil)
+	}
+
+	if !strings.HasSuffix(path, FILE_EXTENSION) || len(path) <= len(FILE_EXTENSION) {
+		return NewInvalidInputError("path must have .fdb extension", nil)
+	}
+
+	if mode != MODE_READ && mode != MODE_WRITE {
+		return NewInvalidInputError("mode must be 'read' or 'write'", nil)
+	}
+
+	return nil
+}
+
+func openDatabaseFile(path string, mode string) (*os.File, error) {
+	var flags int
+	if mode == MODE_READ {
+		flags = os.O_RDONLY
+	} else {
+		flags = os.O_RDWR
+	}
+
+	file, err := fsInterface.Open(path, flags, 0)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, NewPathError("database file does not exist", err)
+		}
+		if os.IsPermission(err) {
+			return nil, NewPathError("permission denied to access database file", err)
+		}
+		return nil, NewPathError("failed to open database file", err)
+	}
+
+	return file, nil
 }

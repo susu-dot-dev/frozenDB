@@ -3,14 +3,16 @@ package frozendb
 import (
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"sync"
 	"testing"
 )
 
-// Helper to create a valid test database file
+// Helper to create a valid test database file with header + checksum row
 func createTestDatabase(t *testing.T, path string) {
 	t.Helper()
 
@@ -20,21 +22,24 @@ func createTestDatabase(t *testing.T, path string) {
 		t.Fatalf("Failed to create parent directory: %v", err)
 	}
 
-	// Create database file
-	file, err := os.Create(path)
-	if err != nil {
+	// Create database file with header + checksum row using Create()
+	config := CreateConfig{
+		path:    path,
+		rowSize: 1024,
+		skewMs:  5000,
+	}
+
+	// Set up mock syscalls for Create()
+	setupMockSyscalls(false, false)
+	defer restoreRealSyscalls()
+
+	// Use mock values for SUDO environment to ensure consistency and detect when mocks aren't used
+	t.Setenv("SUDO_USER", MOCK_USER)
+	t.Setenv("SUDO_UID", MOCK_UID)
+	t.Setenv("SUDO_GID", MOCK_GID)
+
+	if err := Create(config); err != nil {
 		t.Fatalf("Failed to create test database: %v", err)
-	}
-	defer file.Close()
-
-	// Write valid frozenDB v1 header
-	header, err := generateHeader(1024, 5000)
-	if err != nil {
-		t.Fatalf("Failed to generate header: %v", err)
-	}
-
-	if _, err := file.Write(header); err != nil {
-		t.Fatalf("Failed to write header: %v", err)
 	}
 }
 
@@ -222,7 +227,7 @@ func Test_S_002_FR_004_FileDescriptorAndHeaderValidation(t *testing.T) {
 			},
 			expectError:   true,
 			errorType:     &CorruptDatabaseError{},
-			errorContains: "incomplete",
+			errorContains: "file too small",
 		},
 	}
 
@@ -978,20 +983,6 @@ func Test_S_002_FR_012_ResourceCleanupOnErrors(t *testing.T) {
 	})
 }
 
-// Helper to count open file descriptors for current process
-func countOpenFileDescriptors(t *testing.T) int {
-	t.Helper()
-
-	// Read /proc/self/fd directory
-	fds, err := os.ReadDir("/proc/self/fd")
-	if err != nil {
-		// If /proc/self/fd not available, skip FD counting
-		return 0
-	}
-
-	return len(fds)
-}
-
 // Helper function to check if string contains substring
 func contains(s, substr string) bool {
 	return len(s) >= len(substr) && (s == substr || len(s) > len(substr) && containsHelper(s, substr))
@@ -1268,7 +1259,7 @@ func Test_S_004_FR_010_FieldsUnexported(t *testing.T) {
 
 	// Test SudoContext fields are unexported
 	ctx := &SudoContext{
-		user: "testuser",
+		user: MOCK_USER,
 		uid:  1000,
 		gid:  1000,
 	}
@@ -1338,7 +1329,7 @@ func Test_S_004_FR_011_GetterFunctionsProvideAccess(t *testing.T) {
 
 	// Test SudoContext getter functions exist and provide access
 	ctx := &SudoContext{
-		user: "testuser",
+		user: MOCK_USER,
 		uid:  1000,
 		gid:  2000,
 	}
@@ -1347,8 +1338,8 @@ func Test_S_004_FR_011_GetterFunctionsProvideAccess(t *testing.T) {
 	}
 
 	user := ctx.GetUser()
-	if user != "testuser" {
-		t.Errorf("GetUser() returned %s, expected 'testuser'", user)
+	if user != MOCK_USER {
+		t.Errorf("GetUser() returned %s, expected %s", user, MOCK_USER)
 	}
 
 	uid := ctx.GetUID()
@@ -1388,4 +1379,946 @@ func Test_S_004_FR_012_GetterFunctionsAreReadOnly(t *testing.T) {
 		"(2) getter functions returning values preventing indirect modification, " +
 		"and (3) no setter functions preventing programmatic modification. " +
 		"This is a language-level guarantee that cannot be meaningfully tested.")
+}
+
+func Test_S_007_FR_001_AtomicFileCreation(t *testing.T) {
+	tests := []struct {
+		name            string
+		rowSize         int
+		skewMs          int
+		wantErr         bool
+		errContains     []string
+		checkFile       bool
+		expectedContent bool
+	}{
+		{
+			name:            "Valid database creation with standard row size",
+			rowSize:         1024,
+			skewMs:          5000,
+			wantErr:         false,
+			checkFile:       true,
+			expectedContent: true,
+		},
+		{
+			name:            "Valid database creation with minimum row size",
+			rowSize:         MIN_ROW_SIZE,
+			skewMs:          0,
+			wantErr:         false,
+			checkFile:       true,
+			expectedContent: true,
+		},
+		{
+			name:            "Valid database creation with maximum row size",
+			rowSize:         MAX_ROW_SIZE,
+			skewMs:          MAX_SKEW_MS,
+			wantErr:         false,
+			checkFile:       true,
+			expectedContent: true,
+		},
+		{
+			name:        "Invalid row size below minimum",
+			rowSize:     MIN_ROW_SIZE - 1,
+			skewMs:      5000,
+			wantErr:     true,
+			errContains: []string{"rowSize", "between"},
+		},
+		{
+			name:        "Invalid row size above maximum",
+			rowSize:     MAX_ROW_SIZE + 1,
+			skewMs:      5000,
+			wantErr:     true,
+			errContains: []string{"rowSize", "between"},
+		},
+		{
+			name:        "Invalid skew_ms below minimum",
+			rowSize:     1024,
+			skewMs:      -1,
+			wantErr:     true,
+			errContains: []string{"skewMs", "between"},
+		},
+		{
+			name:        "Invalid skew_ms above maximum",
+			rowSize:     1024,
+			skewMs:      MAX_SKEW_MS + 1,
+			wantErr:     true,
+			errContains: []string{"skewMs", "between"},
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			if runtime.GOOS == "linux" && os.Getuid() == 0 {
+				t.Skip("Test requires non-root execution")
+			}
+
+			setupMockSyscalls(false, false)
+			defer restoreRealSyscalls()
+
+			if tt.wantErr {
+				testPath := filepath.Join(t.TempDir(), "test.fdb")
+				config := CreateConfig{
+					path:    testPath,
+					rowSize: tt.rowSize,
+					skewMs:  tt.skewMs,
+				}
+
+				err := Create(config)
+
+				if err == nil {
+					t.Error("Expected error, got nil")
+				}
+				if tt.errContains != nil && err != nil {
+					errMsg := err.Error()
+					for _, substr := range tt.errContains {
+						if !strings.Contains(errMsg, substr) {
+							t.Errorf("Error message should contain %q, got: %s", substr, errMsg)
+						}
+					}
+				}
+				return
+			}
+
+			t.Setenv("SUDO_USER", MOCK_USER)
+			t.Setenv("SUDO_UID", MOCK_UID)
+			t.Setenv("SUDO_GID", MOCK_GID)
+
+			testPath := filepath.Join(t.TempDir(), "test.fdb")
+			config := CreateConfig{
+				path:    testPath,
+				rowSize: tt.rowSize,
+				skewMs:  tt.skewMs,
+			}
+
+			err := Create(config)
+
+			if err != nil {
+				t.Errorf("Unexpected error: %v", err)
+				return
+			}
+
+			if tt.checkFile {
+				info, err := os.Stat(testPath)
+				if err != nil {
+					t.Errorf("Failed to stat created file: %v", err)
+					return
+				}
+
+				expectedSize := int64(HEADER_SIZE + tt.rowSize)
+				if info.Size() != expectedSize {
+					t.Errorf("File size = %d, want %d (header + checksum row)", info.Size(), expectedSize)
+				}
+			}
+
+			if tt.expectedContent {
+				file, err := os.Open(testPath)
+				if err != nil {
+					t.Errorf("Failed to open created file: %v", err)
+					return
+				}
+				defer file.Close()
+
+				headerBytes := make([]byte, HEADER_SIZE)
+				n, err := file.Read(headerBytes)
+				if err != nil {
+					t.Errorf("Failed to read header: %v", err)
+					return
+				}
+				if n != HEADER_SIZE {
+					t.Errorf("Header read = %d, want %d", n, HEADER_SIZE)
+				}
+
+				if headerBytes[63] != HEADER_NEWLINE {
+					t.Errorf("Header byte 63 = 0x%02x, want 0x%02x (newline)", headerBytes[63], HEADER_NEWLINE)
+				}
+
+				checksumBytes := make([]byte, tt.rowSize)
+				n, err = file.Read(checksumBytes)
+				if err != nil {
+					t.Errorf("Failed to read checksum row: %v", err)
+					return
+				}
+				if n != tt.rowSize {
+					t.Errorf("Checksum row read = %d, want %d", n, tt.rowSize)
+				}
+
+				if checksumBytes[0] != ROW_START {
+					t.Errorf("Checksum row[0] = 0x%02x, want 0x%02x (ROW_START)", checksumBytes[0], ROW_START)
+				}
+
+				if checksumBytes[1] != byte(CHECKSUM_ROW) {
+					t.Errorf("Checksum row[1] = 0x%02x, want 0x%02x (CHECKSUM_ROW)", checksumBytes[1], byte(CHECKSUM_ROW))
+				}
+
+				if checksumBytes[tt.rowSize-1] != ROW_END {
+					t.Errorf("Checksum row last byte = 0x%02x, want 0x%02x (ROW_END)", checksumBytes[tt.rowSize-1], ROW_END)
+				}
+			}
+		})
+	}
+}
+
+func Test_S_007_FR_006_ChecksumRowPositioning(t *testing.T) {
+	tests := []struct {
+		name           string
+		rowSize        int
+		checksumOffset int64
+		shouldExist    bool
+	}{
+		{
+			name:           "Checksum row at offset 64 for 128-byte rows",
+			rowSize:        128,
+			checksumOffset: 64,
+			shouldExist:    true,
+		},
+		{
+			name:           "Checksum row at offset 64 for 1024-byte rows",
+			rowSize:        1024,
+			checksumOffset: 64,
+			shouldExist:    true,
+		},
+		{
+			name:           "Checksum row at offset 64 for 65536-byte rows",
+			rowSize:        65536,
+			checksumOffset: 64,
+			shouldExist:    true,
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			if runtime.GOOS == "linux" && os.Getuid() == 0 {
+				t.Skip("Test requires non-root execution")
+			}
+
+			setupMockSyscalls(false, false)
+			defer restoreRealSyscalls()
+
+			t.Setenv("SUDO_USER", MOCK_USER)
+			t.Setenv("SUDO_UID", MOCK_UID)
+			t.Setenv("SUDO_GID", MOCK_GID)
+
+			testPath := filepath.Join(t.TempDir(), "test.fdb")
+			config := CreateConfig{
+				path:    testPath,
+				rowSize: tt.rowSize,
+				skewMs:  5000,
+			}
+
+			err := Create(config)
+			if err != nil {
+				t.Fatalf("Create() failed: %v", err)
+			}
+
+			file, err := os.Open(testPath)
+			if err != nil {
+				t.Fatalf("Failed to open file: %v", err)
+			}
+			defer file.Close()
+
+			_, err = file.Seek(tt.checksumOffset, io.SeekStart)
+			if err != nil {
+				t.Fatalf("Seek to checksum offset failed: %v", err)
+			}
+
+			checksumBytes := make([]byte, tt.rowSize)
+			n, err := file.Read(checksumBytes)
+			if err != nil {
+				t.Fatalf("Failed to read checksum row: %v", err)
+			}
+			if n != tt.rowSize {
+				t.Errorf("Checksum row read = %d, want %d", n, tt.rowSize)
+			}
+
+			if checksumBytes[0] != ROW_START {
+				t.Errorf("Checksum row[0] = 0x%02x, want 0x%02x (ROW_START)", checksumBytes[0], ROW_START)
+			}
+
+			if checksumBytes[1] != byte(CHECKSUM_ROW) {
+				t.Errorf("Checksum row[1] = 0x%02x, want 0x%02x (CHECKSUM_ROW 'C')", checksumBytes[1], byte(CHECKSUM_ROW))
+			}
+
+			if checksumBytes[tt.rowSize-1] != ROW_END {
+				t.Errorf("Checksum row last byte = 0x%02x, want 0x%02x (ROW_END)", checksumBytes[tt.rowSize-1], ROW_END)
+			}
+		})
+	}
+}
+
+func Test_S_007_FR_002_ComprehensiveValidation(t *testing.T) {
+	tests := []struct {
+		name        string
+		setupFile   func(t *testing.T, path string, rowSize int) error
+		rowSize     int
+		wantErr     bool
+		errContains []string
+	}{
+		{
+			name: "Valid file with correct header and checksum",
+			setupFile: func(t *testing.T, path string, rowSize int) error {
+				setupMockSyscalls(false, false)
+				defer restoreRealSyscalls()
+				t.Setenv("SUDO_USER", MOCK_USER)
+				t.Setenv("SUDO_UID", MOCK_UID)
+				t.Setenv("SUDO_GID", MOCK_GID)
+				config := CreateConfig{path: path, rowSize: rowSize, skewMs: 5000}
+				return Create(config)
+			},
+			rowSize:     1024,
+			wantErr:     false,
+			errContains: nil,
+		},
+		{
+			name: "File too small - missing checksum row",
+			setupFile: func(t *testing.T, path string, rowSize int) error {
+				file, err := os.Create(path)
+				if err != nil {
+					return err
+				}
+				defer file.Close()
+				header, _ := generateHeader(rowSize, 5000)
+				file.Write(header)
+				return nil
+			},
+			rowSize:     1024,
+			wantErr:     true,
+			errContains: []string{"file too small", "checksum"},
+		},
+		{
+			name: "Truncated header",
+			setupFile: func(t *testing.T, path string, rowSize int) error {
+				file, err := os.Create(path)
+				if err != nil {
+					return err
+				}
+				defer file.Close()
+				header := make([]byte, 32)
+				file.Write(header)
+				return nil
+			},
+			rowSize:     1024,
+			wantErr:     true,
+			errContains: []string{"file too small", "header"},
+		},
+		{
+			name: "Invalid header signature",
+			setupFile: func(t *testing.T, path string, rowSize int) error {
+				file, err := os.Create(path)
+				if err != nil {
+					return err
+				}
+				defer file.Close()
+				header := make([]byte, 64)
+				copy(header, `{"sig":"INVALID","ver":1,"row_size":1024,"skew_ms":5000}`)
+				header[63] = '\n'
+				file.Write(header)
+				return nil
+			},
+			rowSize:     1024,
+			wantErr:     true,
+			errContains: []string{"signature", "invalid"},
+		},
+		{
+			name: "Invalid header version",
+			setupFile: func(t *testing.T, path string, rowSize int) error {
+				file, err := os.Create(path)
+				if err != nil {
+					return err
+				}
+				defer file.Close()
+				header := make([]byte, 64)
+				copy(header, `{"sig":"fDB","ver":99,"row_size":1024,"skew_ms":5000}`)
+				header[63] = '\n'
+				file.Write(header)
+				return nil
+			},
+			rowSize:     1024,
+			wantErr:     true,
+			errContains: []string{"version"},
+		},
+		{
+			name: "Missing newline at end of header",
+			setupFile: func(t *testing.T, path string, rowSize int) error {
+				file, err := os.Create(path)
+				if err != nil {
+					return err
+				}
+				defer file.Close()
+				header := make([]byte, 64)
+				copy(header, `{"sig":"fDB","ver":1,"row_size":1024,"skew_ms":5000}`)
+				header[63] = 0x00
+				file.Write(header)
+				return nil
+			},
+			rowSize:     1024,
+			wantErr:     true,
+			errContains: []string{"newline", "byte 63"},
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			testPath := filepath.Join(t.TempDir(), "test.fdb")
+
+			err := tt.setupFile(t, testPath, tt.rowSize)
+			if err != nil {
+				if tt.wantErr {
+					if tt.errContains != nil {
+						errMsg := err.Error()
+						for _, substr := range tt.errContains {
+							if !strings.Contains(errMsg, substr) {
+								t.Errorf("Error message should contain %q, got: %s", substr, errMsg)
+							}
+						}
+					}
+					return
+				}
+				t.Errorf("Setup failed unexpectedly: %v", err)
+				return
+			}
+
+			db, err := NewFrozenDB(testPath, MODE_READ)
+			if tt.wantErr {
+				if err == nil {
+					t.Error("Expected error from NewFrozenDB, got nil")
+				} else if tt.errContains != nil {
+					errMsg := err.Error()
+					for _, substr := range tt.errContains {
+						if !strings.Contains(errMsg, substr) {
+							t.Errorf("Error message should contain %q, got: %s", substr, errMsg)
+						}
+					}
+				}
+				return
+			}
+
+			if err != nil {
+				t.Errorf("NewFrozenDB failed: %v", err)
+				return
+			}
+			db.Close()
+		})
+	}
+}
+
+func Test_S_007_FR_005_CRC32Verification(t *testing.T) {
+	tests := []struct {
+		name      string
+		corrupt   func(t *testing.T, path string, rowSize int) error
+		rowSize   int
+		expectErr bool
+	}{
+		{
+			name: "Valid checksum - should pass",
+			corrupt: func(t *testing.T, path string, rowSize int) error {
+				setupMockSyscalls(false, false)
+				defer restoreRealSyscalls()
+				t.Setenv("SUDO_USER", MOCK_USER)
+				t.Setenv("SUDO_UID", MOCK_UID)
+				t.Setenv("SUDO_GID", MOCK_GID)
+				return Create(CreateConfig{path: path, rowSize: rowSize, skewMs: 5000})
+			},
+			rowSize:   1024,
+			expectErr: false,
+		},
+		{
+			name: "Corrupted checksum - wrong CRC32",
+			corrupt: func(t *testing.T, path string, rowSize int) error {
+				setupMockSyscalls(false, false)
+				defer restoreRealSyscalls()
+				t.Setenv("SUDO_USER", MOCK_USER)
+				t.Setenv("SUDO_UID", MOCK_UID)
+				t.Setenv("SUDO_GID", MOCK_GID)
+				if err := Create(CreateConfig{path: path, rowSize: rowSize, skewMs: 5000}); err != nil {
+					return err
+				}
+				file, err := os.OpenFile(path, os.O_RDWR, 0644)
+				if err != nil {
+					return err
+				}
+				defer file.Close()
+				_, err = file.Seek(64+2, io.SeekStart)
+				if err != nil {
+					return err
+				}
+				_, err = file.Write([]byte("XX"))
+				return err
+			},
+			rowSize:   1024,
+			expectErr: true,
+		},
+		{
+			name: "Corrupted header - checksum doesn't match",
+			corrupt: func(t *testing.T, path string, rowSize int) error {
+				setupMockSyscalls(false, false)
+				defer restoreRealSyscalls()
+				t.Setenv("SUDO_USER", MOCK_USER)
+				t.Setenv("SUDO_UID", MOCK_UID)
+				t.Setenv("SUDO_GID", MOCK_GID)
+				if err := Create(CreateConfig{path: path, rowSize: rowSize, skewMs: 5000}); err != nil {
+					return err
+				}
+				file, err := os.OpenFile(path, os.O_RDWR, 0644)
+				if err != nil {
+					return err
+				}
+				defer file.Close()
+				_, err = file.WriteAt([]byte("X"), 10)
+				return err
+			},
+			rowSize:   1024,
+			expectErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			testPath := filepath.Join(t.TempDir(), "test.fdb")
+
+			err := tt.corrupt(t, testPath, tt.rowSize)
+			if err != nil {
+				t.Errorf("Setup failed: %v", err)
+				return
+			}
+
+			_, err = NewFrozenDB(testPath, MODE_READ)
+			if tt.expectErr && err == nil {
+				t.Error("Expected error for corrupted file, got nil")
+			}
+			if !tt.expectErr && err != nil {
+				t.Errorf("Expected no error for valid file, got: %v", err)
+			}
+		})
+	}
+}
+
+func Test_S_007_FR_007_ChecksumRowStructureValidation(t *testing.T) {
+	tests := []struct {
+		name        string
+		setupFile   func(t *testing.T, path string, rowSize int) error
+		rowSize     int
+		wantErr     bool
+		errContains []string
+	}{
+		{
+			name: "Valid checksum row structure",
+			setupFile: func(t *testing.T, path string, rowSize int) error {
+				setupMockSyscalls(false, false)
+				defer restoreRealSyscalls()
+				t.Setenv("SUDO_USER", MOCK_USER)
+				t.Setenv("SUDO_UID", MOCK_UID)
+				t.Setenv("SUDO_GID", MOCK_GID)
+				return Create(CreateConfig{path: path, rowSize: rowSize, skewMs: 5000})
+			},
+			rowSize:     1024,
+			wantErr:     false,
+			errContains: nil,
+		},
+		{
+			name: "Missing ROW_START sentinel",
+			setupFile: func(t *testing.T, path string, rowSize int) error {
+				setupMockSyscalls(false, false)
+				defer restoreRealSyscalls()
+				t.Setenv("SUDO_USER", MOCK_USER)
+				t.Setenv("SUDO_UID", MOCK_UID)
+				t.Setenv("SUDO_GID", MOCK_GID)
+				if err := Create(CreateConfig{path: path, rowSize: rowSize, skewMs: 5000}); err != nil {
+					return err
+				}
+				file, err := os.OpenFile(path, os.O_RDWR, 0644)
+				if err != nil {
+					return err
+				}
+				defer file.Close()
+				_, err = file.WriteAt([]byte{0x00}, 64)
+				return err
+			},
+			rowSize:     1024,
+			wantErr:     true,
+			errContains: []string{"ROW_START", "sentinel"},
+		},
+		{
+			name: "Missing ROW_END sentinel",
+			setupFile: func(t *testing.T, path string, rowSize int) error {
+				setupMockSyscalls(false, false)
+				defer restoreRealSyscalls()
+				t.Setenv("SUDO_USER", MOCK_USER)
+				t.Setenv("SUDO_UID", MOCK_UID)
+				t.Setenv("SUDO_GID", MOCK_GID)
+				if err := Create(CreateConfig{path: path, rowSize: rowSize, skewMs: 5000}); err != nil {
+					return err
+				}
+				file, err := os.OpenFile(path, os.O_RDWR, 0644)
+				if err != nil {
+					return err
+				}
+				defer file.Close()
+				_, err = file.WriteAt([]byte{0x00}, 64+int64(rowSize)-1)
+				return err
+			},
+			rowSize:     1024,
+			wantErr:     true,
+			errContains: []string{"ROW_END", "sentinel"},
+		},
+		{
+			name: "Invalid start_control - not 'C'",
+			setupFile: func(t *testing.T, path string, rowSize int) error {
+				setupMockSyscalls(false, false)
+				defer restoreRealSyscalls()
+				t.Setenv("SUDO_USER", MOCK_USER)
+				t.Setenv("SUDO_UID", MOCK_UID)
+				t.Setenv("SUDO_GID", MOCK_GID)
+				if err := Create(CreateConfig{path: path, rowSize: rowSize, skewMs: 5000}); err != nil {
+					return err
+				}
+				file, err := os.OpenFile(path, os.O_RDWR, 0644)
+				if err != nil {
+					return err
+				}
+				defer file.Close()
+				_, err = file.WriteAt([]byte{'X'}, 65)
+				return err
+			},
+			rowSize:     1024,
+			wantErr:     true,
+			errContains: []string{"start_control", "checksum"},
+		},
+		{
+			name: "Invalid end_control - not 'CS'",
+			setupFile: func(t *testing.T, path string, rowSize int) error {
+				setupMockSyscalls(false, false)
+				defer restoreRealSyscalls()
+				t.Setenv("SUDO_USER", MOCK_USER)
+				t.Setenv("SUDO_UID", MOCK_UID)
+				t.Setenv("SUDO_GID", MOCK_GID)
+				if err := Create(CreateConfig{path: path, rowSize: rowSize, skewMs: 5000}); err != nil {
+					return err
+				}
+				file, err := os.OpenFile(path, os.O_RDWR, 0644)
+				if err != nil {
+					return err
+				}
+				defer file.Close()
+				_, err = file.WriteAt([]byte("XX"), 64+int64(rowSize)-5)
+				return err
+			},
+			rowSize:     1024,
+			wantErr:     true,
+			errContains: []string{"end_control", "checksum"},
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			testPath := filepath.Join(t.TempDir(), "test.fdb")
+
+			err := tt.setupFile(t, testPath, tt.rowSize)
+			if err != nil {
+				t.Errorf("Setup failed: %v", err)
+				return
+			}
+
+			_, err = NewFrozenDB(testPath, MODE_READ)
+			if tt.wantErr {
+				if err == nil {
+					t.Error("Expected error, got nil")
+				}
+				if tt.errContains != nil && err != nil {
+					errMsg := err.Error()
+					for _, substr := range tt.errContains {
+						if !strings.Contains(errMsg, substr) {
+							t.Errorf("Error message should contain %q, got: %s", substr, errMsg)
+						}
+					}
+				}
+				return
+			}
+
+			if err != nil {
+				t.Errorf("Unexpected error: %v", err)
+			}
+		})
+	}
+}
+
+func Test_S_007_FR_003_BufferOverflowProtection(t *testing.T) {
+	tests := []struct {
+		name        string
+		setupFile   func(t *testing.T, path string, rowSize int) error
+		rowSize     int
+		fileSize    int64
+		wantErr     bool
+		errContains []string
+	}{
+		{
+			name: "Valid file - no overflow attempt",
+			setupFile: func(t *testing.T, path string, rowSize int) error {
+				setupMockSyscalls(false, false)
+				defer restoreRealSyscalls()
+				t.Setenv("SUDO_USER", MOCK_USER)
+				t.Setenv("SUDO_UID", MOCK_UID)
+				t.Setenv("SUDO_GID", MOCK_GID)
+				return Create(CreateConfig{path: path, rowSize: rowSize, skewMs: 5000})
+			},
+			rowSize:     1024,
+			fileSize:    int64(HEADER_SIZE + 1024),
+			wantErr:     false,
+			errContains: nil,
+		},
+		{
+			name: "File smaller than header - cannot read header",
+			setupFile: func(t *testing.T, path string, rowSize int) error {
+				return os.WriteFile(path, make([]byte, 32), 0644)
+			},
+			rowSize:     1024,
+			fileSize:    32,
+			wantErr:     true,
+			errContains: []string{"file too small", "header"},
+		},
+		{
+			name: "File too small for checksum row - would overflow",
+			setupFile: func(t *testing.T, path string, rowSize int) error {
+				setupMockSyscalls(false, false)
+				defer restoreRealSyscalls()
+				t.Setenv("SUDO_USER", MOCK_USER)
+				t.Setenv("SUDO_UID", MOCK_UID)
+				t.Setenv("SUDO_GID", MOCK_GID)
+				if err := Create(CreateConfig{path: path, rowSize: rowSize, skewMs: 5000}); err != nil {
+					return err
+				}
+				return os.Truncate(path, int64(HEADER_SIZE)+32)
+			},
+			rowSize:     1024,
+			fileSize:    int64(HEADER_SIZE + 32),
+			wantErr:     true,
+			errContains: []string{"file too small", "checksum"},
+		},
+		{
+			name: "Truncated file before checksum row end - read would exceed",
+			setupFile: func(t *testing.T, path string, rowSize int) error {
+				setupMockSyscalls(false, false)
+				defer restoreRealSyscalls()
+				t.Setenv("SUDO_USER", MOCK_USER)
+				t.Setenv("SUDO_UID", MOCK_UID)
+				t.Setenv("SUDO_GID", MOCK_GID)
+				if err := Create(CreateConfig{path: path, rowSize: rowSize, skewMs: 5000}); err != nil {
+					return err
+				}
+				return os.Truncate(path, int64(HEADER_SIZE)+int64(rowSize)-10)
+			},
+			rowSize:     1024,
+			fileSize:    int64(HEADER_SIZE + 1024 - 10),
+			wantErr:     true,
+			errContains: []string{"file too small"},
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			testPath := filepath.Join(t.TempDir(), "test.fdb")
+
+			err := tt.setupFile(t, testPath, tt.rowSize)
+			if err != nil {
+				if !tt.wantErr {
+					t.Errorf("Setup failed unexpectedly: %v", err)
+				}
+				return
+			}
+
+			_, err = NewFrozenDB(testPath, MODE_READ)
+			if tt.wantErr {
+				if err == nil {
+					t.Error("Expected error for buffer overflow scenario, got nil")
+				}
+				if tt.errContains != nil && err != nil {
+					errMsg := err.Error()
+					for _, substr := range tt.errContains {
+						if !strings.Contains(errMsg, substr) {
+							t.Errorf("Error message should contain %q, got: %s", substr, errMsg)
+						}
+					}
+				}
+				return
+			}
+
+			if err != nil {
+				t.Errorf("Unexpected error: %v", err)
+			}
+		})
+	}
+}
+
+func Test_S_007_FR_004_RowSizeSecurityValidation(t *testing.T) {
+	tests := []struct {
+		name        string
+		setupFile   func(t *testing.T, path string, rowSize int) error
+		rowSize     int
+		wantErr     bool
+		errContains []string
+	}{
+		{
+			name: "Valid row size within range",
+			setupFile: func(t *testing.T, path string, rowSize int) error {
+				setupMockSyscalls(false, false)
+				defer restoreRealSyscalls()
+				t.Setenv("SUDO_USER", MOCK_USER)
+				t.Setenv("SUDO_UID", MOCK_UID)
+				t.Setenv("SUDO_GID", MOCK_GID)
+				return Create(CreateConfig{path: path, rowSize: rowSize, skewMs: 5000})
+			},
+			rowSize:     1024,
+			wantErr:     false,
+			errContains: nil,
+		},
+		{
+			name: "Minimum valid row size (128)",
+			setupFile: func(t *testing.T, path string, rowSize int) error {
+				setupMockSyscalls(false, false)
+				defer restoreRealSyscalls()
+				t.Setenv("SUDO_USER", MOCK_USER)
+				t.Setenv("SUDO_UID", MOCK_UID)
+				t.Setenv("SUDO_GID", MOCK_GID)
+				return Create(CreateConfig{path: path, rowSize: rowSize, skewMs: 5000})
+			},
+			rowSize:     128,
+			wantErr:     false,
+			errContains: nil,
+		},
+		{
+			name: "Maximum valid row size (65536)",
+			setupFile: func(t *testing.T, path string, rowSize int) error {
+				setupMockSyscalls(false, false)
+				defer restoreRealSyscalls()
+				t.Setenv("SUDO_USER", MOCK_USER)
+				t.Setenv("SUDO_UID", MOCK_UID)
+				t.Setenv("SUDO_GID", MOCK_GID)
+				return Create(CreateConfig{path: path, rowSize: rowSize, skewMs: 5000})
+			},
+			rowSize:     65536,
+			wantErr:     false,
+			errContains: nil,
+		},
+		{
+			name: "Row size below minimum (127) - invalid",
+			setupFile: func(t *testing.T, path string, rowSize int) error {
+				setupMockSyscalls(false, false)
+				defer restoreRealSyscalls()
+				t.Setenv("SUDO_USER", MOCK_USER)
+				t.Setenv("SUDO_UID", MOCK_UID)
+				t.Setenv("SUDO_GID", MOCK_GID)
+				return Create(CreateConfig{path: path, rowSize: rowSize, skewMs: 5000})
+			},
+			rowSize:     127,
+			wantErr:     true,
+			errContains: []string{"row_size", "between"},
+		},
+		{
+			name: "Row size above maximum (65537) - invalid",
+			setupFile: func(t *testing.T, path string, rowSize int) error {
+				setupMockSyscalls(false, false)
+				defer restoreRealSyscalls()
+				t.Setenv("SUDO_USER", MOCK_USER)
+				t.Setenv("SUDO_UID", MOCK_UID)
+				t.Setenv("SUDO_GID", MOCK_GID)
+				return Create(CreateConfig{path: path, rowSize: rowSize, skewMs: 5000})
+			},
+			rowSize:     65537,
+			wantErr:     true,
+			errContains: []string{"row_size", "between"},
+		},
+		{
+			name: "Malicious row size claims larger than file",
+			setupFile: func(t *testing.T, path string, rowSize int) error {
+				setupMockSyscalls(false, false)
+				defer restoreRealSyscalls()
+				t.Setenv("SUDO_USER", MOCK_USER)
+				t.Setenv("SUDO_UID", MOCK_UID)
+				t.Setenv("SUDO_GID", MOCK_GID)
+				if err := Create(CreateConfig{path: path, rowSize: rowSize, skewMs: 5000}); err != nil {
+					return err
+				}
+				file, err := os.OpenFile(path, os.O_RDWR, 0644)
+				if err != nil {
+					return err
+				}
+				defer file.Close()
+				_, err = file.Seek(30, io.SeekStart)
+				if err != nil {
+					return err
+				}
+				_, err = file.Write([]byte("1000000000"))
+				return err
+			},
+			rowSize:     1024,
+			wantErr:     true,
+			errContains: []string{"row_size", "0"},
+		},
+		{
+			name: "Integer overflow attempt - negative row_size",
+			setupFile: func(t *testing.T, path string, rowSize int) error {
+				setupMockSyscalls(false, false)
+				defer restoreRealSyscalls()
+				t.Setenv("SUDO_USER", MOCK_USER)
+				t.Setenv("SUDO_UID", MOCK_UID)
+				t.Setenv("SUDO_GID", MOCK_GID)
+				if err := Create(CreateConfig{path: path, rowSize: rowSize, skewMs: 5000}); err != nil {
+					return err
+				}
+				file, err := os.OpenFile(path, os.O_RDWR, 0644)
+				if err != nil {
+					return err
+				}
+				defer file.Close()
+				_, err = file.Seek(29, io.SeekStart)
+				if err != nil {
+					return err
+				}
+				_, err = file.Write([]byte("-1"))
+				return err
+			},
+			rowSize:     1024,
+			wantErr:     true,
+			errContains: []string{"JSON", "header"},
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			testPath := filepath.Join(t.TempDir(), "test.fdb")
+
+			err := tt.setupFile(t, testPath, tt.rowSize)
+			if err != nil {
+				if !tt.wantErr {
+					t.Errorf("Setup failed unexpectedly: %v", err)
+				}
+				return
+			}
+
+			_, err = NewFrozenDB(testPath, MODE_READ)
+			if tt.wantErr {
+				if err == nil {
+					t.Error("Expected error for row size security violation, got nil")
+				}
+				if tt.errContains != nil && err != nil {
+					errMsg := err.Error()
+					for _, substr := range tt.errContains {
+						if !strings.Contains(errMsg, substr) {
+							t.Errorf("Error message should contain %q, got: %s", substr, errMsg)
+						}
+					}
+				}
+				return
+			}
+
+			if err != nil {
+				t.Errorf("Unexpected error: %v", err)
+			}
+		})
+	}
 }
