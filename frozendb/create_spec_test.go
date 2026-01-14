@@ -1110,7 +1110,7 @@ func Test_S_001_FR_020_PathValidation(t *testing.T) {
 
 			// For valid paths that don't exist, we need to check validation
 			// We'll use Validate method to test just the input validation part
-			err := validateInputs(config)
+			err := config.ValidateInputs()
 
 			if tc.wantErr {
 				if err == nil {
@@ -1512,7 +1512,7 @@ func Test_S_001_FR_027_PathCharacterValidation(t *testing.T) {
 			}
 
 			// Test input validation (not filesystem validation)
-			err := validateInputs(config)
+			err := config.ValidateInputs()
 
 			// Most path character validation should pass input validation
 			// Filesystem validation would be tested separately
@@ -1801,7 +1801,7 @@ func Test_S_001_FR_032_EarlyValidation(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			err := validateInputs(tc.config)
+			err := tc.config.ValidateInputs()
 
 			if tc.wantErr {
 				if err == nil {

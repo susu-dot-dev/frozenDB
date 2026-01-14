@@ -25,6 +25,10 @@ func Test_S_008_FR_002_HeaderMarshalTextMethod(t *testing.T) {
 		skewMs:    5000,
 	}
 
+	if err := header.Validate(); err != nil {
+		t.Errorf("Validate() should succeed for valid Header: %v", err)
+	}
+
 	headerBytes, err := header.MarshalText()
 	if err != nil {
 		t.Errorf("MarshalText() should succeed for valid Header: %v", err)
@@ -73,6 +77,10 @@ func Test_S_008_FR_004_SingleHeaderCreationPattern(t *testing.T) {
 		skewMs:    5000,
 	}
 
+	if err := header.Validate(); err != nil {
+		t.Errorf("Validate() should succeed: %v", err)
+	}
+
 	headerBytes, err := header.MarshalText()
 	if err != nil {
 		t.Errorf("MarshalText() should succeed: %v", err)
@@ -92,6 +100,10 @@ func Test_S_008_FR_005_IdenticalByteFormatCompatibility(t *testing.T) {
 		version:   1,
 		rowSize:   rowSize,
 		skewMs:    skewMs,
+	}
+
+	if err := header.Validate(); err != nil {
+		t.Fatalf("Validate() failed: %v", err)
 	}
 
 	newBytes, err := header.MarshalText()
@@ -119,6 +131,10 @@ func Test_S_008_FR_006_RemoveGenerateHeaderFunction(t *testing.T) {
 		version:   1,
 		rowSize:   1024,
 		skewMs:    5000,
+	}
+
+	if err := header.Validate(); err != nil {
+		t.Errorf("Validate() should succeed: %v", err)
 	}
 
 	_, err := header.MarshalText()
@@ -170,6 +186,10 @@ func Test_S_008_FR_011_Exact64ByteHeaderFormatCompatibility(t *testing.T) {
 				version:   1,
 				rowSize:   tc.rowSize,
 				skewMs:    tc.skewMs,
+			}
+
+			if err := header.Validate(); err != nil {
+				t.Fatalf("Validate() failed: %v", err)
 			}
 
 			headerBytes, err := header.MarshalText()

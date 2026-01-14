@@ -225,18 +225,58 @@ func (sc *SudoContext) Validate() error {
 
 // Validate validates the CreateConfig and returns appropriate error types
 func (cfg *CreateConfig) Validate() error {
-	if err := validateInputs(*cfg); err != nil {
+	// Validate path is not empty
+	if cfg.path == "" {
+		return NewInvalidInputError("path cannot be empty", nil)
+	}
+
+	// Validate path has .fdb extension
+	if !strings.HasSuffix(cfg.path, FILE_EXTENSION) || len(cfg.path) <= len(FILE_EXTENSION) {
+		return NewInvalidInputError("path must have .fdb extension", nil)
+	}
+
+	// Validate rowSize and skewMs by creating a Header struct and validating it
+	header := &Header{
+		signature: HEADER_SIGNATURE,
+		version:   1,
+		rowSize:   cfg.rowSize,
+		skewMs:    cfg.skewMs,
+	}
+
+	if err := header.Validate(); err != nil {
 		return err
 	}
+
+	// Validate path and filesystem preconditions
 	if err := validatePath(cfg.path); err != nil {
 		return err
 	}
+
 	return nil
 }
 
 // ValidateInputs performs only input validation (no filesystem checks)
+// Kept for backward compatibility - now just calls Validate()
 func (cfg *CreateConfig) ValidateInputs() error {
-	return validateInputs(*cfg)
+	// Validate path is not empty
+	if cfg.path == "" {
+		return NewInvalidInputError("path cannot be empty", nil)
+	}
+
+	// Validate path has .fdb extension
+	if !strings.HasSuffix(cfg.path, FILE_EXTENSION) || len(cfg.path) <= len(FILE_EXTENSION) {
+		return NewInvalidInputError("path must have .fdb extension", nil)
+	}
+
+	// Validate rowSize and skewMs by creating a Header struct and validating it
+	header := &Header{
+		signature: HEADER_SIGNATURE,
+		version:   1,
+		rowSize:   cfg.rowSize,
+		skewMs:    cfg.skewMs,
+	}
+
+	return header.Validate()
 }
 
 // Create creates a new frozenDB database file with the given configuration
@@ -283,6 +323,10 @@ func Create(config CreateConfig) error {
 		version:   1,
 		rowSize:   config.rowSize,
 		skewMs:    config.skewMs,
+	}
+
+	if err := header.Validate(); err != nil {
+		return err
 	}
 
 	headerBytes, err := header.MarshalText()
@@ -336,37 +380,6 @@ func Create(config CreateConfig) error {
 	if err = file.Close(); err != nil {
 		return NewWriteError("failed to close file before validation", err)
 	}
-	return nil
-}
-
-// validateInputs performs all input validation from CreateConfig (no side effects)
-func validateInputs(config CreateConfig) error {
-	// Validate path is not empty
-	if config.path == "" {
-		return NewInvalidInputError("path cannot be empty", nil)
-	}
-
-	// Validate path has .fdb extension
-	if !strings.HasSuffix(config.path, FILE_EXTENSION) || len(config.path) <= len(FILE_EXTENSION) {
-		return NewInvalidInputError("path must have .fdb extension", nil)
-	}
-
-	// Validate rowSize range
-	if config.rowSize < MIN_ROW_SIZE || config.rowSize > MAX_ROW_SIZE {
-		return NewInvalidInputError(
-			fmt.Sprintf("rowSize must be between %d and %d, got %d", MIN_ROW_SIZE, MAX_ROW_SIZE, config.rowSize),
-			nil,
-		)
-	}
-
-	// Validate skewMs range
-	if config.skewMs < 0 || config.skewMs > MAX_SKEW_MS {
-		return NewInvalidInputError(
-			fmt.Sprintf("skewMs must be between 0 and %d, got %d", MAX_SKEW_MS, config.skewMs),
-			nil,
-		)
-	}
-
 	return nil
 }
 

@@ -90,33 +90,37 @@ func (h *Header) UnmarshalText(headerBytes []byte) error {
 	h.rowSize = hdr.RowSize
 	h.skewMs = hdr.SkewMs
 
-	return h.Validate()
+	if err := h.Validate(); err != nil {
+		return NewCorruptDatabaseError("invalid header values", err)
+	}
+
+	return nil
 }
 
 func (h *Header) Validate() error {
 	if h.signature != HEADER_SIGNATURE {
-		return NewCorruptDatabaseError(
+		return NewInvalidInputError(
 			fmt.Sprintf("invalid signature: expected '%s', got '%s'", HEADER_SIGNATURE, h.signature),
 			nil,
 		)
 	}
 
 	if h.version != 1 {
-		return NewCorruptDatabaseError(
+		return NewInvalidInputError(
 			fmt.Sprintf("unsupported version: expected 1, got %d", h.version),
 			nil,
 		)
 	}
 
 	if h.rowSize < MIN_ROW_SIZE || h.rowSize > MAX_ROW_SIZE {
-		return NewCorruptDatabaseError(
+		return NewInvalidInputError(
 			fmt.Sprintf("row_size must be between %d and %d, got %d", MIN_ROW_SIZE, MAX_ROW_SIZE, h.rowSize),
 			nil,
 		)
 	}
 
 	if h.skewMs < 0 || h.skewMs > MAX_SKEW_MS {
-		return NewCorruptDatabaseError(
+		return NewInvalidInputError(
 			fmt.Sprintf("skew_ms must be between 0 and %d, got %d", MAX_SKEW_MS, h.skewMs),
 			nil,
 		)
@@ -126,10 +130,6 @@ func (h *Header) Validate() error {
 }
 
 func (h *Header) MarshalText() ([]byte, error) {
-	if err := h.Validate(); err != nil {
-		return nil, err
-	}
-
 	jsonContent := fmt.Sprintf(HEADER_FORMAT, h.rowSize, h.skewMs)
 
 	contentLength := len(jsonContent)

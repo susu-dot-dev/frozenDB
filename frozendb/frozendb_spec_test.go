@@ -1432,28 +1432,28 @@ func Test_S_007_FR_001_AtomicFileCreation(t *testing.T) {
 			rowSize:     MIN_ROW_SIZE - 1,
 			skewMs:      5000,
 			wantErr:     true,
-			errContains: []string{"rowSize", "between"},
+			errContains: []string{"row_size", "between"},
 		},
 		{
 			name:        "Invalid row size above maximum",
 			rowSize:     MAX_ROW_SIZE + 1,
 			skewMs:      5000,
 			wantErr:     true,
-			errContains: []string{"rowSize", "between"},
+			errContains: []string{"row_size", "between"},
 		},
 		{
 			name:        "Invalid skew_ms below minimum",
 			rowSize:     1024,
 			skewMs:      -1,
 			wantErr:     true,
-			errContains: []string{"skewMs", "between"},
+			errContains: []string{"skew_ms", "between"},
 		},
 		{
 			name:        "Invalid skew_ms above maximum",
 			rowSize:     1024,
 			skewMs:      MAX_SKEW_MS + 1,
 			wantErr:     true,
-			errContains: []string{"skewMs", "between"},
+			errContains: []string{"skew_ms", "between"},
 		},
 	}
 

@@ -14,6 +14,9 @@ func createTestHeaderBytes() []byte {
 		rowSize:   1024,
 		skewMs:    5000,
 	}
+	if err := header.Validate(); err != nil {
+		panic(err)
+	}
 	bytes, _ := header.MarshalText()
 	return bytes
 }
