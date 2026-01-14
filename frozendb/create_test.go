@@ -73,7 +73,7 @@ func restoreRealSyscalls() {
 	fsInterface = &defaultFSOps
 }
 
-func TestValidateInputs(t *testing.T) {
+func TestCreateConfigValidate(t *testing.T) {
 	tests := []struct {
 		name    string
 		config  CreateConfig
@@ -146,9 +146,9 @@ func TestValidateInputs(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := tt.config.ValidateInputs()
+			err := tt.config.Validate()
 			if (err != nil) != tt.wantErr {
-				t.Errorf("CreateConfig.ValidateInputs() error = %v, wantErr %v", err, tt.wantErr)
+				t.Errorf("CreateConfig.Validate() error = %v, wantErr %v", err, tt.wantErr)
 			}
 		})
 	}

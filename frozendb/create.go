@@ -225,16 +225,6 @@ func (sc *SudoContext) Validate() error {
 
 // Validate validates the CreateConfig and returns appropriate error types
 func (cfg *CreateConfig) Validate() error {
-	// Validate path is not empty
-	if cfg.path == "" {
-		return NewInvalidInputError("path cannot be empty", nil)
-	}
-
-	// Validate path has .fdb extension
-	if !strings.HasSuffix(cfg.path, FILE_EXTENSION) || len(cfg.path) <= len(FILE_EXTENSION) {
-		return NewInvalidInputError("path must have .fdb extension", nil)
-	}
-
 	// Validate rowSize and skewMs by creating a Header struct and validating it
 	header := &Header{
 		signature: HEADER_SIGNATURE,
@@ -248,35 +238,7 @@ func (cfg *CreateConfig) Validate() error {
 	}
 
 	// Validate path and filesystem preconditions
-	if err := validatePath(cfg.path); err != nil {
-		return err
-	}
-
-	return nil
-}
-
-// ValidateInputs performs only input validation (no filesystem checks)
-// Kept for backward compatibility - now just calls Validate()
-func (cfg *CreateConfig) ValidateInputs() error {
-	// Validate path is not empty
-	if cfg.path == "" {
-		return NewInvalidInputError("path cannot be empty", nil)
-	}
-
-	// Validate path has .fdb extension
-	if !strings.HasSuffix(cfg.path, FILE_EXTENSION) || len(cfg.path) <= len(FILE_EXTENSION) {
-		return NewInvalidInputError("path must have .fdb extension", nil)
-	}
-
-	// Validate rowSize and skewMs by creating a Header struct and validating it
-	header := &Header{
-		signature: HEADER_SIGNATURE,
-		version:   1,
-		rowSize:   cfg.rowSize,
-		skewMs:    cfg.skewMs,
-	}
-
-	return header.Validate()
+	return validatePath(cfg.path)
 }
 
 // Create creates a new frozenDB database file with the given configuration
@@ -383,8 +345,18 @@ func Create(config CreateConfig) error {
 	return nil
 }
 
-// validatePath validates path and filesystem preconditions
+// validatePath validates path format and filesystem preconditions
 func validatePath(path string) error {
+	// Validate path is not empty
+	if path == "" {
+		return NewInvalidInputError("path cannot be empty", nil)
+	}
+
+	// Validate path has .fdb extension
+	if !strings.HasSuffix(path, FILE_EXTENSION) || len(path) <= len(FILE_EXTENSION) {
+		return NewInvalidInputError("path must have .fdb extension", nil)
+	}
+
 	// Get parent directory
 	parentDir := filepath.Dir(path)
 

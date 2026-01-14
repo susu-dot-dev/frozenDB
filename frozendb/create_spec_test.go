@@ -877,13 +877,13 @@ func Test_S_001_FR_015_ValidateRowSizeRange(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			config := CreateConfig{
-				path:    "/tmp/test.fdb",
+				path:    filepath.Join(t.TempDir(), "test.fdb"),
 				rowSize: tt.rowSize,
 				skewMs:  5000,
 			}
-			err := config.ValidateInputs()
+			err := config.Validate()
 			if (err != nil) != tt.wantErr {
-				t.Errorf("CreateConfig.ValidateInputs() error = %v, wantErr %v", err, tt.wantErr)
+				t.Errorf("CreateConfig.Validate() error = %v, wantErr %v", err, tt.wantErr)
 			}
 			if tt.wantErr && err != nil {
 				var invalidInputErr *InvalidInputError
@@ -915,13 +915,13 @@ func Test_S_001_FR_016_ValidateSkewMsRange(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			config := CreateConfig{
-				path:    "/tmp/test.fdb",
+				path:    filepath.Join(t.TempDir(), "test.fdb"),
 				rowSize: 1024,
 				skewMs:  tt.skewMs,
 			}
-			err := config.ValidateInputs()
+			err := config.Validate()
 			if (err != nil) != tt.wantErr {
-				t.Errorf("CreateConfig.ValidateInputs() error = %v, wantErr %v", err, tt.wantErr)
+				t.Errorf("CreateConfig.Validate() error = %v, wantErr %v", err, tt.wantErr)
 			}
 			if tt.wantErr && err != nil {
 				var invalidInputErr *InvalidInputError
@@ -959,9 +959,9 @@ func Test_S_001_FR_017_ValidatePathExtension(t *testing.T) {
 				rowSize: 1024,
 				skewMs:  5000,
 			}
-			err := config.ValidateInputs()
+			err := config.Validate()
 			if (err != nil) != tt.wantErr {
-				t.Errorf("CreateConfig.ValidateInputs() error = %v, wantErr %v", err, tt.wantErr)
+				t.Errorf("CreateConfig.Validate() error = %v, wantErr %v", err, tt.wantErr)
 			}
 			if tt.wantErr && err != nil {
 				var invalidInputErr *InvalidInputError
@@ -1110,7 +1110,7 @@ func Test_S_001_FR_020_PathValidation(t *testing.T) {
 
 			// For valid paths that don't exist, we need to check validation
 			// We'll use Validate method to test just the input validation part
-			err := config.ValidateInputs()
+			err := config.Validate()
 
 			if tc.wantErr {
 				if err == nil {
@@ -1512,7 +1512,7 @@ func Test_S_001_FR_027_PathCharacterValidation(t *testing.T) {
 			}
 
 			// Test input validation (not filesystem validation)
-			err := config.ValidateInputs()
+			err := config.Validate()
 
 			// Most path character validation should pass input validation
 			// Filesystem validation would be tested separately
@@ -1801,7 +1801,7 @@ func Test_S_001_FR_032_EarlyValidation(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			err := tc.config.ValidateInputs()
+			err := tc.config.Validate()
 
 			if tc.wantErr {
 				if err == nil {
