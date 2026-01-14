@@ -339,8 +339,9 @@ func Test_S_001_FR_009_FdatasyncBeforeAttributes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to stat file: %v", err)
 	}
-	if stat.Size() != HEADER_SIZE {
-		t.Errorf("Expected file size %d, got %d", HEADER_SIZE, stat.Size())
+	expectedSize := int64(HEADER_SIZE + config.rowSize)
+	if stat.Size() != expectedSize {
+		t.Errorf("Expected file size %d (header + checksum row), got %d", expectedSize, stat.Size())
 	}
 
 	// Log test completion to use fmt package
@@ -591,7 +592,7 @@ func Test_S_001_FR_013_SetFileOwnership(t *testing.T) {
 
 		// Create a sudo context
 		sudoCtx := &SudoContext{
-			user: "testuser",
+			user: MOCK_USER,
 			uid:  testUID,
 			gid:  testGID,
 		}
@@ -688,7 +689,7 @@ func Test_S_001_FR_013_SetFileOwnership(t *testing.T) {
 		defer restoreRealFS()
 
 		sudoCtx := &SudoContext{
-			user: "testuser",
+			user: MOCK_USER,
 			uid:  testUID,
 			gid:  testGID,
 		}
@@ -769,7 +770,7 @@ func Test_S_001_FR_013_CreateIntegration(t *testing.T) {
 	defer restoreRealFS()
 
 	// Setup sudo context for ownership setting
-	t.Setenv("SUDO_USER", "testuser")
+	t.Setenv("SUDO_USER", MOCK_USER)
 	t.Setenv("SUDO_UID", strconv.Itoa(testUID))
 	t.Setenv("SUDO_GID", strconv.Itoa(testGID))
 
@@ -1721,9 +1722,10 @@ func Test_S_001_FR_031_MinimizedDiskOperations(t *testing.T) {
 		t.Fatalf("Failed to stat created file: %v", err)
 	}
 
-	// File should be exactly 64 bytes (header only)
-	if stat.Size() != HEADER_SIZE {
-		t.Errorf("Expected file size %d, got %d (extra writes detected)", HEADER_SIZE, stat.Size())
+	// File should be exactly 64 + rowSize bytes (header + checksum row)
+	expectedSize := int64(HEADER_SIZE + config.rowSize)
+	if stat.Size() != expectedSize {
+		t.Errorf("Expected file size %d (header + checksum row), got %d", expectedSize, stat.Size())
 	}
 
 	// File should have correct permissions (0644)
@@ -1894,7 +1896,7 @@ func Test_S_004_FR_007_ValidatesNonStructFields(t *testing.T) {
 	}
 
 	ctx = &SudoContext{
-		user: "testuser",
+		user: MOCK_USER,
 		uid:  0, // Invalid UID
 		gid:  1000,
 	}
@@ -1904,7 +1906,7 @@ func Test_S_004_FR_007_ValidatesNonStructFields(t *testing.T) {
 	}
 
 	ctx = &SudoContext{
-		user: "testuser",
+		user: MOCK_USER,
 		uid:  1000,
 		gid:  0, // Invalid GID
 	}
