@@ -1,8 +1,6 @@
 package frozendb
 
 import (
-	"bytes"
-	"encoding/json"
 	"fmt"
 	"os"
 	"os/user"
@@ -109,122 +107,6 @@ func (cfg *CreateConfig) GetSkewMs() int {
 	return cfg.skewMs
 }
 
-// Header represents frozenDB v1 text-based header format
-// Header is exactly 64 bytes: JSON content + null padding + newline
-type Header struct {
-	signature string // Always "fDB"
-	version   int    // Always 1 for v1 format
-	rowSize   int    // Size of each data row in bytes (128-65536)
-	skewMs    int    // Time skew window in milliseconds (0-86400000)
-}
-
-// GetSignature returns the header signature
-func (h *Header) GetSignature() string {
-	return h.signature
-}
-
-// GetVersion returns the header version
-func (h *Header) GetVersion() int {
-	return h.version
-}
-
-// GetRowSize returns the row size in bytes
-func (h *Header) GetRowSize() int {
-	return h.rowSize
-}
-
-// GetSkewMs returns the time skew window in milliseconds
-func (h *Header) GetSkewMs() int {
-	return h.skewMs
-}
-
-type headerJSON struct {
-	Sig     string `json:"sig"`
-	Ver     int    `json:"ver"`
-	RowSize int    `json:"row_size"`
-	SkewMs  int    `json:"skew_ms"`
-}
-
-// UnmarshalText parses a frozenDB v1 header from 64-byte buffer
-// This method automatically calls Validate() before returning
-func (h *Header) UnmarshalText(headerBytes []byte) error {
-	if len(headerBytes) != HEADER_SIZE {
-		return NewCorruptDatabaseError(
-			fmt.Sprintf("header must be exactly %d bytes, got %d", HEADER_SIZE, len(headerBytes)),
-			nil,
-		)
-	}
-
-	if headerBytes[63] != HEADER_NEWLINE {
-		return NewCorruptDatabaseError(
-			fmt.Sprintf("byte 63 must be newline, got 0x%02x", headerBytes[63]),
-			nil,
-		)
-	}
-
-	nullPos := bytes.IndexByte(headerBytes, PADDING_CHAR)
-	if nullPos == -1 {
-		return NewCorruptDatabaseError("no null terminator found in header", nil)
-	}
-
-	jsonContent := headerBytes[:nullPos]
-
-	for i := nullPos; i < 63; i++ {
-		if headerBytes[i] != PADDING_CHAR {
-			return NewCorruptDatabaseError(
-				fmt.Sprintf("padding byte at position %d must be null, got 0x%02x", i, headerBytes[i]),
-				nil,
-			)
-		}
-	}
-
-	var hdr headerJSON
-	if err := json.Unmarshal(jsonContent, &hdr); err != nil {
-		return NewCorruptDatabaseError("failed to parse JSON header", err)
-	}
-
-	h.signature = hdr.Sig
-	h.version = hdr.Ver
-	h.rowSize = hdr.RowSize
-	h.skewMs = hdr.SkewMs
-
-	return h.Validate()
-}
-
-// Validate validates the Header struct field values
-// This method is idempotent and can be called multiple times with the same result
-func (h *Header) Validate() error {
-	if h.signature != HEADER_SIGNATURE {
-		return NewCorruptDatabaseError(
-			fmt.Sprintf("invalid signature: expected '%s', got '%s'", HEADER_SIGNATURE, h.signature),
-			nil,
-		)
-	}
-
-	if h.version != 1 {
-		return NewCorruptDatabaseError(
-			fmt.Sprintf("unsupported version: expected 1, got %d", h.version),
-			nil,
-		)
-	}
-
-	if h.rowSize < MIN_ROW_SIZE || h.rowSize > MAX_ROW_SIZE {
-		return NewCorruptDatabaseError(
-			fmt.Sprintf("row_size must be between %d and %d, got %d", MIN_ROW_SIZE, MAX_ROW_SIZE, h.rowSize),
-			nil,
-		)
-	}
-
-	if h.skewMs < 0 || h.skewMs > MAX_SKEW_MS {
-		return NewCorruptDatabaseError(
-			fmt.Sprintf("skew_ms must be between 0 and %d, got %d", MAX_SKEW_MS, h.skewMs),
-			nil,
-		)
-	}
-
-	return nil
-}
-
 // SudoContext contains information about the sudo environment
 type SudoContext struct {
 	user string // Original username from SUDO_USER
@@ -247,20 +129,6 @@ func (sc *SudoContext) GetGID() int {
 	return sc.gid
 }
 
-// Constants for frozenDB v1 format
-const (
-	HEADER_SIZE      = 64       // Fixed header size in bytes
-	HEADER_SIGNATURE = "fDB"    // Signature string for format identification
-	MIN_ROW_SIZE     = 128      // Minimum allowed row size
-	MAX_ROW_SIZE     = 65536    // Maximum allowed row size
-	MAX_SKEW_MS      = 86400000 // Maximum time skew (24 hours)
-	PADDING_CHAR     = '\x00'   // Null character for header padding
-	HEADER_NEWLINE   = '\n'     // Byte 63 must be newline
-)
-
-// Header format string for generating JSON content
-const HEADER_FORMAT = `{"sig":"fDB","ver":1,"row_size":%d,"skew_ms":%d}`
-
 // File system constants
 const (
 	// File permissions: 0644 (owner rw, group/others r)
@@ -279,27 +147,6 @@ const (
 	FS_IOC_SETFLAGS = 0x40086602 // Set file flags
 	FS_APPEND_FL    = 0x00000020 // Append-only flag
 )
-
-// generateHeader creates the 64-byte header string with proper padding
-func generateHeader(rowSize, skewMs int) ([]byte, error) {
-	// Generate JSON content
-	jsonContent := fmt.Sprintf(HEADER_FORMAT, rowSize, skewMs)
-
-	// Calculate padding needed (total 64 bytes, minus newline at end)
-	contentLength := len(jsonContent)
-	if contentLength > 58 {
-		return nil, NewInvalidInputError("header content too long", nil)
-	}
-
-	// Calculate padding: 63 - jsonContent length (byte 63 is newline)
-	paddingLength := 63 - contentLength
-	padding := strings.Repeat(string(PADDING_CHAR), paddingLength)
-
-	// Assemble header: JSON + padding + newline
-	header := jsonContent + padding + string(HEADER_NEWLINE)
-
-	return []byte(header), nil
-}
 
 // detectSudoContext detects and validates sudo environment
 func detectSudoContext() (*SudoContext, error) {
@@ -378,18 +225,20 @@ func (sc *SudoContext) Validate() error {
 
 // Validate validates the CreateConfig and returns appropriate error types
 func (cfg *CreateConfig) Validate() error {
-	if err := validateInputs(*cfg); err != nil {
-		return err
+	// Validate rowSize and skewMs by creating a Header struct and validating it
+	header := &Header{
+		signature: HEADER_SIGNATURE,
+		version:   1,
+		rowSize:   cfg.rowSize,
+		skewMs:    cfg.skewMs,
 	}
-	if err := validatePath(cfg.path); err != nil {
-		return err
-	}
-	return nil
-}
 
-// ValidateInputs performs only input validation (no filesystem checks)
-func (cfg *CreateConfig) ValidateInputs() error {
-	return validateInputs(*cfg)
+	if err := header.Validate(); err != nil {
+		return err
+	}
+
+	// Validate path and filesystem preconditions
+	return validatePath(cfg.path)
 }
 
 // Create creates a new frozenDB database file with the given configuration
@@ -430,18 +279,21 @@ func Create(config CreateConfig) error {
 		}
 	}()
 
-	// Generate header bytes
-	headerBytes, err := generateHeader(config.rowSize, config.skewMs)
-	if err != nil {
-		return NewWriteError("failed to generate header", err)
-	}
-
-	// Create Header struct for checksum calculation
+	// Create Header struct and generate header bytes
 	header := &Header{
 		signature: HEADER_SIGNATURE,
 		version:   1,
 		rowSize:   config.rowSize,
 		skewMs:    config.skewMs,
+	}
+
+	if err := header.Validate(); err != nil {
+		return err
+	}
+
+	headerBytes, err := header.MarshalText()
+	if err != nil {
+		return NewWriteError("failed to generate header", err)
 	}
 
 	// Calculate CRC32 for header bytes [0..63] (entire header)
@@ -493,39 +345,18 @@ func Create(config CreateConfig) error {
 	return nil
 }
 
-// validateInputs performs all input validation from CreateConfig (no side effects)
-func validateInputs(config CreateConfig) error {
+// validatePath validates path format and filesystem preconditions
+func validatePath(path string) error {
 	// Validate path is not empty
-	if config.path == "" {
+	if path == "" {
 		return NewInvalidInputError("path cannot be empty", nil)
 	}
 
 	// Validate path has .fdb extension
-	if !strings.HasSuffix(config.path, FILE_EXTENSION) || len(config.path) <= len(FILE_EXTENSION) {
+	if !strings.HasSuffix(path, FILE_EXTENSION) || len(path) <= len(FILE_EXTENSION) {
 		return NewInvalidInputError("path must have .fdb extension", nil)
 	}
 
-	// Validate rowSize range
-	if config.rowSize < MIN_ROW_SIZE || config.rowSize > MAX_ROW_SIZE {
-		return NewInvalidInputError(
-			fmt.Sprintf("rowSize must be between %d and %d, got %d", MIN_ROW_SIZE, MAX_ROW_SIZE, config.rowSize),
-			nil,
-		)
-	}
-
-	// Validate skewMs range
-	if config.skewMs < 0 || config.skewMs > MAX_SKEW_MS {
-		return NewInvalidInputError(
-			fmt.Sprintf("skewMs must be between 0 and %d, got %d", MAX_SKEW_MS, config.skewMs),
-			nil,
-		)
-	}
-
-	return nil
-}
-
-// validatePath validates path and filesystem preconditions
-func validatePath(path string) error {
 	// Get parent directory
 	parentDir := filepath.Dir(path)
 

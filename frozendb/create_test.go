@@ -73,7 +73,7 @@ func restoreRealSyscalls() {
 	fsInterface = &defaultFSOps
 }
 
-func TestValidateInputs(t *testing.T) {
+func TestCreateConfigValidate(t *testing.T) {
 	tests := []struct {
 		name    string
 		config  CreateConfig
@@ -146,9 +146,9 @@ func TestValidateInputs(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := validateInputs(tt.config)
+			err := tt.config.Validate()
 			if (err != nil) != tt.wantErr {
-				t.Errorf("validateInputs() error = %v, wantErr %v", err, tt.wantErr)
+				t.Errorf("CreateConfig.Validate() error = %v, wantErr %v", err, tt.wantErr)
 			}
 		})
 	}
@@ -183,19 +183,25 @@ func TestGenerateHeader(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			header, err := generateHeader(tt.rowSize, tt.skewMs)
+			header := &Header{
+				signature: HEADER_SIGNATURE,
+				version:   1,
+				rowSize:   tt.rowSize,
+				skewMs:    tt.skewMs,
+			}
+			headerBytes, err := header.MarshalText()
 			if (err != nil) != tt.wantErr {
-				t.Errorf("generateHeader() error = %v, wantErr %v", err, tt.wantErr)
+				t.Errorf("Header.MarshalText() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
 
 			if !tt.wantErr {
-				if len(header) != HEADER_SIZE {
-					t.Errorf("generateHeader() header length = %d, want %d", len(header), HEADER_SIZE)
+				if len(headerBytes) != HEADER_SIZE {
+					t.Errorf("Header.MarshalText() header length = %d, want %d", len(headerBytes), HEADER_SIZE)
 				}
 
-				if header[63] != '\n' {
-					t.Errorf("generateHeader() byte 63 = %c, want '\\n'", header[63])
+				if headerBytes[63] != '\n' {
+					t.Errorf("Header.MarshalText() byte 63 = %c, want '\\n'", headerBytes[63])
 				}
 			}
 		})

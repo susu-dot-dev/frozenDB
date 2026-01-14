@@ -280,6 +280,7 @@ func TestDB_Add(t *testing.T) {
 - Go 1.25.5 + Go standard library only, github.com/google/uuid (006-transaction-struct)
 - Go 1.25.5 + Go standard library only, github.com/google/uuid for UUIDv7 handling (007-file-validation)
 - Single-file frozenDB database (.fdb extension) with append-only architecture (007-file-validation)
+- Go 1.25.5 + Go standard library only (encoding/json, fmt, strings, bytes) (008-header-refactor)
 
 ## Recent Changes
 - Updated with v1_file_format.md concepts for append-only architecture
