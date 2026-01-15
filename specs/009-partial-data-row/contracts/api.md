@@ -36,8 +36,8 @@ func (e *InvalidActionError) Unwrap() error
 
 ```go
 type PartialDataRow struct {
-    State PartialRowState
-    d     DataRow  // Contained DataRow, not embedded
+    state PartialRowState  // unexported - use GetState() to read
+    d     DataRow          // Contained DataRow, not embedded
 }
 ```
 
@@ -49,9 +49,12 @@ type PartialDataRow struct {
 ```go
 // Example usage
 pdr := &PartialDataRow{
-    State: PartialDataRowWithStartControl,
+    state: PartialDataRowWithStartControl,
     d: DataRow{
-        // Initialize DataRow with header and startControl
+        baseRow: baseRow[*DataRowPayload]{
+            Header:       header,
+            StartControl: START_TRANSACTION,
+        },
     },
 }
 
@@ -93,7 +96,7 @@ err := pdr.AddRow(key, `{"name":"test","value":123}`)
 if err != nil {
     return err
 }
-// pdr.State == PartialDataRowWithPayload
+// After successful AddRow, use GetState() to verify: state == PartialDataRowWithPayload
 ```
 
 ### Savepoint()
@@ -118,7 +121,7 @@ err := pdr.Savepoint()
 if err != nil {
     return err
 }
-// pdr.State == PartialDataRowWithSavepoint
+// After successful Savepoint, use GetState() to verify: state == PartialDataRowWithSavepoint
 ```
 
 ## Completion Methods
@@ -149,7 +152,7 @@ dataRow, err := pdr.Commit()
 if err != nil {
     return err
 }
-// dataRow.EndControl == {'T','C'} or {'S','C'} depending on pdr.State
+// dataRow.EndControl is 'TC' if prior state was PartialDataRowWithPayload, or 'SC' if PartialDataRowWithSavepoint
 ```
 
 ### Rollback()
@@ -179,7 +182,7 @@ dataRow, err := pdr.Rollback(1)
 if err != nil {
     return err
 }
-// dataRow.EndControl == {'R','1'} or {'S','1'} depending on pdr.State
+// dataRow.EndControl is 'R[N]' if prior state was PartialDataRowWithPayload, or 'S[N]' if PartialDataRowWithSavepoint
 ```
 
 ### EndRow()
@@ -206,7 +209,7 @@ dataRow, err := pdr.EndRow()
 if err != nil {
     return err
 }
-// dataRow.EndControl == {'R','E'} or {'S','E'} depending on pdr.State
+// dataRow.EndControl is 'RE' if prior state was PartialDataRowWithPayload, or 'SE' if PartialDataRowWithSavepoint
 ```
 
 ## Validation Methods
@@ -350,7 +353,7 @@ err := pdr.UnmarshalText(bytes)
 if err != nil {
     return fmt.Errorf("corrupt data: %w", err)
 }
-// pdr.State automatically detected and set
+// State is automatically detected and set via GetState()
 ```
 
 ## State Query Methods
