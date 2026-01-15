@@ -96,17 +96,17 @@ func (pdr *PartialDataRow) Validate() error {
 func (pdr *PartialDataRow) MarshalText() ([]byte, error) {
 	switch pdr.state {
 	case PartialDataRowWithStartControl:
-		return pdr.marshalState1()
+		return pdr.marshalWithStartControl()
 	case PartialDataRowWithPayload:
-		return pdr.marshalState2()
+		return pdr.marshalWithPayload()
 	case PartialDataRowWithSavepoint:
-		return pdr.marshalState3()
+		return pdr.marshalWithSavepoint()
 	default:
 		return nil, NewInvalidInputError(fmt.Sprintf("unknown PartialDataRow state: %d", pdr.state), nil)
 	}
 }
 
-func (pdr *PartialDataRow) marshalState1() ([]byte, error) {
+func (pdr *PartialDataRow) marshalWithStartControl() ([]byte, error) {
 	if pdr.d.Header == nil {
 		return nil, NewInvalidInputError("Header is required", nil)
 	}
@@ -118,68 +118,45 @@ func (pdr *PartialDataRow) marshalState1() ([]byte, error) {
 	return result, nil
 }
 
-func (pdr *PartialDataRow) marshalState2() ([]byte, error) {
+func (pdr *PartialDataRow) marshalWithPayload() ([]byte, error) {
+	state1Bytes, err := pdr.marshalWithStartControl()
+	if err != nil {
+		return nil, err
+	}
+
 	if pdr.d.Header == nil {
 		return nil, NewInvalidInputError("Header is required", nil)
 	}
 
 	rowSize := pdr.d.Header.GetRowSize()
-	result := make([]byte, rowSize)
-
-	result[0] = ROW_START
-	result[1] = byte(pdr.d.StartControl)
-
 	uuidBytes := pdr.d.RowPayload.Key[:]
 	uuidBase64 := base64.StdEncoding.EncodeToString(uuidBytes)
-	copy(result[2:26], uuidBase64)
-
 	jsonBytes := []byte(pdr.d.RowPayload.Value)
+	paddingLen := rowSize - 7 - 24 - len(jsonBytes)
+
+	state2Len := 2 + 24 + len(jsonBytes) + paddingLen
+	result := make([]byte, state2Len)
+
+	copy(result, state1Bytes)
+	copy(result[2:26], uuidBase64)
 	copy(result[26:], jsonBytes)
 
 	paddingStart := 26 + len(jsonBytes)
-	paddingEnd := rowSize - 6
-	for i := paddingStart; i < paddingEnd; i++ {
+	for i := paddingStart; i < paddingStart+paddingLen; i++ {
 		result[i] = NULL_BYTE
 	}
 
-	result[rowSize-5] = NULL_BYTE
-	result[rowSize-4] = NULL_BYTE
-	result[rowSize-3] = '0'
-	result[rowSize-2] = '0'
-	result[rowSize-1] = ROW_END
-
-	fullRow := make([]byte, rowSize)
-	copy(fullRow, result)
-
-	parity, err := pdr.calculateParity(fullRow[:rowSize-3])
-	if err != nil {
-		return nil, err
-	}
-	copy(fullRow[rowSize-3:], parity[:])
-
-	paddingLen := rowSize - 7 - 24 - len(jsonBytes)
-	state2Len := 2 + 24 + len(jsonBytes) + paddingLen
-	return fullRow[:state2Len], nil
+	return result, nil
 }
 
-func (pdr *PartialDataRow) marshalState3() ([]byte, error) {
-	state2Bytes, err := pdr.marshalState2()
+func (pdr *PartialDataRow) marshalWithSavepoint() ([]byte, error) {
+	state2Bytes, err := pdr.marshalWithPayload()
 	if err != nil {
 		return nil, err
 	}
 
 	state3Bytes := append(state2Bytes, 'S')
 	return state3Bytes, nil
-}
-
-func (pdr *PartialDataRow) calculateParity(data []byte) ([2]byte, error) {
-	var xor byte = 0
-	for i := 0; i < len(data); i++ {
-		xor ^= data[i]
-	}
-
-	hexStr := fmt.Sprintf("%02X", xor)
-	return [2]byte{hexStr[0], hexStr[1]}, nil
 }
 
 func (pdr *PartialDataRow) UnmarshalText(text []byte) error {
