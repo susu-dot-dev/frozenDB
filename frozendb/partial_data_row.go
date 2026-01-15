@@ -2,7 +2,6 @@ package frozendb
 
 import (
 	"bytes"
-	"encoding/base64"
 	"fmt"
 
 	"github.com/google/uuid"
@@ -96,67 +95,26 @@ func (pdr *PartialDataRow) Validate() error {
 func (pdr *PartialDataRow) MarshalText() ([]byte, error) {
 	switch pdr.state {
 	case PartialDataRowWithStartControl:
-		return pdr.marshalWithStartControl()
+		return pdr.d.BuildRowStartAndControl()
 	case PartialDataRowWithPayload:
-		return pdr.marshalWithPayload()
+		payloadBytes, err := pdr.d.RowPayload.MarshalText()
+		if err != nil {
+			return nil, NewInvalidInputError("failed to marshal row payload", err)
+		}
+		return pdr.d.BuildRowStartControlAndPayload(payloadBytes)
 	case PartialDataRowWithSavepoint:
-		return pdr.marshalWithSavepoint()
+		payloadBytes, err := pdr.d.RowPayload.MarshalText()
+		if err != nil {
+			return nil, NewInvalidInputError("failed to marshal row payload", err)
+		}
+		state2Bytes, err := pdr.d.BuildRowStartControlAndPayload(payloadBytes)
+		if err != nil {
+			return nil, err
+		}
+		return append(state2Bytes, 'S'), nil
 	default:
 		return nil, NewInvalidInputError(fmt.Sprintf("unknown PartialDataRow state: %d", pdr.state), nil)
 	}
-}
-
-func (pdr *PartialDataRow) marshalWithStartControl() ([]byte, error) {
-	if pdr.d.Header == nil {
-		return nil, NewInvalidInputError("Header is required", nil)
-	}
-
-	result := make([]byte, 2)
-	result[0] = ROW_START
-	result[1] = byte(pdr.d.StartControl)
-
-	return result, nil
-}
-
-func (pdr *PartialDataRow) marshalWithPayload() ([]byte, error) {
-	state1Bytes, err := pdr.marshalWithStartControl()
-	if err != nil {
-		return nil, err
-	}
-
-	if pdr.d.Header == nil {
-		return nil, NewInvalidInputError("Header is required", nil)
-	}
-
-	rowSize := pdr.d.Header.GetRowSize()
-	uuidBytes := pdr.d.RowPayload.Key[:]
-	uuidBase64 := base64.StdEncoding.EncodeToString(uuidBytes)
-	jsonBytes := []byte(pdr.d.RowPayload.Value)
-	paddingLen := rowSize - 7 - 24 - len(jsonBytes)
-
-	state2Len := 2 + 24 + len(jsonBytes) + paddingLen
-	result := make([]byte, state2Len)
-
-	copy(result, state1Bytes)
-	copy(result[2:26], uuidBase64)
-	copy(result[26:], jsonBytes)
-
-	paddingStart := 26 + len(jsonBytes)
-	for i := paddingStart; i < paddingStart+paddingLen; i++ {
-		result[i] = NULL_BYTE
-	}
-
-	return result, nil
-}
-
-func (pdr *PartialDataRow) marshalWithSavepoint() ([]byte, error) {
-	state2Bytes, err := pdr.marshalWithPayload()
-	if err != nil {
-		return nil, err
-	}
-
-	state3Bytes := append(state2Bytes, 'S')
-	return state3Bytes, nil
 }
 
 func (pdr *PartialDataRow) UnmarshalText(text []byte) error {
