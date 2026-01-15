@@ -4,38 +4,30 @@ This document contains build commands and coding standards for agentic developme
 
 ## Build & Development Commands
 
-This is a Go 1.25.5 project using only standard library dependencies:
+This is a Go 1.25.5 project using `github.com/google/uuid` and standard library dependencies:
 
+### Using Make (Recommended)
 ```bash
-# Run all tests (unit + spec)
-go test ./...
+make ci              # Run complete CI pipeline (deps, tidy, fmt, lint, test, build)
+make test            # Run all tests with verbose output
+make test-spec       # Run spec tests only (Test_S_ prefix)
+make test-unit       # Run unit tests only (exclude Test_S_ prefix)
+make test-coverage   # Run tests with coverage report
+make fmt             # Format code with go fmt
+make lint            # Run golangci-lint
+make build           # Build the project
+make deps            # Download dependencies
+make tidy            # Clean up go.mod
+make clean           # Clean build artifacts
+```
 
-# Run tests with verbose output
-go test -v ./...
-
-# Run spec tests only (Test_S_ prefix)
-go test -v ./... -run "^Test_S_"
-
-# Run unit tests only (exclude Test_S_ prefix)
-go test -v ./... -run "^Test[^_]"
-
-# Run a specific test
+### Direct Go Commands
+```bash
+# Run specific test
 go test -run TestFunctionName ./path/to/package
-
-# Run tests with coverage
-go test -cover ./...
-
-# Run spec tests with coverage
-go test -cover ./... -run "^Test_S_"
 
 # Run benchmarks
 go test -bench=. ./...
-
-# Format code (gofmt)
-gofmt -w .
-
-# Vet code for potential issues
-go vet ./...
 ```
 
 ## Project Structure
@@ -43,10 +35,10 @@ go vet ./...
 ```
 frozenDB/
 ├── frozendb/      # Core database package (public API)
-├── cmd/           # CLI applications
 ├── docs/          # Documentation including file format specs
 ├── specs/         # Feature specifications and requirements
-└── test/          # Integration tests
+├── .github/       # GitHub workflows
+└── .specify/      # Development templates and scripts
 ```
 
 ## Essential Context Files
@@ -63,10 +55,15 @@ frozenDB/
 
 ### General Principles
 - Follow standard Go formatting and conventions
-- Use `gofmt` for consistent formatting
+- Use `gofmt` for consistent formatting, run via `make fmt`
 - Keep functions small and focused
 - Prefer composition over inheritance
 - Design for concurrency where applicable
+
+### Import Style
+- Group imports: standard library, third-party, local packages
+- Use blank imports for side effects only when necessary
+- Prefer explicit imports over dot imports
 
 ### Naming Conventions
 - **Package names**: short, lowercase, single words when possible
@@ -77,70 +74,28 @@ frozenDB/
 - **Error types**: should end with "Error" suffix
 
 ### Error Handling
-- Always handle errors explicitly
+- Always handle errors explicitly, never ignore with `_`
 - All errors should be structured, deriving from the base FrozenDBError struct
 - Different error types should only be made when callers are expected to have different behavior for treating each issue
 - Otherwise, add descriptive errors to the Message property of the error
 
-Example:
 ```go
 // Base error struct
 type FrozenDBError struct {
     Code    string
     Message string
-    Err     error // underlying error
+    Err     error
 }
 
-func (e *FrozenDBError) Error() string {
-    if e.Err != nil {
-        return fmt.Sprintf("%s: %s (caused by: %v)", e.Code, e.Message, e.Err)
-    }
-    return fmt.Sprintf("%s: %s", e.Code, e.Message)
-}
-
-func (e *FrozenDBError) Unwrap() error {
-    return e.Err
-}
-
-// Specific error type embedding base
-type InvalidInputError struct {
-    FrozenDBError
-}
-
-// Constructor for specific error
-func NewInvalidInputError(message string, err error) *InvalidInputError {
-    return &InvalidInputError{
-        FrozenDBError: FrozenDBError{
-            Code:    "invalid_input",
-            Message: message,
-            Err:     err,
-        },
-    }
-}
-
-// Usage in functions
-func (db *DB) Add(key uuid.UUID, value interface{}) error {
-    if err := db.validateKey(key); err != nil {
-        return NewInvalidInputError("key validation failed", err)
-    }
-    // ... implementation
-}
+// Specific error types embed base
+type InvalidInputError struct { FrozenDBError }
+type CorruptionError struct { FrozenDBError }
 ```
 
 ### Function Documentation
 - Exported functions must have Go doc comments
-- Follow standard Go documentation format
 - Include parameter descriptions, return values, and error conditions
-
-Example:
-```go
-// Add stores a key-value pair in the database.
-// The key must be a UUIDv7 for proper time ordering.
-// Returns an error if the transaction cannot be completed.
-func (db *DB) Add(key uuid.UUID, value interface{}) error {
-    // implementation
-}
-```
+- Use proper Go doc format with the function name as the first word
 
 ### Types and Interfaces
 - Use concrete types when implementation is fixed
@@ -148,63 +103,30 @@ func (db *DB) Add(key uuid.UUID, value interface{}) error {
 - Keep interfaces small and focused (interface segregation)
 - Use struct embedding carefully
 
-### Concurrency
-- Design for concurrent reads where possible
-- Use proper synchronization (mutexes, channels) for shared state
-- Consider using context.Context for cancellation and timeouts
-
 ### Testing
 - Write table-driven tests for multiple scenarios
 - Use subtests for related test cases
-- Mock external dependencies using interfaces
 - Test both success and error paths
 - Include benchmarks for performance-critical code
-
-Example test structure:
-```go
-func TestDB_Add(t *testing.T) {
-    tests := []struct {
-        name    string
-        key     uuid.UUID
-        value   interface{}
-        wantErr bool
-    }{
-        {
-            name:    "valid key-value pair",
-            key:     uuid.MustParse("0189b3c0-3c1b-7b8b-8b8b-8b8b8b8b8b8b"),
-            value:   "test value",
-            wantErr: false,
-        },
-        // more test cases...
-    }
-
-    for _, tt := range tests {
-        t.Run(tt.name, func(t *testing.T) {
-            db := setupTestDB(t)
-            err := db.Add(tt.key, tt.value)
-            if (err != nil) != tt.wantErr {
-                t.Errorf("DB.Add() error = %v, wantErr %v", err, tt.wantErr)
-            }
-        })
-    }
-}
-```
-
-### Performance Considerations
-- Profile memory usage - should be fixed, not scale with database size
-- Optimize disk reads (correspond to sector size when possible)
-- Use binary search for key lookups within time skew windows
-- Implement caching strategies to reduce disk seeks
-- Minimize allocations in hot paths
-
-### Security & Reliability
-- Use OS-level file locks (flocks) for write mode exclusivity
-- Implement sentinel bytes for transaction integrity
-- Validate UUIDv7 keys to ensure time ordering
-- Handle partial write failures gracefully
-- Design for concurrent reads during write operations
+- Run comprehensive checks with `make ci`, individual tests with direct `go test`
 
 ## frozenDB Specific Guidelines
+
+### File Format Implementation
+**CRITICAL:** When implementing any database file or in-memory structure features, ALWAYS load:
+- `docs/v1_file_format.md` - Complete file format specification
+
+#### Append-Only Architecture
+- Data is never modified in place—only appended
+- Enables safe concurrent reads during writes
+- Fixed-width rows enable O(1) seeking and binary search
+- Use ROW_START (0x1F) and ROW_END (0x0A) sentinels for integrity
+
+#### Transaction Semantics
+- All writes occur within transactions
+- Use start_control `T` for begin, `R` for continuation
+- End_control encodes savepoints and termination (TC, RE, SC, SE, R0-R9, S0-S9)
+- Implement checksum rows every 10,000 data rows (CRC32)
 
 ### UUIDv7 Key Handling
 - All keys must be UUIDv7 for proper time ordering
@@ -212,76 +134,14 @@ func TestDB_Add(t *testing.T) {
 - Leverage time component for binary search optimization
 - Handle configurable time skew for distributed systems
 
-### Transaction Management
-- Use transaction headers for atomicity guarantees
-- Implement proper begin/commit/abort semantics
-- Detect incomplete transactions via sentinel validation
-- Allow reads to ignore in-progress transactions
-
-### File Storage
-- Maintain append-only immutability
-- Use fixed-width rows for direct seeking
-- Implement corruption detection via row sentinels
-- Support both read and read+write modes with proper locking
-
-### API Design Principles
-- Keep the public API simple and focused
-- Provide clear error messages for debugging
-- Support JSON-serializable values
-- Enable efficient enumeration and counting operations
-
-## File Format Implementation Requirements
-
-**CRITICAL:** When implementing any database file or in-memory structure features, you MUST understand:
-
-### Append-Only Architecture
-- Data is never modified in place—only appended
-- Enables safe concurrent reads during writes
-- Simplifies crash recovery (no partial overwrites)
-- Provides natural audit trail of all operations
-
-### Fixed-Width Rows
-- Enables O(1) seeking to any row by index
-- Allows binary search on sorted keys
-- Eliminates need for index files or offset tables
-- Simplifies memory-mapped access patterns
-
-### Transaction Semantics
-- All writes occur within transactions
-- Use start_control `T` for transaction begin, `R` for continuation
-- End_control encodes savepoints and termination (TC, RE, SC, SE, R0-R9, S0-S9)
-- "Rollback" marks rows as invalid, doesn't delete them
-- Savepoints numbered 1-9, with 0 representing full rollback
-
-### Row Structure
-- ROW_START (0x1F) and ROW_END (0x0A) sentinels
-- Base64-encoded UUIDv7 keys (24 bytes)
-- JSON payload with NULL_BYTE padding
-- Parity bytes for integrity (LRC checksum)
-- Checksum rows every 10,000 data rows (CRC32)
-
-### Key Implementation Points
-- Validate UUIDv7 timestamp ordering with configurable skew_ms
-- Handle incomplete transaction detection via sentinels
-- Implement two-tier integrity: checksum blocks + per-row parity
-- Support both read and read+write modes with proper OS file locking
+### Performance & Reliability
+- Profile memory usage - should be fixed, not scale with database size
+- Use OS-level file locks (flocks) for write mode exclusivity
+- Implement sentinel bytes for transaction integrity
+- Minimize allocations in hot paths
 
 ## Active Technologies
-- Go 1.25.5 + Standard library only (os, syscall, encoding/json, sync)
-- Single file-based database with append-only immutability
-- UUIDv7 for time-ordered keys
+- Go 1.25.5 + github.com/google/uuid + Go standard library
+- Single-file append-only database (.fdb extension)
 - CRC32 checksums and LRC parity for data integrity
-- Go 1.25.5 + Standard library only (encoding/base64, encoding/json, hash/crc32) (003-checksum-row)
-- Single file-based frozenDB database (.fdb extension) (003-checksum-row)
-- Go 1.25.5 + Go standard library only (os, encoding/json, sync, etc.) (004-struct-validation)
-- Single-file append-only database (.fdb extension) (004-struct-validation)
-- Go 1.25.5 + github.com/google/uuid, Go standard library only (005-data-row-handling)
-- Single-file frozenDB database (.fdb extension) (005-data-row-handling)
-- Go 1.25.5 + Go standard library only, github.com/google/uuid (006-transaction-struct)
-- Go 1.25.5 + Go standard library only, github.com/google/uuid for UUIDv7 handling (007-file-validation)
-- Single-file frozenDB database (.fdb extension) with append-only architecture (007-file-validation)
-- Go 1.25.5 + Go standard library only (encoding/json, fmt, strings, bytes) (008-header-refactor)
-
-## Recent Changes
-- Updated with v1_file_format.md concepts for append-only architecture
-- Added transaction semantics and row structure requirements
+- golangci-lint for code quality (exclusions in .golangci.yml)

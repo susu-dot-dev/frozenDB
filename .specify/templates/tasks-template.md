@@ -49,36 +49,7 @@ description: "Task list template for feature implementation"
   ============================================================================
 -->
 
-## Phase 1: Setup (Shared Infrastructure)
-
-**Purpose**: Project initialization and basic structure
-
-- [ ] T001 Create project structure per implementation plan
-- [ ] T002 Initialize [language] project with [framework] dependencies
-- [ ] T003 Configure linting and formatting tools
-
----
-
-## Phase 2: Foundational (Blocking Prerequisites)
-
-**Purpose**: Core infrastructure that MUST be complete before ANY user story can be implemented
-
-**⚠️ CRITICAL**: No user story work can begin until this phase is complete
-
-Examples of foundational tasks (adjust based on your project):
-
-- [ ] T004 Setup frozenDB file structure and header management
-- [ ] T005 Implement chronological key ordering and time variation handling
-- [ ] T006 Setup atomic write operations and corruption detection mechanisms
-- [ ] T007 Create immutable append-only storage layer
-- [ ] T008 Configure structured error handling (FrozenDBError hierarchy)
-- [ ] T009 Setup corruption detection and single-file recovery mechanisms
-
-**Checkpoint**: Foundation ready - user story implementation can now begin
-
----
-
-## Phase 3: User Story 1 - [Title] (Priority: P1) 🎯 MVP
+## Phase 1: User Story 1 - [Title] (Priority: P1) 🎯 MVP
 
 **Goal**: [Brief description of what this story delivers]
 
@@ -108,7 +79,7 @@ Examples of foundational tasks (adjust based on your project):
 
 ---
 
-## Phase 4: User Story 2 - [Title] (Priority: P2)
+## Phase 2: User Story 2 - [Title] (Priority: P2)
 
 **Goal**: [Brief description of what this story delivers]
 
@@ -135,7 +106,7 @@ Examples of foundational tasks (adjust based on your project):
 
 ---
 
-## Phase 5: User Story 3 - [Title] (Priority: P3)
+## Phase 3: User Story 3 - [Title] (Priority: P3)
 
 **Goal**: [Brief description of what this story delivers]
 
@@ -182,17 +153,8 @@ Examples of foundational tasks (adjust based on your project):
 
 ### Phase Dependencies
 
-- **Setup (Phase 1)**: No dependencies - can start immediately
-- **Foundational (Phase 2)**: Depends on Setup completion - BLOCKS all user stories
-- **User Stories (Phase 3+)**: All depend on Foundational phase completion
-  - User stories proceed sequentially in priority order (P1 → P2 → P3)
+- **User Stories (Phase 1+)**: User stories proceed sequentially in priority order (P1 → P2 → P3)
 - **Polish (Final Phase)**: Depends on all desired user stories being complete
-
-### User Story Dependencies
-
-- **User Story 1 (P1)**: Can start after Foundational (Phase 2) - No dependencies on other stories
-- **User Story 2 (P2)**: Can start after Foundational (Phase 2) - May integrate with US1 but should be independently testable
-- **User Story 3 (P3)**: Can start after Foundational (Phase 2) - May integrate with US1/US2 but should be independently testable
 
 ### Within Each User Story
 
@@ -205,7 +167,6 @@ Examples of foundational tasks (adjust based on your project):
 ### Task Dependencies
 
 - Setup tasks execute sequentially
-- Foundational tasks execute sequentially within Phase 2
 - User stories proceed in priority order (P1 → P2 → P3)
 - Tests for a user story execute sequentially
 - Models within a story execute sequentially
@@ -221,15 +182,12 @@ Examples of foundational tasks (adjust based on your project):
 
 ### MVP First (User Story 1 Only)
 
-1. Complete Phase 1: Setup
-2. Complete Phase 2: Foundational (CRITICAL - blocks all stories)
-3. Complete Phase 3: User Story 1
-4. **STOP and VALIDATE**: Test User Story 1 independently
-5. Deploy/demo if ready
+1. Complete Phase 1: User Story 1
+2. **STOP and VALIDATE**: Test User Story 1 independently
+3. Deploy/demo if ready
 
 ### Incremental Delivery
 
-1. Complete Setup + Foundational → Foundation ready
 2. Add User Story 1 → Test independently → Deploy/Demo (MVP!)
 3. Add User Story 2 → Test independently → Deploy/Demo
 4. Add User Story 3 → Test independently → Deploy/Demo
@@ -237,8 +195,7 @@ Examples of foundational tasks (adjust based on your project):
 
 ### Team Strategy
 
-1. Team completes Setup + Foundational sequentially
-2. Once Foundational is done, proceed with stories in priority order:
+2. Proceed with stories in priority order:
    - User Story 1
    - User Story 2  
    - User Story 3

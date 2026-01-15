@@ -40,9 +40,7 @@ You **MUST** consider the user input before proceeding (if not empty).
 
 4. **Generate tasks.md**: Use `.specify/templates/tasks-template.md` as structure, fill with:
    - Correct feature name from plan.md
-   - Phase 1: Setup tasks (project initialization)
-   - Phase 2: Foundational tasks (blocking prerequisites for all user stories)
-   - Phase 3+: One phase per user story (in priority order from spec.md)
+   - Phase 1+: One phase per user story (in priority order from spec.md)
    - Each phase includes: story goal, independent test criteria, tests (if requested), implementation tasks
    - Final Phase: Polish & cross-cutting concerns
    - All tasks must follow the strict checklist format (see Task Generation Rules below)
@@ -81,8 +79,6 @@ Every task MUST strictly follow this format:
 2. **Task ID**: Sequential number (T001, T002, T003...) in execution order
 4. **[Story] label**: REQUIRED for user story phase tasks only
    - Format: [US1], [US2], [US3], etc. (maps to user stories from spec.md)
-   - Setup phase: NO story label
-   - Foundational phase: NO story label  
    - User Story phases: MUST have story label
    - Polish phase: NO story label
 5. **Description**: Clear action with exact file path
@@ -119,15 +115,11 @@ Every task MUST strictly follow this format:
    - Relationships → service layer tasks in appropriate story phase
 
 4. **From Setup/Infrastructure**:
-   - Shared infrastructure → Setup phase (Phase 1)
-   - Foundational/blocking tasks → Foundational phase (Phase 2)
    - Story-specific setup → within that story's phase
 
 ### Phase Structure
 
-- **Phase 1**: Setup (project initialization)
-- **Phase 2**: Foundational (blocking prerequisites - MUST complete before user stories)
-- **Phase 3+**: User Stories in priority order (P1, P2, P3...)
+- **Phase 1+**: User Stories in priority order (P1, P2, P3...)
   - Within each story: Tests (if requested) → Models → Services → Endpoints → Integration
   - Each phase should be a complete, independently testable increment
 - **Final Phase**: Polish & Cross-Cutting Concerns
