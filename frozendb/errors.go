@@ -67,9 +67,26 @@ func NewCorruptDatabaseError(message string, err error) *CorruptDatabaseError {
 	}
 }
 
+// NewInvalidActionError creates a new InvalidActionError.
+func NewInvalidActionError(message string, err error) *InvalidActionError {
+	return &InvalidActionError{
+		FrozenDBError: FrozenDBError{
+			Code:    "invalid_action",
+			Message: message,
+			Err:     err,
+		},
+	}
+}
+
 // InvalidInputError is returned for input validation failures.
 // Used for: empty path, invalid parameter ranges, wrong file extension.
 type InvalidInputError struct {
+	FrozenDBError
+}
+
+// InvalidActionError is returned for invalid state transitions and actions.
+// Used for: calling methods from wrong state, preventing invalid operations.
+type InvalidActionError struct {
 	FrozenDBError
 }
 

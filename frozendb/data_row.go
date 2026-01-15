@@ -160,43 +160,75 @@ func (dr *DataRow) UnmarshalText(text []byte) error {
 // This method is idempotent and can be called multiple times with the same result.
 // Returns an error if validation fails.
 func (dr *DataRow) Validate() error {
-	// First validate baseRow structure (header, controls, payload not nil, payload validation)
 	if err := dr.baseRow.Validate(); err != nil {
 		return err
 	}
 
-	// Validate that payload size does not exceed ROW_SIZE
-	// Fixed overhead: ROW_START(1) + start_control(1) + end_control(2) + parity(2) + ROW_END(1) = 7 bytes
-	// Payload: Base64 UUID (24 bytes) + JSON value (len(Value) bytes)
-	payloadSize := 24 + len(dr.RowPayload.Value)
-	rowSize := dr.Header.GetRowSize()
+	if err := validateStartControlForDataRow(dr.StartControl); err != nil {
+		return err
+	}
+
+	if err := validatePayloadSize(dr.Header, dr.RowPayload); err != nil {
+		return err
+	}
+
+	return validateEndControlForDataRow(dr.EndControl)
+}
+
+func validateStartControlForDataRow(startControl StartControl) error {
+	if startControl != START_TRANSACTION && startControl != ROW_CONTINUE {
+		return NewInvalidInputError(fmt.Sprintf("data row must have start_control='T' or 'R', got '%c'", startControl), nil)
+	}
+	return nil
+}
+
+func validatePayloadSize(header *Header, payload *DataRowPayload) error {
+	if header == nil || payload == nil {
+		return nil
+	}
+	payloadSize := 24 + len(payload.Value)
+	rowSize := header.GetRowSize()
 	requiredSize := payloadSize + 7
 	if requiredSize > rowSize {
 		return NewInvalidInputError(fmt.Sprintf("payload size (%d bytes) exceeds ROW_SIZE (%d bytes); maximum payload size is %d bytes", payloadSize, rowSize, rowSize-7), nil)
 	}
-
-	// Validate start_control is 'T' or 'R' for data rows (context-specific validation)
-	if dr.StartControl != START_TRANSACTION && dr.StartControl != ROW_CONTINUE {
-		return NewInvalidInputError(fmt.Sprintf("data row must have start_control='T' or 'R', got '%c'", dr.StartControl), nil)
-	}
-
-	// Validate end_control is valid for data rows
-	// Valid end controls: TC, RE, SC, SE, R0-R9, S0-S9
-	first := dr.EndControl[0]
-	second := dr.EndControl[1]
-
-	// Check exact matches
-	switch dr.EndControl {
-	case TRANSACTION_COMMIT, ROW_END_CONTROL, SAVEPOINT_COMMIT, SAVEPOINT_CONTINUE, FULL_ROLLBACK:
-		// Valid
-	default:
-		// Check for R0-R9 and S0-S9 patterns
-		if (first == 'R' || first == 'S') && second >= '0' && second <= '9' {
-			// Valid rollback pattern
-		} else {
-			return NewInvalidInputError(fmt.Sprintf("data row must have valid end_control, got '%c%c'", first, second), nil)
-		}
-	}
-
 	return nil
+}
+
+func validateEndControlForDataRow(endControl EndControl) error {
+	first := endControl[0]
+	second := endControl[1]
+
+	switch endControl {
+	case TRANSACTION_COMMIT, ROW_END_CONTROL, SAVEPOINT_COMMIT, SAVEPOINT_CONTINUE, FULL_ROLLBACK:
+		return nil
+	default:
+		if (first == 'R' || first == 'S') && second >= '0' && second <= '9' {
+			return nil
+		}
+		return NewInvalidInputError(fmt.Sprintf("data row must have valid end_control, got '%c%c'", first, second), nil)
+	}
+}
+
+func validateHeaderAndStartControl(header *Header, startControl StartControl) error {
+	if header == nil {
+		return NewInvalidInputError("Header is required", nil)
+	}
+	if err := startControl.Validate(); err != nil {
+		return NewInvalidInputError("invalid start_control", err)
+	}
+	return validateStartControlForDataRow(startControl)
+}
+
+func validateHeaderAndPayload(header *Header, payload *DataRowPayload) error {
+	if header == nil {
+		return NewInvalidInputError("Header is required", nil)
+	}
+	if payload == nil {
+		return NewInvalidInputError("RowPayload is required", nil)
+	}
+	if err := payload.Validate(); err != nil {
+		return err
+	}
+	return validatePayloadSize(header, payload)
 }

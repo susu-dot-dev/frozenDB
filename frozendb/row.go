@@ -165,57 +165,87 @@ func (br *baseRow[T]) PaddingLength(payloadBytes []byte) int {
 	return br.Header.GetRowSize() - 7 - payloadSize
 }
 
+// BuildRowStartAndControl builds just the ROW_START and start_control bytes (positions [0] and [1])
+func (br *baseRow[T]) BuildRowStartAndControl() ([]byte, error) {
+	if br.Header == nil {
+		return nil, NewInvalidInputError("Header is required", nil)
+	}
+
+	startControlBytes, err := br.StartControl.MarshalText()
+	if err != nil {
+		return nil, NewInvalidInputError("failed to marshal start_control", err)
+	}
+
+	result := make([]byte, 2)
+	result[0] = ROW_START
+	result[1] = startControlBytes[0]
+
+	return result, nil
+}
+
+// BuildRowStartControlAndPayload builds bytes from ROW_START through padding (positions [0] through [rowSize-6])
+// This includes: ROW_START, start_control, payload, NULL_BYTE padding
+func (br *baseRow[T]) BuildRowStartControlAndPayload(payloadBytes []byte) ([]byte, error) {
+	startAndControl, err := br.BuildRowStartAndControl()
+	if err != nil {
+		return nil, err
+	}
+
+	if br.Header == nil {
+		return nil, NewInvalidInputError("Header is required", nil)
+	}
+
+	rowSize := br.Header.GetRowSize()
+	paddingLen := br.PaddingLength(payloadBytes)
+	if paddingLen < 0 {
+		return nil, NewInvalidInputError("row_size too small for required fields", nil)
+	}
+
+	// Build bytes [0] through [rowSize-6] inclusive = rowSize-5 bytes total
+	result := make([]byte, rowSize-5)
+
+	// Copy ROW_START and start_control
+	copy(result, startAndControl)
+
+	// Positions [2..2+payloadSize-1]: payload
+	payloadStart := 2
+	payloadEnd := payloadStart + len(payloadBytes)
+	copy(result[payloadStart:payloadEnd], payloadBytes)
+
+	// Positions [payloadEnd..N-6]: NULL_BYTE padding
+	for i := payloadEnd; i < rowSize-5; i++ {
+		result[i] = NULL_BYTE
+	}
+
+	return result, nil
+}
+
 // buildRowBytesUpToParity builds row bytes from ROW_START through end_control (positions [0] through [rowSize-4] inclusive)
 // This includes: ROW_START, start_control, payload, padding, end_control
 // Returns the bytes and an error if marshaling fails
 func (br *baseRow[T]) buildRowBytesUpToParity() ([]byte, error) {
-	if br.Header == nil {
-		return nil, NewInvalidInputError("Header is required (programmer error: Header must be set)", nil)
-	}
-	rowSize := br.Header.GetRowSize()
-
 	// Marshal payload (T implements RowPayload)
 	payloadBytes, err := br.RowPayload.MarshalText()
 	if err != nil {
 		return nil, NewInvalidInputError("failed to marshal row payload", err)
 	}
 
-	// Calculate padding length
-	paddingLen := br.PaddingLength(payloadBytes)
-	if paddingLen < 0 {
-		return nil, NewInvalidInputError("row_size too small for required fields", nil)
-	}
-
-	// Build row bytes up to but not including parity (positions [0] through [rowSize-4] inclusive)
-	// We need bytes [0] through [rowSize-4] inclusive, which is rowSize-3 bytes total
-	rowBytes := make([]byte, rowSize-3)
-
-	// Position [0]: ROW_START
-	rowBytes[0] = ROW_START
-
-	// Position [1]: start_control
-	startControlBytes, err := br.StartControl.MarshalText()
+	// Build bytes [0] through [rowSize-6] inclusive
+	startControlAndPayload, err := br.BuildRowStartControlAndPayload(payloadBytes)
 	if err != nil {
-		return nil, NewInvalidInputError("failed to marshal start_control", err)
+		return nil, err
 	}
-	rowBytes[1] = startControlBytes[0]
 
-	// Positions [2..2+payloadSize-1]: payload
-	payloadStart := 2
-	payloadEnd := payloadStart + len(payloadBytes)
-	copy(rowBytes[payloadStart:payloadEnd], payloadBytes)
-
-	// Positions [payloadEnd..N-6]: NULL_BYTE padding
-	for i := payloadEnd; i < rowSize-6; i++ {
-		rowBytes[i] = NULL_BYTE
-	}
+	// Build full row up to parity: startControlAndPayload + end_control
+	rowBytes := make([]byte, br.Header.GetRowSize()-3)
+	copy(rowBytes, startControlAndPayload)
 
 	// Positions [N-5..N-4]: end_control
 	endControlBytes, err := br.EndControl.MarshalText()
 	if err != nil {
 		return nil, NewInvalidInputError("failed to marshal end_control", err)
 	}
-	copy(rowBytes[rowSize-5:rowSize-3], endControlBytes)
+	copy(rowBytes[br.Header.GetRowSize()-5:br.Header.GetRowSize()-3], endControlBytes)
 
 	return rowBytes, nil
 }

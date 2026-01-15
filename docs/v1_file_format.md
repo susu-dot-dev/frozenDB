@@ -76,7 +76,35 @@ Begin() → Add(k1,v1) → Add(k2,v2) → Rollback(0)
 ```
 Result: Both k1 and k2 are invalidated. Rollback(0) invalidates the entire transaction.
 
-### 2.3. End Control Character Design
+### 2.3. Partial Data Rows
+
+A PartialDataRow is an incomplete data row that can ONLY exist as the last row in a frozenDB file. PartialDataRows and DataRows are mutually exclusive - a PartialDataRow cannot be fully complete.
+
+**PartialDataRow States:**
+PartialDataRows exist in one of three progressive states:
+
+1. **State 1**: ROW_START & START_Control bytes only
+2. **State 2**: State 1 + key UUID + value JSON
+3. **State 3**: State 2 + 'S' first character of END_CONTROL (but not the second byte)
+
+A PartialDataRow in state 3 indicates that the row will eventually include a savepoint, but the final disposition (commit, rollback, or continuation) is not yet determined.
+
+**Key Properties:**
+- **Exclusivity**: PartialDataRows and DataRows are mutually exclusive
+- **Position**: MUST be the last row in the file; cannot exist at any other position
+- **Size**: MUST stop exactly at the state boundary with no padding or additional data
+- **Completion**: When a PartialDataRow is completed beyond state 3, it becomes a DataRow
+
+**Reader Behavior:**
+- PartialDataRows are not committed and thus never appear in query results
+- Savepoint flags from PartialDataRows should be visible for transaction state queries
+- Invalid PartialDataRows are treated as disk corruption
+
+**Transaction Counting:**
+- PartialDataRows count toward transaction limits (e.g., 100-row maximum)
+- PartialDataRows are excluded from the 10,000-row checksum interval (only complete DataRows count)
+
+### 2.4. End Control Character Design
 
 The end_control is a 2-character sequence that encodes both savepoint creation and transaction termination in a space-efficient manner:
 
@@ -146,6 +174,7 @@ When reading a frozenDB file, implementations MUST:
    - If rollback to 0: Exclude all rows in the transaction (entire transaction rolled back)
    - If rollback to N where N > 0: Include rows from start through savepoint N (inclusive); exclude all rows after savepoint N through the rollback command (inclusive)
 3. Savepoints are numbered by counting savepoint-creating rows within the transaction, in order (first = 1, second = 2, etc.)
+4. PartialDataRows are not committed and MUST NOT be included in transaction results. However, savepoint intent from State 3 PartialDataRows should be considered when determining the current savepoint count for transaction state queries.
 
 ## 3. File Structure
 
@@ -153,13 +182,15 @@ A frozenDB v1 file consists of:
 1. A 64-byte header
 2. A checksum row (required)
 3. Zero or more data rows
-4. Additional checksum rows inserted every 10,000 data rows
+4. Optional: One PartialDataRow (only as the very last row)
+5. Additional checksum rows inserted every 10,000 complete data rows
 
 ```
-Offset:    0          64        64+row_size   64+2*row_size
-           ├──────────┼─────────┼─────────────┼─────────────┤
-           │  Header  │Checksum │  Data Row 0 │  Data Row 1 │ ...
-           └──────────┴─────────┴─────────────┴─────────────┘
+Offset:    0          64        64+row_size   64+2*row_size               end
+            ├──────────┼─────────┼─────────────┼─────────────┬─────────────┤
+            │  Header  │Checksum │  Data Row 0 │  Data Row 1 │ PartialData │
+            └──────────┴─────────┴─────────────┴─────────────┴─────────────┘
+                                                        (optional, only last)
 ```
 
 ### 3.1. Terminology and Byte Definitions
@@ -257,8 +288,8 @@ For checksum rows: start_control = `C`, end_control = `CS`
 ### 6.3. Placement Rules
 
 1. First checksum row: Immediately after header (offset 64). This checksum row MUST be present and MUST be validated when reading the file. Since there is no previous row, this checksum MUST cover bytes [0..63] (length 64) to cover the entire header
-2. Subsequent: After every 10,000 data rows. A checksum row MUST be placed before the 10,001st data row is written. Implementations MAY choose to write the checksum immediately after writing the 10,000th row, or defer it until just before writing the 10,001st row.
-3. File may end after any number of data rows. If a file ends with fewer than 10,000 data rows since the last checksum, no final checksum is required.
+2. Subsequent: After every 10,000 complete data rows. A checksum row MUST be placed before the 10,001st complete data row is written. Implementations MAY choose to write the checksum immediately after writing the 10,000th complete data row, or defer it until just before writing the 10,001st complete data row.
+3. File may end after any number of complete data rows. If a file ends with fewer than 10,000 complete data rows since the last checksum, no final checksum is required. A file may optionally end with a single PartialDataRow as the very last row; this PartialDataRow is excluded from the 10,000-row count.
 
 ## 7. Data Corruption Detection
 
@@ -302,6 +333,18 @@ When calculating a new checksum for a block of rows (e.g., 10,000 rows), impleme
 This parity validation during checksum calculation ensures data integrity at the time of checksum creation, which is why parity bits can be ignored later when the checksum is used for validation.
 
 **Rationale:** By validating parity during checksum calculation, the checksum becomes a trusted integrity marker for the entire block. Subsequent reads can rely solely on the checksum without re-validating individual row parity bits.
+
+### 7.5. PartialDataRow Corruption Detection
+
+Invalid PartialDataRows MUST be treated as disk corruption. A PartialDataRow is invalid if:
+
+1. **Invalid Field Content**: Any present field violates DataRow validation rules (invalid ROW_START, invalid start_control, invalid UUID_base64, invalid JSON, etc.)
+2. **Invalid State Structure**: The PartialDataRow does not match one of the three defined state patterns
+3. **Incorrect Positioning**: A PartialDataRow exists anywhere other than as the very last row in the file
+4. **Unexpected Data**: Any data exists beyond the state boundary (PartialDataRows cannot have padding or additional bytes)
+5. **State 3 Violations**: State 3 has a character other than 'S' for the END_CONTROL first byte
+
+Implementations MUST reject files containing invalid PartialDataRows and return a corruption error to the caller.
 
 ## 8. Data Row (T/R)
 
@@ -358,6 +401,105 @@ padding_bytes = row_size - len(json_payload) - 31
 
 Where 31 = 1 (ROW_START) + 1 (start_control) + 24 (UUID) + 2 (end_control) + 2 (parity) + 1 (ROW_END)
 
+## 8.6. Partial Data Row
+
+### 8.6.1. Overview
+
+A PartialDataRow is an incomplete data row that represents an in-progress write operation. Unlike DataRows, PartialDataRows are not fixed-width and MUST stop exactly at their state boundary.
+
+**Key Characteristics:**
+- Can ONLY exist as the last row in the file
+- Cannot be fully complete by definition
+- All present fields must follow the same validation rules as DataRows
+- No padding bytes are allowed beyond the state boundary
+
+### 8.6.2. State Definitions
+
+A PartialDataRow exists in exactly one of three states:
+
+#### State 1: Start Control Only
+```
+Position:  [0]    [1]    [end]
+             ├──────┼──────┼─────┤
+             │ROW_  │START │ EOF │
+             │START │CTRL  │     │
+             └──────┴──────┴─────┘
+```
+
+#### State 2: Complete Key-Value Data
+```
+Position:  [0]    [1]    [2..25]         [26..M-1]        [M..N-1] [N]
+             ├──────┼──────┼───────────────┼────────────────────┼─────────┼──────┤
+             │ROW_  │start │  uuid_base64  │ json_payload       │ padding │ EOF │
+             │START │ ctrl │   (24 bytes)  │  (variable)        │(NULL_BYTE)│     │
+             └──────┴──────┴───────────────┴────────────────────┼─────────┴──────┘
+                                                       │   (up to
+                                                       │ row_size - 2)
+```
+
+#### State 3: Savepoint Intent
+```
+Position:  [0]    [1]    [2..25]         [26..M-1]              [M]    [N-1]
+             ├──────┼──────┼───────────────┼────────────────────────┼──────┼──────┤
+             │ROW_  │START │  uuid_base64  │ json_payload+padding  │ 'S'  │ EOF │
+             │START │CTRL  │   (24 bytes)  │   (variable + NULL)   │      │     │
+             └──────┴──────┴───────────────┴────────────────────────┼──────┴──────┘
+                                                    END_CONTROL      
+                                                     (first byte)  
+```
+
+### 8.6.3. Field Validation Rules
+
+All present fields MUST follow the same validation rules as DataRows:
+
+- **ROW_START**: MUST be byte value 0x1F (UTF-8: U+001F, unit separator)
+- **start_control**: MUST be valid uppercase alphanumeric character (T or R for data rows)
+- **uuid_base64**: MUST be 24-byte valid Base64 encoding of a UUIDv7
+- **json_payload**: MUST be valid UTF-8 JSON string
+- **'S' character**: MUST be the single character 'S' indicating savepoint intent
+
+### 8.6.4. Size and Position Constraints
+
+**Row Size Determination:**
+When reading the last row of a frozenDB file:
+- If the row is exactly `row_size` bytes: MUST be parsed as a data row or checksum row depending on the start_control
+- If the row is less than `row_size` bytes: MUST be parsed as a PartialDataRow
+
+**Strict Size Requirements:**
+- PartialDataRow MUST end exactly at the state boundary
+- NO bytes of any kind (padding, null bytes, or otherwise) may follow the state boundary
+- This constraint forces PartialDataRows to be the last row in the file
+
+**Positioning Rules:**
+- PartialDataRow can ONLY exist as the last row in the file
+- No rows (data, checksum, or otherwise) may follow a PartialDataRow
+- If additional data needs to be written, the PartialDataRow must be completed as a DataRow
+
+### 8.6.5. Transaction Behavior
+
+**Savepoint Handling:**
+- State 3 PartialDataRow with 'S' character indicates eventual savepoint creation
+- The savepoint intent should be visible for transaction state queries
+- The final disposition (commit, rollback, or continuation) is determined when the row is completed
+
+**Transaction Counting:**
+- PartialDataRows count toward transaction limits (e.g., maximum 100 data rows)
+- PartialDataRows are excluded from the 10,000-row checksum interval calculation
+- Only complete DataRows count toward checksum placement triggers
+
+### 8.6.6. Reader and Recovery Behavior
+
+**Reader Requirements:**
+- PartialDataRows are not committed and MUST NOT appear in query results
+- Savepoint flags from State 3 PartialDataRows should be exposed for transaction state queries
+- Invalid PartialDataRows (violating field validation) MUST be treated as disk corruption
+
+**Recovery Requirements:**
+- When reopening a file with a PartialDataRow, implementations MUST resume the existing state
+- To continue writing, implementations must complete the PartialDataRow as a DataRow
+- PartialDataRows cannot be overwritten; they must be completed according to their current state
+- Implementations MAY choose to warn about PartialDataRows, as they indicate a transaction that was not committed or rolled back by previous code. This is not invalid, but it does mean that parity byte protections are not available yet for this row, so users should generally program their applicatons to commit or rollback before shutdown.
+
 ## 9. Transaction Specification
 
 ### 9.1. Transaction Structure
@@ -380,7 +522,7 @@ Implementations MUST enforce the following constraints:
 
 2. **Transaction Start Requirement**: After a transaction ends, the next data row (after any checksum rows) MUST have start_control `T`. There MUST NOT be any data rows with start_control `R` between transactions.
 
-3. **Maximum Data Rows**: A transaction MUST NOT contain more than 100 data rows.
+3. **Maximum Data Rows**: A transaction MUST NOT contain more than 100 data rows. For this constraint, both complete DataRows and PartialDataRows count toward the total.
 
 4. **Maximum Savepoints**: A transaction MUST NOT contain more than 9 user-defined savepoints (savepoints numbered 1-9).
 
