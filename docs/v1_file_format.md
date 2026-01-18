@@ -102,7 +102,41 @@ A PartialDataRow in state 3 indicates that the row will eventually include a sav
 
 **Transaction Counting:**
 - PartialDataRows count toward transaction limits (e.g., 100-row maximum)
-- PartialDataRows are excluded from the 10,000-row checksum interval (only complete DataRows count)
+- PartialDataRows are excluded from the 10,000-row checksum interval (only complete DataRows and NullRows count)
+
+### 2.4. Null Rows
+
+A NullRow is a fixed-width row that represents a null operation with no user data. NullRows are single-row transactions that cannot appear within existing transactions.
+
+**NullRow Structure:**
+- **start_control**: Always `T` (transaction begin)
+- **uuid**: The zero UUID (uuid.Nil), Base64 encoded as "AAAAAAAAAAAAAAAAAAAAAA=="
+- **value**: No user value (immediate padding after UUID)
+- **end_control**: Always `NR` (null row)
+
+**Key Properties:**
+- **Fixed-width**: NullRows are always exactly `row_size` bytes (no partial equivalent)
+- **Single-row transactions**: Each NullRow is a complete transaction by definition
+- **Transaction boundaries**: NullRows can only appear where a new transaction could start
+- **Non-appearable as partial**: A PartialDataRow cannot be a NullRow
+
+**Transaction Placement Rules:**
+- NullRows can appear as the first row after header & checksum
+- Multiple NullRows can appear in succession
+- NullRows cannot appear when a prior transaction is open (previous end_control is `RE` or `SE`)
+- NullRows are treated as standalone transactions for all transaction rules
+
+**Reader Behavior:**
+- NullRows are not committed transactions and thus never appear in query results
+- Invalid NullRows are treated as disk corruption
+
+**Transaction Counting:**
+- NullRows count toward the 10,000-row checksum interval
+
+**UUID and Ordering Rules:**
+- NullRows use uuid.Nil (all zeros) as the key
+- DataRows cannot use uuid.Nil as a valid key
+- NullRows are ignored for UUID timestamp ordering validation
 
 ### 2.4. End Control Character Design
 
@@ -112,12 +146,14 @@ The end_control is a 2-character sequence that encodes both savepoint creation a
 |------------|---------|
 | `T` or `R` | No savepoint on this row |
 | `S`        | Savepoint created on this row |
+| `N`        | Null Row|
 
 | Second Char | Meaning |
 |-------------|---------|
 | `C`         | Commit transaction |
 | `E`         | Continue (more rows follow) |
 | `0-9`       | Rollback to savepoint N (terminates transaction) |
+| `R`        | Null Row|
 
 **Combined sequences:**
 
@@ -129,6 +165,7 @@ The end_control is a 2-character sequence that encodes both savepoint creation a
 | `SE`     | Continue + savepoint on this row |
 | `R0-R9`  | Rollback to savepoint N, no savepoint on this row |
 | `S0-S9`  | Rollback to savepoint N + savepoint on this row |
+| `NR`     | Null row |
 
 ### 2.4. Transaction Examples
 
@@ -163,6 +200,16 @@ Begin() → Add(k1,v1) → Add(k2,v2) → Rollback(0)
 - Row 1: `T...RE` (k1, continue)
 - Row 2: `R...R0` (k2, full rollback)
 - Result: k1 and k2 invalidated
+
+**Empty transaction:**
+```
+Begin() → Commit()
+Begin() → Rollback(0)
+```
+- Row 1: `T...NR`
+- Row 2: `T...NR`
+- Result: Both rows are null rows
+
 
 ### 2.5. Reading Transactions
 
@@ -288,7 +335,7 @@ For checksum rows: start_control = `C`, end_control = `CS`
 ### 6.3. Placement Rules
 
 1. First checksum row: Immediately after header (offset 64). This checksum row MUST be present and MUST be validated when reading the file. Since there is no previous row, this checksum MUST cover bytes [0..63] (length 64) to cover the entire header
-2. Subsequent: After every 10,000 complete data rows. A checksum row MUST be placed before the 10,001st complete data row is written. Implementations MAY choose to write the checksum immediately after writing the 10,000th complete data row, or defer it until just before writing the 10,001st complete data row.
+2. Subsequent: After every 10,000 complete data rows plus null rows. A checksum row MUST be placed before the 10,001st complete data row or null row is written. Implementations MAY choose to write the checksum immediately after writing the 10,000th complete data row or null row, or defer it until just before writing the 10,001st complete data row or null row.
 3. File may end after any number of complete data rows. If a file ends with fewer than 10,000 complete data rows since the last checksum, no final checksum is required. A file may optionally end with a single PartialDataRow as the very last row; this PartialDataRow is excluded from the 10,000-row count.
 
 ## 7. Data Corruption Detection
@@ -369,8 +416,8 @@ All positions use zero-based indexing.
 
 | Code | When Valid |
 |------|------------|
-| `T` | First data row of file, or after a transaction-ending command (`*C` or `*0-9`). Zero or one checksum rows may appear between the transaction end and the next `T`. |
-| `R` | Previous data row ended with `*E` (transaction continues). Checksum rows do not affect this rule. |
+| `T` | First data row of file, or after a transaction-ending command (`TC`, `SC`, `R0-R9`, `S0-S9`, or `NR`). Zero or one checksum rows may appear between the transaction end and the next `T`. |
+| `R` | Previous data row ended with `RE` or `SE` (transaction continues). Checksum rows do not affect this rule. |
 
 ### 8.3. End Control Rules
 
@@ -384,6 +431,7 @@ All positions use zero-based indexing.
 | `R1-R9` | Rollback to savepoint N | Closed |
 | `S0` | Savepoint + Full rollback | Closed |
 | `S1-S9` | Savepoint + Rollback to savepoint N | Closed |
+| `NR` | Null row | Closed |
 
 **Important**: For `S0-S9` sequences, the savepoint is created on the current row first (incrementing the savepoint counter), and then the rollback is performed. This maps to user behavior: `Add()` (adds the row), `Savepoint()` (saves the current row), `Rollback()` (rolls back to a savepoint). For example, `S1` means: create a savepoint on this row, then rollback to savepoint 1. This allows saving the current row before calling rollback.
 
@@ -392,6 +440,12 @@ All positions use zero-based indexing.
 - MUST be globally unique
 - MUST be Base64 encoded (24 bytes with "=" padding)
 - Timestamp component minus `skew_ms` MUST be ≥ previous row's timestamp
+- DataRows MUST NOT use uuid.Nil as a valid key. NullRows are the only row type that may use uuid.Nil.
+
+For UUID timestamp ordering validation:
+- NullRows are ignored when validating ascending timestamps
+- A NullRow may be inserted regardless of previous DataRows timestamp
+- When validating a DataRow, implementations MUST find the previous DataRow (ignoring any intervening NullRows) to determine if timestamp is ascending within clock skew
 
 ### 8.5. Padding Calculation
 
@@ -487,6 +541,45 @@ When reading the last row of a frozenDB file:
 - PartialDataRows are excluded from the 10,000-row checksum interval calculation
 - Only complete DataRows count toward checksum placement triggers
 
+### 8.7. Null Row (T/NR)
+
+### 8.7.1. Format
+
+```
+Position:  [0]    [1]    [2..25]         [26..N-6]        [N-5..N-4]    [N-3..N-2]   [N-1]
+           ├──────┼──────┼───────────────┼─────────────────┼─────────────┼────────────┼──────┤
+           │ROW_  │start │ uuid_base64   │   padding       │    end      │   parity   │ROW_  │
+           │START │ ctrl │ (24 bytes)    │  (NULL_BYTE)    │  control    │   bytes    │END   │
+           └──────┴──────┴───────────────┴─────────────────┴─────────────┴────────────┴──────┘
+```
+
+Where N = `row_size` from header. All positions use zero-based indexing.
+- **start_control**: Always `T` (transaction begin) - position [1]
+- **uuid_base64**: Always 24 bytes at positions [2..25], Base64 encoding of uuid.Nil: "AAAAAAAAAAAAAAAAAAAAAA=="
+- **padding**: NULL_BYTE padding from position [26] through position [N-6]
+- **end_control**: Always `NR` at positions [N-5..N-4]
+- **parity_bytes**: At positions [N-3..N-2] 
+- **ROW_END**: At position [N-1]
+
+**Padding Calculation:**
+```
+padding_bytes = row_size - 31
+```
+Where 31 = 1 (ROW_START) + 1 (start_control) + 24 (UUID) + 2 (end_control) + 2 (parity) + 1 (ROW_END)
+
+### 8.7.2. Validation Rules
+- **UUID**: Must be exactly uuid.Nil, Base64 encoded as "AAAAAAAAAAAAAAAAAAAAAA=="
+- **Start Control**: Must be exactly `T`
+- **End Control**: Must be exactly `NR`
+- **Value**: No user value allowed (padding starts immediately after UUID)
+- **PartialDataRow Exclusion**: A PartialDataRow cannot be a NullRow
+
+### 8.7.3. Transaction Behavior
+- **Single-row transaction**: Each NullRow is a complete, self-contained transaction
+- **Transaction boundaries**: NullRows can only appear where new transactions are allowed
+- **Counting**: NullRows count toward the 10,000-row checksum interval
+- **UUID ordering**: NullRows are ignored for UUID timestamp ascending validation
+
 ### 8.6.6. Reader and Recovery Behavior
 
 **Reader Requirements:**
@@ -506,11 +599,11 @@ When reading the last row of a frozenDB file:
 
 A transaction SHALL be defined as follows:
 
-1. **Transaction Start**: A transaction always starts with a data row that has start_control `T` (transaction begin).
+1. **Transaction Start**: A transaction always starts with a data row or null row that has start_control `T` (transaction begin).
 
-2. **Transaction Continuation**: Subsequent rows within the transaction use start_control `R` (row continuation) and end_control `*E` (continue).
+2. **Transaction Continuation**: Subsequent rows within the transaction use start_control `R` (row continuation) and end_control `RE` (continue).
 
-3. **Transaction End**: A transaction ends with the first subsequent data row that has an end_control ending in `C` (commit) or `0-9` (rollback). The transaction-ending end_control sequences are: `TC`, `SC`, `R0-R9`, or `S0-S9`.
+3. **Transaction End**: A transaction ends with the first subsequent data row that has an end_control ending in `C` (commit) or `0-9` (rollback), or a null row with end_control `NR`. The transaction-ending end_control sequences are: `TC`, `SC`, `R0-R9`, `S0-S9` for data rows, and `NR` for null rows.
 
 4. **Transaction Boundaries**: After a transaction ends (with any transaction-ending command), the next data row encountered MUST have start_control `T` to begin a new transaction. Zero or one checksum rows MAY appear between the end of one transaction and the start of the next transaction.
 
@@ -526,7 +619,9 @@ Implementations MUST enforce the following constraints:
 
 4. **Maximum Savepoints**: A transaction MUST NOT contain more than 9 user-defined savepoints (savepoints numbered 1-9).
 
-5. **Single Transaction-Ending Command**: A transaction MUST contain exactly one transaction-ending command. Once a row with end_control ending in `C` or `0-9` is encountered, the transaction is ended and no further rows can be added to that transaction.
+5. **Single Transaction-Ending Command**: A transaction MUST contain exactly one transaction-ending command. Once a row with end_control ending in `C` or `0-9` is encountered, or a null row with end_control `NR`, the transaction is ended and no further rows can be added to that transaction.
+
+6. **NullRow Single-Row Constraint**: NullRows are inherently single-row transactions and cannot contain continuation rows or savepoints. A NullRow cannot appear within an existing transaction.
 
 ### 9.3. Transaction Validity Rules
 
@@ -563,11 +658,12 @@ Implementations SHALL track transaction state:
 
 Transitions:
 - Encountering a data row with `T` start_control:
-  - If end_control is `*E` → Open state (transaction continues)
-  - If end_control is `*C` or `*0-9` → Closed state (single-row transaction ends)
+  - If end_control is `RE` or `SE` → Open state (transaction continues)
+  - If end_control is `TC`, `SC`, `R0-R9`, or `S0-S9` → Closed state (single-row transaction ends)
 - Encountering a data row with `R` start_control:
-  - If end_control is `*E` → remain Open (transaction continues)
-  - If end_control is `*C` or `*0-9` → Closed state (transaction ends)
+  - If end_control is `RE` or `SE` → remain Open (transaction continues)
+  - If end_control is `TC`, `SC`, `R0-R9`, or `S0-S9` → Closed state (transaction ends)
+- Encountering a null row with `T` start_control and `NR` end_control → Closed state (null row transaction ends)
 - Encountering a checksum row (start_control `C`) → state unchanged (checksum rows are ignored for transaction state)
 
 ### 9.6. Invalid Sequences
@@ -580,6 +676,9 @@ Implementations MUST reject:
 - More than 100 data rows in a single transaction
 - More than 9 savepoints in a single transaction
 - More than one transaction-ending command in a single transaction
+- NullRows with start_control other than `T`
+- NullRows with end_control other than `NR`
+- NullRows appearing when transaction is Open (previous end_control is `RE` or `SE`)
 
 ## 10. Algorithm Details
 

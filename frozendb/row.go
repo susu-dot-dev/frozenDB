@@ -74,7 +74,10 @@ var (
 	FULL_ROLLBACK      = EndControl{'R', '0'} // Full rollback to savepoint 0
 
 	// Checksum row end controls
-	CHECKSUM_ROW_CONTROL = EndControl{'C', 'S'} // Checksum-specific end control
+	CHECKSUM_ROW_CONTROL = EndControl{'C', 'S'}
+
+	// Null row end controls
+	NULL_ROW_CONTROL = EndControl{'N', 'R'}
 )
 
 // MarshalText converts EndControl 2-byte array to slice
@@ -88,7 +91,7 @@ func (ec EndControl) Validate() error {
 	// Check exact matches against known constants
 	switch ec {
 	case TRANSACTION_COMMIT, ROW_END_CONTROL, CHECKSUM_ROW_CONTROL,
-		SAVEPOINT_COMMIT, SAVEPOINT_CONTINUE, FULL_ROLLBACK:
+		SAVEPOINT_COMMIT, SAVEPOINT_CONTINUE, FULL_ROLLBACK, NULL_ROW_CONTROL:
 		return nil
 	}
 
@@ -113,7 +116,7 @@ func (ec *EndControl) UnmarshalText(text []byte) error {
 	// Check exact matches against known constants
 	switch candidate {
 	case TRANSACTION_COMMIT, ROW_END_CONTROL, CHECKSUM_ROW_CONTROL,
-		SAVEPOINT_COMMIT, SAVEPOINT_CONTINUE, FULL_ROLLBACK:
+		SAVEPOINT_COMMIT, SAVEPOINT_CONTINUE, FULL_ROLLBACK, NULL_ROW_CONTROL:
 		copy(ec[:], text)
 		// Call Validate() after unmarshaling
 		return ec.Validate()
