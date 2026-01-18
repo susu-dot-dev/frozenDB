@@ -33,6 +33,7 @@ frozenDB/
 
 **Additional context for implementation:**
 - `docs/spec_testing.md` - Spec testing guidelines and requirements
+- `docs/error_handling.md` - How error handling should work in the codebase
 - Relevant spec files in `specs/` directory for feature requirements
 - `AGENTS.md` - This file for coding standards and build commands
 
@@ -55,21 +56,7 @@ frozenDB/
 
 ### Error Handling
 - All errors should be structured, deriving from the base FrozenDBError struct
-- Different error types should only be made when callers are expected to have different behavior for treating each issue
-- Otherwise, add descriptive errors to the Message property of the error
-
-```go
-// Base error struct
-type FrozenDBError struct {
-    Code    string
-    Message string
-    Err     error
-}
-
-// Specific error types embed base
-type InvalidInputError struct { FrozenDBError }
-type CorruptionError struct { FrozenDBError }
-```
+- MUST read docs/error_handling.md to understand the rules before designing or implementing errors
 
 ### Types and Interfaces
 - Use concrete types when implementation is fixed
@@ -113,3 +100,10 @@ type CorruptionError struct { FrozenDBError }
 - Use OS-level file locks (flocks) for write mode exclusivity
 - Implement sentinel bytes for transaction integrity
 - Minimize allocations in hot paths
+
+## Active Technologies
+- Go 1.25.5 + github.com/google/uuid, Go standard library (010-null-row-struct)
+- Single file append-only format (010-null-row-struct)
+
+## Recent Changes
+- 010-null-row-struct: Added Go 1.25.5 + github.com/google/uuid, Go standard library
