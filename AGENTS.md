@@ -12,22 +12,7 @@ make ci              # Run complete CI pipeline (deps, tidy, fmt, lint, test, bu
 make test            # Run all tests with verbose output
 make test-spec       # Run spec tests only (Test_S_ prefix)
 make test-unit       # Run unit tests only (exclude Test_S_ prefix)
-make test-coverage   # Run tests with coverage report
-make fmt             # Format code with go fmt
-make lint            # Run golangci-lint
 make build           # Build the project
-make deps            # Download dependencies
-make tidy            # Clean up go.mod
-make clean           # Clean build artifacts
-```
-
-### Direct Go Commands
-```bash
-# Run specific test
-go test -run TestFunctionName ./path/to/package
-
-# Run benchmarks
-go test -bench=. ./...
 ```
 
 ## Project Structure
@@ -60,11 +45,6 @@ frozenDB/
 - Prefer composition over inheritance
 - Design for concurrency where applicable
 
-### Import Style
-- Group imports: standard library, third-party, local packages
-- Use blank imports for side effects only when necessary
-- Prefer explicit imports over dot imports
-
 ### Naming Conventions
 - **Package names**: short, lowercase, single words when possible
 - **Functions**: camelCase, exported functions start with capital letter
@@ -74,7 +54,6 @@ frozenDB/
 - **Error types**: should end with "Error" suffix
 
 ### Error Handling
-- Always handle errors explicitly, never ignore with `_`
 - All errors should be structured, deriving from the base FrozenDBError struct
 - Different error types should only be made when callers are expected to have different behavior for treating each issue
 - Otherwise, add descriptive errors to the Message property of the error
@@ -91,11 +70,6 @@ type FrozenDBError struct {
 type InvalidInputError struct { FrozenDBError }
 type CorruptionError struct { FrozenDBError }
 ```
-
-### Function Documentation
-- Exported functions must have Go doc comments
-- Include parameter descriptions, return values, and error conditions
-- Use proper Go doc format with the function name as the first word
 
 ### Types and Interfaces
 - Use concrete types when implementation is fixed
@@ -139,9 +113,3 @@ type CorruptionError struct { FrozenDBError }
 - Use OS-level file locks (flocks) for write mode exclusivity
 - Implement sentinel bytes for transaction integrity
 - Minimize allocations in hot paths
-
-## Active Technologies
-- Go 1.25.5 + github.com/google/uuid + Go standard library
-- Single-file append-only database (.fdb extension)
-- CRC32 checksums and LRC parity for data integrity
-- golangci-lint for code quality (exclusions in .golangci.yml)
