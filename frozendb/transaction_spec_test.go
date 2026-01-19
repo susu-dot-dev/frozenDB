@@ -1257,3 +1257,363 @@ func Test_S_006_FR_018_ThreadSafety(t *testing.T) {
 
 	// If we get here without panic, thread safety is maintained
 }
+
+// =============================================================================
+// Spec 011: Transaction Begin and Commit
+// =============================================================================
+
+// Test_S_011_FR_001_BeginCreatesPartialDataRow tests FR-001: Transaction MUST have a Begin() method
+// that initializes a PartialDataRow to PartialDataRowWithStartControl state when the Transaction contains no rows
+func Test_S_011_FR_001_BeginCreatesPartialDataRow(t *testing.T) {
+	header := createTestHeader()
+
+	// Test: Begin on empty transaction succeeds and sets up for Commit
+	t.Run("begin_creates_partial_data_row", func(t *testing.T) {
+		tx := &Transaction{Header: header}
+
+		err := tx.Begin()
+		if err != nil {
+			t.Fatalf("Begin() should succeed on empty transaction: %v", err)
+		}
+
+		// Verify internal state changed by confirming Commit() now succeeds
+		err = tx.Commit()
+		if err != nil {
+			t.Fatalf("Commit() should succeed after Begin(): %v", err)
+		}
+	})
+
+	// Test: Begin sets transaction to active state (verified by behavior)
+	t.Run("begin_sets_active_state", func(t *testing.T) {
+		tx := &Transaction{Header: header}
+
+		err := tx.Begin()
+		if err != nil {
+			t.Fatalf("Begin() failed: %v", err)
+		}
+
+		// Verify transaction is now active by checking:
+		// - empty should be nil (no commit yet)
+		// - calling Begin() again should fail (transaction is active)
+		// - rows should be empty
+		if tx.GetEmptyRow() != nil {
+			t.Error("Empty row should be nil after Begin()")
+		}
+
+		if len(tx.GetRows()) != 0 {
+			t.Error("Rows should be empty after Begin()")
+		}
+
+		// Verify Begin() fails when called again (proves active state)
+		err = tx.Begin()
+		if err == nil {
+			t.Error("Begin() should fail when called again on active transaction")
+		}
+	})
+}
+
+// Test_S_011_FR_002_CommitCreatesNullRow tests FR-002: Transaction MUST have a Commit() method
+// that converts a PartialDataRowWithStartControl into a NullRow with null payload
+func Test_S_011_FR_002_CommitCreatesNullRow(t *testing.T) {
+	header := createTestHeader()
+
+	// Test: Commit after Begin creates NullRow
+	t.Run("commit_creates_null_row", func(t *testing.T) {
+		tx := &Transaction{Header: header}
+
+		// Begin first
+		err := tx.Begin()
+		if err != nil {
+			t.Fatalf("Begin() failed: %v", err)
+		}
+
+		// Now commit
+		err = tx.Commit()
+		if err != nil {
+			t.Fatalf("Commit() should succeed after Begin(): %v", err)
+		}
+
+		// Verify that the empty field points to a NullRow
+		emptyRow := tx.GetEmptyRow()
+		if emptyRow == nil {
+			t.Fatal("Commit() should create a NullRow in the empty field")
+		}
+	})
+
+	// Test: Commit clears the partial row
+	t.Run("commit_clears_partial_row", func(t *testing.T) {
+		tx := &Transaction{Header: header}
+
+		err := tx.Begin()
+		if err != nil {
+			t.Fatalf("Begin() failed: %v", err)
+		}
+
+		err = tx.Commit()
+		if err != nil {
+			t.Fatalf("Commit() failed: %v", err)
+		}
+
+		// Verify transaction state changed by confirming Begin() fails (committed state)
+		err = tx.Begin()
+		if err == nil {
+			t.Error("Begin() should fail after Commit()")
+		}
+	})
+}
+
+// Test_S_011_FR_003_BeginReturnsInvalidActionError tests FR-003: Transaction.Begin() MUST return
+// InvalidActionError when called on a Transaction that is not empty (has existing rows)
+func Test_S_011_FR_003_BeginReturnsInvalidActionError(t *testing.T) {
+	header := createTestHeader()
+
+	// Test: Begin on transaction with existing rows fails
+	t.Run("begin_on_non_empty_transaction_fails", func(t *testing.T) {
+		// Create a transaction with existing rows
+		key, _ := uuid.NewV7()
+		row := createTestDataRow(header, START_TRANSACTION, TRANSACTION_COMMIT, key, `{"data":"test"}`)
+		row.Validate()
+
+		tx := &Transaction{
+			rows: []DataRow{*row},
+		}
+
+		err := tx.Begin()
+		if err == nil {
+			t.Fatal("Begin() should return error when transaction has rows")
+		}
+
+		// Verify it's an InvalidActionError
+		if _, ok := err.(*InvalidActionError); !ok {
+			t.Errorf("Expected InvalidActionError, got %T: %v", err, err)
+		}
+	})
+
+	// Test: Begin on transaction with empty row fails
+	t.Run("begin_on_transaction_with_empty_row_fails", func(t *testing.T) {
+		tx := &Transaction{Header: header}
+
+		// First Begin -> Commit to set empty row
+		err := tx.Begin()
+		if err != nil {
+			t.Fatalf("First Begin() failed: %v", err)
+		}
+		err = tx.Commit()
+		if err != nil {
+			t.Fatalf("Commit() failed: %v", err)
+		}
+
+		// Now try Begin again
+		err = tx.Begin()
+		if err == nil {
+			t.Fatal("Begin() should return error when transaction has empty row")
+		}
+
+		// Verify it's an InvalidActionError
+		if _, ok := err.(*InvalidActionError); !ok {
+			t.Errorf("Expected InvalidActionError, got %T: %v", err, err)
+		}
+	})
+
+	// Test: Begin on transaction with partial row fails
+	t.Run("begin_on_transaction_with_partial_row_fails", func(t *testing.T) {
+		tx := &Transaction{Header: header}
+
+		// First Begin to set partial row
+		err := tx.Begin()
+		if err != nil {
+			t.Fatalf("First Begin() failed: %v", err)
+		}
+
+		// Now try Begin again (partial row exists)
+		err = tx.Begin()
+		if err == nil {
+			t.Fatal("Begin() should return error when partial row exists")
+		}
+
+		// Verify it's an InvalidActionError
+		if _, ok := err.(*InvalidActionError); !ok {
+			t.Errorf("Expected InvalidActionError, got %T: %v", err, err)
+		}
+	})
+}
+
+// Test_S_011_FR_004_CommitReturnsInvalidActionError tests FR-004: Transaction.Commit() MUST return
+// InvalidActionError when called when the PartialDataRow is not in PartialDataRowWithStartControl state
+func Test_S_011_FR_004_CommitReturnsInvalidActionError(t *testing.T) {
+	header := createTestHeader()
+
+	// Test: Commit on inactive transaction fails
+	t.Run("commit_on_inactive_transaction_fails", func(t *testing.T) {
+		tx := &Transaction{Header: header}
+
+		// Try to commit without Begin
+		err := tx.Commit()
+		if err == nil {
+			t.Fatal("Commit() should return error when transaction is inactive")
+		}
+
+		// Verify it's an InvalidActionError
+		if _, ok := err.(*InvalidActionError); !ok {
+			t.Errorf("Expected InvalidActionError, got %T: %v", err, err)
+		}
+	})
+
+	// Test: Commit on already committed transaction fails
+	t.Run("commit_on_committed_transaction_fails", func(t *testing.T) {
+		tx := &Transaction{Header: header}
+
+		// Begin and Commit first
+		err := tx.Begin()
+		if err != nil {
+			t.Fatalf("Begin() failed: %v", err)
+		}
+		err = tx.Commit()
+		if err != nil {
+			t.Fatalf("First Commit() failed: %v", err)
+		}
+
+		// Try to commit again
+		err = tx.Commit()
+		if err == nil {
+			t.Fatal("Commit() should return error when transaction is already committed")
+		}
+
+		// Verify it's an InvalidActionError
+		if _, ok := err.(*InvalidActionError); !ok {
+			t.Errorf("Expected InvalidActionError, got %T: %v", err, err)
+		}
+	})
+
+	// Test: Commit when partial row is in wrong state fails
+	t.Run("commit_on_wrong_partial_state_fails", func(t *testing.T) {
+		tx := &Transaction{Header: header}
+
+		// Begin first
+		err := tx.Begin()
+		if err != nil {
+			t.Fatalf("Begin() failed: %v", err)
+		}
+
+		// Access internal state to advance partial row state (testing internal validation)
+		if tx.last == nil {
+			t.Fatal("Expected partial row after Begin()")
+		}
+
+		// Add row data to move to PartialDataRowWithPayload state
+		key, _ := uuid.NewV7()
+		err = tx.last.AddRow(key, `{"data":"test"}`)
+		if err != nil {
+			t.Fatalf("AddRow() failed: %v", err)
+		}
+
+		// Now Commit should fail because partial row is in wrong state
+		err = tx.Commit()
+		if err == nil {
+			t.Fatal("Commit() should return error when partial row is not in PartialDataRowWithStartControl state")
+		}
+
+		// Verify it's an InvalidActionError
+		if _, ok := err.(*InvalidActionError); !ok {
+			t.Errorf("Expected InvalidActionError, got %T: %v", err, err)
+		}
+	})
+}
+
+// Test_S_011_FR_005_TransactionContainsOneNullRow tests FR-005: After successful Begin() -> Commit() sequence,
+// Transaction MUST contain exactly one row which is a valid NullRow
+func Test_S_011_FR_005_TransactionContainsOneNullRow(t *testing.T) {
+	header := createTestHeader()
+
+	t.Run("empty_transaction_workflow_results_in_null_row", func(t *testing.T) {
+		tx := &Transaction{Header: header}
+
+		// Execute Begin -> Commit workflow
+		err := tx.Begin()
+		if err != nil {
+			t.Fatalf("Begin() failed: %v", err)
+		}
+
+		err = tx.Commit()
+		if err != nil {
+			t.Fatalf("Commit() failed: %v", err)
+		}
+
+		// Verify the empty field contains a NullRow
+		emptyRow := tx.GetEmptyRow()
+		if emptyRow == nil {
+			t.Fatal("Transaction should have a NullRow in empty field after Begin() -> Commit()")
+		}
+
+		// Verify rows slice is empty (NullRows are stored in empty field, not rows)
+		if len(tx.GetRows()) != 0 {
+			t.Errorf("Rows slice should be empty for empty transaction, got %d rows", len(tx.GetRows()))
+		}
+	})
+}
+
+// Test_S_011_FR_006_NullRowValidation tests FR-006: Transaction MUST validate that the resulting NullRow
+// follows all NullRow specification requirements
+func Test_S_011_FR_006_NullRowValidation(t *testing.T) {
+	header := createTestHeader()
+
+	t.Run("null_row_validation_after_commit", func(t *testing.T) {
+		tx := &Transaction{Header: header}
+
+		// Execute Begin -> Commit workflow
+		err := tx.Begin()
+		if err != nil {
+			t.Fatalf("Begin() failed: %v", err)
+		}
+
+		err = tx.Commit()
+		if err != nil {
+			t.Fatalf("Commit() failed: %v", err)
+		}
+
+		// Get the NullRow
+		emptyRow := tx.GetEmptyRow()
+		if emptyRow == nil {
+			t.Fatal("Expected NullRow after commit")
+		}
+
+		// Validate the NullRow
+		if err := emptyRow.Validate(); err != nil {
+			t.Errorf("NullRow should pass validation: %v", err)
+		}
+
+		// Verify NullRow has uuid.Nil key
+		if emptyRow.GetKey() != uuid.Nil {
+			t.Errorf("NullRow should have uuid.Nil key, got %v", emptyRow.GetKey())
+		}
+	})
+
+	t.Run("null_row_has_correct_controls", func(t *testing.T) {
+		tx := &Transaction{Header: header}
+
+		err := tx.Begin()
+		if err != nil {
+			t.Fatalf("Begin() failed: %v", err)
+		}
+
+		err = tx.Commit()
+		if err != nil {
+			t.Fatalf("Commit() failed: %v", err)
+		}
+
+		emptyRow := tx.GetEmptyRow()
+		if emptyRow == nil {
+			t.Fatal("Expected NullRow after commit")
+		}
+
+		// Verify start_control is 'T'
+		if emptyRow.StartControl != START_TRANSACTION {
+			t.Errorf("NullRow should have StartControl='T', got '%c'", emptyRow.StartControl)
+		}
+
+		// Verify end_control is 'NR'
+		if emptyRow.EndControl != NULL_ROW_CONTROL {
+			t.Errorf("NullRow should have EndControl='NR', got '%s'", emptyRow.EndControl.String())
+		}
+	})
+}

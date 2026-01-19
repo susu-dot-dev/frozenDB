@@ -74,8 +74,8 @@ fmt.Printf("Marshaled to %d bytes using baseRow\n", len(data))
 
 ```go
 // Create new NullRow instance and unmarshal from binary data
-nullRow2 := frozendb.NewNullRow(header)
-err := nullRow2.UnmarshalText(data)
+nullRow2 := NullRow{}
+err := nullRow2.UnmarshalText(&data)
 if err != nil {
     // Handle CorruptDatabaseError for unmarshaling failures
     log.Printf("Unmarshaling failed: %v", err)
