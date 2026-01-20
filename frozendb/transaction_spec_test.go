@@ -1,6 +1,7 @@
 package frozendb
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/google/uuid"
@@ -2277,6 +2278,991 @@ func Test_S_012_FR_017_EmptyDatabaseMaxTimestampZero(t *testing.T) {
 		err := tx.AddRow(key, `{"data":"test"}`)
 		if err != nil {
 			t.Fatalf("First AddRow should succeed: %v", err)
+		}
+	})
+}
+
+// =============================================================================
+// Spec 013: Transaction Savepoint and Rollback
+// =============================================================================
+
+// Test_S_013_FR_001_SavepointMethodExists tests FR-001: Transaction MUST have a
+// public Savepoint() method that creates a savepoint at the current transaction position
+func Test_S_013_FR_001_SavepointMethodExists(t *testing.T) {
+	header := createTestHeader()
+
+	t.Run("savepoint_method_exists_and_is_callable", func(t *testing.T) {
+		tx := &Transaction{Header: header}
+
+		err := tx.Begin()
+		if err != nil {
+			t.Fatalf("Begin() failed: %v", err)
+		}
+
+		key, err := uuid.NewV7()
+		if err != nil {
+			t.Fatalf("Failed to generate UUIDv7: %v", err)
+		}
+
+		err = tx.AddRow(key, `{"data":"test"}`)
+		if err != nil {
+			t.Fatalf("AddRow() failed: %v", err)
+		}
+
+		err = tx.Savepoint()
+		if err != nil {
+			t.Fatalf("Savepoint() should succeed after AddRow(): %v", err)
+		}
+	})
+
+	t.Run("savepoint_creates_savepoint_continue_row", func(t *testing.T) {
+		tx := &Transaction{Header: header}
+
+		err := tx.Begin()
+		if err != nil {
+			t.Fatalf("Begin() failed: %v", err)
+		}
+
+		key1, _ := uuid.NewV7()
+		key2, _ := uuid.NewV7()
+
+		err = tx.AddRow(key1, `{"data":"first"}`)
+		if err != nil {
+			t.Fatalf("First AddRow() failed: %v", err)
+		}
+
+		err = tx.Savepoint()
+		if err != nil {
+			t.Fatalf("Savepoint() failed: %v", err)
+		}
+
+		err = tx.AddRow(key2, `{"data":"second"}`)
+		if err != nil {
+			t.Fatalf("Second AddRow() failed: %v", err)
+		}
+
+		rows := tx.GetRows()
+		if len(rows) != 1 {
+			t.Fatalf("Expected 1 row (first row finalized with savepoint), got %d", len(rows))
+		}
+
+		if rows[0].EndControl[0] != 'S' {
+			t.Errorf("Expected first row to have savepoint end control (starts with 'S'), got '%c'", rows[0].EndControl[0])
+		}
+	})
+}
+
+// Test_S_013_FR_005_SavepointRequiresAtLeastOneRow tests FR-005: Savepoint()
+// MUST return InvalidActionError if called before at least one AddRow() call
+func Test_S_013_FR_005_SavepointRequiresAtLeastOneRow(t *testing.T) {
+	header := createTestHeader()
+
+	t.Run("savepoint_on_empty_transaction_fails", func(t *testing.T) {
+		tx := &Transaction{Header: header}
+
+		err := tx.Begin()
+		if err != nil {
+			t.Fatalf("Begin() failed: %v", err)
+		}
+
+		err = tx.Savepoint()
+		if err == nil {
+			t.Fatal("Savepoint() should fail on empty transaction (no AddRow called)")
+		}
+
+		if _, ok := err.(*InvalidActionError); !ok {
+			t.Errorf("Expected InvalidActionError, got %T: %v", err, err)
+		}
+	})
+
+	t.Run("savepoint_after_begin_only_fails", func(t *testing.T) {
+		tx := &Transaction{Header: header}
+
+		err := tx.Begin()
+		if err != nil {
+			t.Fatalf("Begin() failed: %v", err)
+		}
+
+		err = tx.Savepoint()
+		if err == nil {
+			t.Fatal("Savepoint() should fail when no data rows have been added")
+		}
+
+		if _, ok := err.(*InvalidActionError); !ok {
+			t.Errorf("Expected InvalidActionError, got %T: %v", err, err)
+		}
+
+		// Verify error message contains expected phrase
+		expectedMsg := "cannot savepoint empty transaction"
+		if !contains(err.Error(), expectedMsg) {
+			t.Errorf("Expected error message to contain '%s', got '%s'", expectedMsg, err.Error())
+		}
+	})
+}
+
+// Test_S_013_FR_006_SavepointReturnsErrorOnEmptyTransaction tests FR-006:
+// Savepoint() MUST return InvalidActionError if called on an inactive transaction
+func Test_S_013_FR_006_SavepointReturnsErrorOnEmptyTransaction(t *testing.T) {
+	header := createTestHeader()
+
+	t.Run("savepoint_on_inactive_transaction_fails", func(t *testing.T) {
+		tx := &Transaction{Header: header}
+
+		err := tx.Savepoint()
+		if err == nil {
+			t.Fatal("Savepoint() should fail on inactive transaction (no Begin() called)")
+		}
+
+		if _, ok := err.(*InvalidActionError); !ok {
+			t.Errorf("Expected InvalidActionError, got %T: %v", err, err)
+		}
+	})
+
+	t.Run("savepoint_on_committed_transaction_fails", func(t *testing.T) {
+		tx := &Transaction{Header: header}
+
+		err := tx.Begin()
+		if err != nil {
+			t.Fatalf("Begin() failed: %v", err)
+		}
+
+		err = tx.Commit()
+		if err != nil {
+			t.Fatalf("Commit() failed: %v", err)
+		}
+
+		err = tx.Savepoint()
+		if err == nil {
+			t.Fatal("Savepoint() should fail on committed transaction")
+		}
+
+		if _, ok := err.(*InvalidActionError); !ok {
+			t.Errorf("Expected InvalidActionError, got %T: %v", err, err)
+		}
+	})
+}
+
+// Test_S_013_FR_007_SavepointEnforcesMaximumNineSavepoints tests FR-007:
+// Savepoint() MUST return InvalidActionError if more than 9 savepoints would be created
+func Test_S_013_FR_007_SavepointEnforcesMaximumNineSavepoints(t *testing.T) {
+	header := createTestHeader()
+
+	t.Run("ninth_savepoint_succeeds", func(t *testing.T) {
+		tx := &Transaction{Header: header}
+
+		err := tx.Begin()
+		if err != nil {
+			t.Fatalf("Begin() failed: %v", err)
+		}
+
+		for i := 0; i < 9; i++ {
+			key, _ := uuid.NewV7()
+			err = tx.AddRow(key, fmt.Sprintf(`{"data":"row%d"}`, i))
+			if err != nil {
+				t.Fatalf("AddRow() failed for row %d: %v", i, err)
+			}
+
+			if i < 8 {
+				err = tx.Savepoint()
+				if err != nil {
+					t.Fatalf("Savepoint() failed for savepoint %d: %v", i+1, err)
+				}
+			}
+		}
+
+		key, _ := uuid.NewV7()
+		err = tx.AddRow(key, `{"data":"ninth_row"}`)
+		if err != nil {
+			t.Fatalf("AddRow() failed for ninth row: %v", err)
+		}
+
+		err = tx.Savepoint()
+		if err != nil {
+			t.Fatalf("9th Savepoint() should succeed: %v", err)
+		}
+	})
+
+	t.Run("tenth_savepoint_fails", func(t *testing.T) {
+		tx := &Transaction{Header: header}
+
+		err := tx.Begin()
+		if err != nil {
+			t.Fatalf("Begin() failed: %v", err)
+		}
+
+		for i := 0; i < 9; i++ {
+			key, _ := uuid.NewV7()
+			err = tx.AddRow(key, fmt.Sprintf(`{"data":"row%d"}`, i))
+			if err != nil {
+				t.Fatalf("AddRow() failed for row %d: %v", i, err)
+			}
+
+			err = tx.Savepoint()
+			if err != nil {
+				t.Fatalf("Savepoint() failed for savepoint %d: %v", i+1, err)
+			}
+		}
+
+		key, _ := uuid.NewV7()
+		err = tx.AddRow(key, `{"data":"tenth_row"}`)
+		if err != nil {
+			t.Fatalf("AddRow() failed for tenth row: %v", err)
+		}
+
+		err = tx.Savepoint()
+		if err == nil {
+			t.Fatal("10th Savepoint() should fail (max 9 savepoints)")
+		}
+
+		if _, ok := err.(*InvalidActionError); !ok {
+			t.Errorf("Expected InvalidActionError, got %T: %v", err, err)
+		}
+	})
+}
+
+// Test_S_013_FR_002_FullRollbackMethodExists tests FR-002: Transaction MUST have a
+// public Rollback(savepointId int) method that performs full rollback when savepointId is 0
+func Test_S_013_FR_002_FullRollbackMethodExists(t *testing.T) {
+	header := createTestHeader()
+
+	t.Run("rollback_method_exists_and_is_callable", func(t *testing.T) {
+		tx := &Transaction{Header: header}
+
+		err := tx.Begin()
+		if err != nil {
+			t.Fatalf("Begin() failed: %v", err)
+		}
+
+		key, err := uuid.NewV7()
+		if err != nil {
+			t.Fatalf("Failed to generate UUIDv7: %v", err)
+		}
+
+		err = tx.AddRow(key, `{"data":"test"}`)
+		if err != nil {
+			t.Fatalf("AddRow() failed: %v", err)
+		}
+
+		err = tx.Rollback(0)
+		if err != nil {
+			t.Fatalf("Rollback(0) should succeed: %v", err)
+		}
+	})
+
+	t.Run("full_rollback_invalidates_all_rows", func(t *testing.T) {
+		tx := &Transaction{Header: header}
+
+		err := tx.Begin()
+		if err != nil {
+			t.Fatalf("Begin() failed: %v", err)
+		}
+
+		key1, _ := uuid.NewV7()
+		key2, _ := uuid.NewV7()
+
+		err = tx.AddRow(key1, `{"data":"first"}`)
+		if err != nil {
+			t.Fatalf("First AddRow() failed: %v", err)
+		}
+
+		err = tx.AddRow(key2, `{"data":"second"}`)
+		if err != nil {
+			t.Fatalf("Second AddRow() failed: %v", err)
+		}
+
+		err = tx.Rollback(0)
+		if err != nil {
+			t.Fatalf("Rollback(0) failed: %v", err)
+		}
+
+		rows := tx.GetRows()
+		if len(rows) != 2 {
+			t.Fatalf("Expected 2 rows (both rows finalized), got %d", len(rows))
+		}
+
+		if rows[1].EndControl[0] != 'R' {
+			t.Errorf("Expected second row to have rollback end control (starts with 'R'), got '%c'", rows[1].EndControl[0])
+		}
+
+		if rows[1].EndControl[1] != '0' {
+			t.Errorf("Expected second row to have rollback to savepoint 0 ('0'), got '%c'", rows[1].EndControl[1])
+		}
+	})
+
+	t.Run("full_rollback_closes_transaction", func(t *testing.T) {
+		tx := &Transaction{Header: header}
+
+		err := tx.Begin()
+		if err != nil {
+			t.Fatalf("Begin() failed: %v", err)
+		}
+
+		key, _ := uuid.NewV7()
+		err = tx.AddRow(key, `{"data":"test"}`)
+		if err != nil {
+			t.Fatalf("AddRow() failed: %v", err)
+		}
+
+		err = tx.Rollback(0)
+		if err != nil {
+			t.Fatalf("Rollback(0) failed: %v", err)
+		}
+
+		// Transaction should be considered committed (terminated) after Rollback(0)
+		if !tx.IsCommitted() {
+			t.Error("Transaction should be considered committed after Rollback(0)")
+		}
+
+		// Transaction should be closed (no active partial row)
+		if tx.isActive() {
+			t.Error("Transaction should not be active after Rollback(0)")
+		}
+	})
+}
+
+// Test_S_013_FR_009_RollbackReturnsErrorOnInactiveTransaction tests FR-009:
+// Rollback() MUST return InvalidActionError if called on an inactive transaction
+func Test_S_013_FR_009_RollbackReturnsErrorOnInactiveTransaction(t *testing.T) {
+	header := createTestHeader()
+
+	t.Run("rollback_on_inactive_transaction_fails", func(t *testing.T) {
+		tx := &Transaction{Header: header}
+
+		err := tx.Rollback(0)
+		if err == nil {
+			t.Fatal("Rollback() should fail on inactive transaction (no Begin() called)")
+		}
+
+		if _, ok := err.(*InvalidActionError); !ok {
+			t.Errorf("Expected InvalidActionError, got %T: %v", err, err)
+		}
+	})
+
+	t.Run("rollback_on_committed_transaction_fails", func(t *testing.T) {
+		tx := &Transaction{Header: header}
+
+		err := tx.Begin()
+		if err != nil {
+			t.Fatalf("Begin() failed: %v", err)
+		}
+
+		err = tx.Commit()
+		if err != nil {
+			t.Fatalf("Commit() failed: %v", err)
+		}
+
+		err = tx.Rollback(0)
+		if err == nil {
+			t.Fatal("Rollback() should fail on committed transaction")
+		}
+
+		if _, ok := err.(*InvalidActionError); !ok {
+			t.Errorf("Expected InvalidActionError, got %T: %v", err, err)
+		}
+	})
+}
+
+// Test_S_013_FR_010_FullRollbackCreatesNullRowForEmptyTransaction tests FR-010:
+// Rollback(0) on an empty transaction (Begin() + Rollback() with no AddRow) MUST create a NullRow
+func Test_S_013_FR_010_FullRollbackCreatesNullRowForEmptyTransaction(t *testing.T) {
+	header := createTestHeader()
+
+	t.Run("rollback_empty_transaction_creates_null_row", func(t *testing.T) {
+		tx := &Transaction{Header: header}
+
+		err := tx.Begin()
+		if err != nil {
+			t.Fatalf("Begin() failed: %v", err)
+		}
+
+		err = tx.Rollback(0)
+		if err != nil {
+			t.Fatalf("Rollback(0) on empty transaction failed: %v", err)
+		}
+
+		emptyRow := tx.GetEmptyRow()
+		if emptyRow == nil {
+			t.Fatal("Rollback(0) should create NullRow in empty field for empty transaction")
+		}
+
+		if emptyRow.GetKey() != uuid.Nil {
+			t.Errorf("NullRow should have uuid.Nil key, got %v", emptyRow.GetKey())
+		}
+	})
+
+	t.Run("rollback_empty_transaction_clears_partial_row", func(t *testing.T) {
+		tx := &Transaction{Header: header}
+
+		err := tx.Begin()
+		if err != nil {
+			t.Fatalf("Begin() failed: %v", err)
+		}
+
+		err = tx.Rollback(0)
+		if err != nil {
+			t.Fatalf("Rollback(0) failed: %v", err)
+		}
+
+		rows := tx.GetRows()
+		if len(rows) != 0 {
+			t.Errorf("Expected 0 rows for empty transaction rollback, got %d", len(rows))
+		}
+	})
+}
+
+// Test_S_013_FR_014_FullRollbackUsesR0OrS0EndControl tests FR-014:
+// Rollback(0) MUST use R0 (no savepoint) or S0 (with savepoint) end control encoding
+func Test_S_013_FR_014_FullRollbackUsesR0OrS0EndControl(t *testing.T) {
+	header := createTestHeader()
+
+	t.Run("rollback_without_savepoint_uses_R0", func(t *testing.T) {
+		tx := &Transaction{Header: header}
+
+		err := tx.Begin()
+		if err != nil {
+			t.Fatalf("Begin() failed: %v", err)
+		}
+
+		key1, _ := uuid.NewV7()
+		key2, _ := uuid.NewV7()
+
+		err = tx.AddRow(key1, `{"data":"first"}`)
+		if err != nil {
+			t.Fatalf("First AddRow() failed: %v", err)
+		}
+
+		err = tx.AddRow(key2, `{"data":"second"}`)
+		if err != nil {
+			t.Fatalf("Second AddRow() failed: %v", err)
+		}
+
+		err = tx.Rollback(0)
+		if err != nil {
+			t.Fatalf("Rollback(0) failed: %v", err)
+		}
+
+		rows := tx.GetRows()
+		if len(rows) != 2 {
+			t.Fatalf("Expected 2 rows, got %d", len(rows))
+		}
+
+		lastRow := rows[len(rows)-1]
+		if lastRow.EndControl[0] != 'R' {
+			t.Errorf("Expected last row end control to start with 'R' for rollback without savepoint, got '%c'", lastRow.EndControl[0])
+		}
+		if lastRow.EndControl[1] != '0' {
+			t.Errorf("Expected last row end control to be '0' for rollback to savepoint 0, got '%c'", lastRow.EndControl[1])
+		}
+	})
+
+	t.Run("rollback_with_savepoint_uses_S0", func(t *testing.T) {
+		tx := &Transaction{Header: header}
+
+		err := tx.Begin()
+		if err != nil {
+			t.Fatalf("Begin() failed: %v", err)
+		}
+
+		key1, _ := uuid.NewV7()
+		key2, _ := uuid.NewV7()
+
+		err = tx.AddRow(key1, `{"data":"first"}`)
+		if err != nil {
+			t.Fatalf("First AddRow() failed: %v", err)
+		}
+
+		err = tx.Savepoint()
+		if err != nil {
+			t.Fatalf("Savepoint() failed: %v", err)
+		}
+
+		err = tx.AddRow(key2, `{"data":"second"}`)
+		if err != nil {
+			t.Fatalf("Second AddRow() failed: %v", err)
+		}
+
+		// Now call Savepoint() again to mark the second row with savepoint intent
+		err = tx.Savepoint()
+		if err != nil {
+			t.Fatalf("Second Savepoint() failed: %v", err)
+		}
+
+		// Rollback now - the partial row is in PartialDataRowWithSavepoint state with payload
+		err = tx.Rollback(0)
+		if err != nil {
+			t.Fatalf("Rollback(0) failed: %v", err)
+		}
+
+		rows := tx.GetRows()
+		if len(rows) != 2 {
+			t.Fatalf("Expected 2 rows, got %d", len(rows))
+		}
+
+		lastRow := rows[len(rows)-1]
+		if lastRow.EndControl[0] != 'S' {
+			t.Errorf("Expected last row end control to start with 'S' for rollback with savepoint, got '%c'", lastRow.EndControl[0])
+		}
+		if lastRow.EndControl[1] != '0' {
+			t.Errorf("Expected last row end control to be '0' for rollback to savepoint 0, got '%c'", lastRow.EndControl[1])
+		}
+	})
+}
+
+// Test_S_013_FR_003_PartialRollbackMethodExists tests FR-003: Transaction MUST have a
+// public Rollback(savepointId int) method that performs partial rollback when savepointId > 0
+func Test_S_013_FR_003_PartialRollbackMethodExists(t *testing.T) {
+	header := createTestHeader()
+
+	t.Run("partial_rollback_to_savepoint_1", func(t *testing.T) {
+		tx := &Transaction{Header: header}
+
+		err := tx.Begin()
+		if err != nil {
+			t.Fatalf("Begin() failed: %v", err)
+		}
+
+		key1, _ := uuid.NewV7()
+		key2, _ := uuid.NewV7()
+		key3, _ := uuid.NewV7()
+
+		err = tx.AddRow(key1, `{"data":"first"}`)
+		if err != nil {
+			t.Fatalf("First AddRow() failed: %v", err)
+		}
+
+		err = tx.Savepoint()
+		if err != nil {
+			t.Fatalf("Savepoint() failed: %v", err)
+		}
+
+		err = tx.AddRow(key2, `{"data":"second"}`)
+		if err != nil {
+			t.Fatalf("Second AddRow() failed: %v", err)
+		}
+
+		err = tx.AddRow(key3, `{"data":"third"}`)
+		if err != nil {
+			t.Fatalf("Third AddRow() failed: %v", err)
+		}
+
+		err = tx.Rollback(1)
+		if err != nil {
+			t.Fatalf("Rollback(1) should succeed: %v", err)
+		}
+
+		rows := tx.GetRows()
+		if len(rows) != 3 {
+			t.Fatalf("Expected 3 rows, got %d", len(rows))
+		}
+
+		lastRow := rows[len(rows)-1]
+		if lastRow.EndControl[1] != '1' {
+			t.Errorf("Expected last row end control to have '1' for rollback to savepoint 1, got '%c'", lastRow.EndControl[1])
+		}
+	})
+
+	t.Run("partial_rollback_to_savepoint_2", func(t *testing.T) {
+		tx := &Transaction{Header: header}
+
+		err := tx.Begin()
+		if err != nil {
+			t.Fatalf("Begin() failed: %v", err)
+		}
+
+		key1, _ := uuid.NewV7()
+		key2, _ := uuid.NewV7()
+		key3, _ := uuid.NewV7()
+		key4, _ := uuid.NewV7()
+
+		err = tx.AddRow(key1, `{"data":"first"}`)
+		if err != nil {
+			t.Fatalf("First AddRow() failed: %v", err)
+		}
+
+		err = tx.Savepoint()
+		if err != nil {
+			t.Fatalf("First Savepoint() failed: %v", err)
+		}
+
+		err = tx.AddRow(key2, `{"data":"second"}`)
+		if err != nil {
+			t.Fatalf("Second AddRow() failed: %v", err)
+		}
+
+		err = tx.Savepoint()
+		if err != nil {
+			t.Fatalf("Second Savepoint() failed: %v", err)
+		}
+
+		err = tx.AddRow(key3, `{"data":"third"}`)
+		if err != nil {
+			t.Fatalf("Third AddRow() failed: %v", err)
+		}
+
+		err = tx.AddRow(key4, `{"data":"fourth"}`)
+		if err != nil {
+			t.Fatalf("Fourth AddRow() failed: %v", err)
+		}
+
+		err = tx.Rollback(2)
+		if err != nil {
+			t.Fatalf("Rollback(2) should succeed: %v", err)
+		}
+	})
+}
+
+// Test_S_013_FR_008_RollbackReturnsErrorForInvalidSavepointNumber tests FR-008:
+// Rollback() MUST return InvalidInputError if savepointId > current savepoint count
+func Test_S_013_FR_008_RollbackReturnsErrorForInvalidSavepointNumber(t *testing.T) {
+	header := createTestHeader()
+
+	t.Run("rollback_to_nonexistent_savepoint_fails", func(t *testing.T) {
+		tx := &Transaction{Header: header}
+
+		err := tx.Begin()
+		if err != nil {
+			t.Fatalf("Begin() failed: %v", err)
+		}
+
+		key, _ := uuid.NewV7()
+		err = tx.AddRow(key, `{"data":"test"}`)
+		if err != nil {
+			t.Fatalf("AddRow() failed: %v", err)
+		}
+
+		err = tx.Rollback(1)
+		if err == nil {
+			t.Fatal("Rollback(1) should fail when no savepoints exist")
+		}
+
+		if _, ok := err.(*InvalidInputError); !ok {
+			t.Errorf("Expected InvalidInputError, got %T: %v", err, err)
+		}
+	})
+
+	t.Run("rollback_beyond_available_savepoints_fails", func(t *testing.T) {
+		tx := &Transaction{Header: header}
+
+		err := tx.Begin()
+		if err != nil {
+			t.Fatalf("Begin() failed: %v", err)
+		}
+
+		for i := 0; i < 3; i++ {
+			key, _ := uuid.NewV7()
+			err = tx.AddRow(key, fmt.Sprintf(`{"data":"row%d"}`, i))
+			if err != nil {
+				t.Fatalf("AddRow() failed for row %d: %v", i, err)
+			}
+			if i < 2 {
+				err = tx.Savepoint()
+				if err != nil {
+					t.Fatalf("Savepoint() failed for savepoint %d: %v", i+1, err)
+				}
+			}
+		}
+
+		err = tx.Rollback(5)
+		if err == nil {
+			t.Fatal("Rollback(5) should fail when only 2 savepoints exist")
+		}
+
+		if _, ok := err.(*InvalidInputError); !ok {
+			t.Errorf("Expected InvalidInputError, got %T: %v", err, err)
+		}
+	})
+
+	t.Run("rollback_with_negative_savepoint_id_fails", func(t *testing.T) {
+		tx := &Transaction{Header: header}
+
+		err := tx.Begin()
+		if err != nil {
+			t.Fatalf("Begin() failed: %v", err)
+		}
+
+		key, _ := uuid.NewV7()
+		err = tx.AddRow(key, `{"data":"test"}`)
+		if err != nil {
+			t.Fatalf("AddRow() failed: %v", err)
+		}
+
+		err = tx.Rollback(-1)
+		if err == nil {
+			t.Fatal("Rollback(-1) should fail")
+		}
+
+		if _, ok := err.(*InvalidInputError); !ok {
+			t.Errorf("Expected InvalidInputError, got %T: %v", err, err)
+		}
+	})
+
+	t.Run("rollback_with_savepoint_id_over_9_fails", func(t *testing.T) {
+		tx := &Transaction{Header: header}
+
+		err := tx.Begin()
+		if err != nil {
+			t.Fatalf("Begin() failed: %v", err)
+		}
+
+		key, _ := uuid.NewV7()
+		err = tx.AddRow(key, `{"data":"test"}`)
+		if err != nil {
+			t.Fatalf("AddRow() failed: %v", err)
+		}
+
+		err = tx.Rollback(10)
+		if err == nil {
+			t.Fatal("Rollback(10) should fail (max is 9)")
+		}
+
+		if _, ok := err.(*InvalidInputError); !ok {
+			t.Errorf("Expected InvalidInputError, got %T: %v", err, err)
+		}
+	})
+}
+
+// Test_S_013_FR_011_PartialRollbackCommitsRowsUpToSavepoint tests FR-011:
+// Partial rollback MUST commit all rows up to and including the target savepoint
+func Test_S_013_FR_011_PartialRollbackCommitsRowsUpToSavepoint(t *testing.T) {
+	header := createTestHeader()
+
+	t.Run("rollback_to_savepoint_1_commits_first_row", func(t *testing.T) {
+		tx := &Transaction{Header: header}
+
+		err := tx.Begin()
+		if err != nil {
+			t.Fatalf("Begin() failed: %v", err)
+		}
+
+		key1, _ := uuid.NewV7()
+		key2, _ := uuid.NewV7()
+		key3, _ := uuid.NewV7()
+
+		err = tx.AddRow(key1, `{"data":"first"}`)
+		if err != nil {
+			t.Fatalf("First AddRow() failed: %v", err)
+		}
+
+		err = tx.Savepoint()
+		if err != nil {
+			t.Fatalf("Savepoint() failed: %v", err)
+		}
+
+		err = tx.AddRow(key2, `{"data":"second"}`)
+		if err != nil {
+			t.Fatalf("Second AddRow() failed: %v", err)
+		}
+
+		err = tx.AddRow(key3, `{"data":"third"}`)
+		if err != nil {
+			t.Fatalf("Third AddRow() failed: %v", err)
+		}
+
+		err = tx.Rollback(1)
+		if err != nil {
+			t.Fatalf("Rollback(1) failed: %v", err)
+		}
+
+		iter, err := tx.GetCommittedRows()
+		if err != nil {
+			t.Fatalf("GetCommittedRows() failed: %v", err)
+		}
+
+		var committedKeys []uuid.UUID
+		for row, more := iter(); more; row, more = iter() {
+			committedKeys = append(committedKeys, row.GetKey())
+		}
+
+		if len(committedKeys) != 1 {
+			t.Errorf("Expected 1 committed row (up to savepoint 1), got %d", len(committedKeys))
+		}
+
+		if len(committedKeys) > 0 && committedKeys[0] != key1 {
+			t.Errorf("Expected first row to be committed, got keys: %v", committedKeys)
+		}
+	})
+
+	t.Run("rollback_to_savepoint_2_commits_first_two_rows", func(t *testing.T) {
+		tx := &Transaction{Header: header}
+
+		err := tx.Begin()
+		if err != nil {
+			t.Fatalf("Begin() failed: %v", err)
+		}
+
+		key1, _ := uuid.NewV7()
+		key2, _ := uuid.NewV7()
+		key3, _ := uuid.NewV7()
+		key4, _ := uuid.NewV7()
+
+		err = tx.AddRow(key1, `{"data":"first"}`)
+		if err != nil {
+			t.Fatalf("First AddRow() failed: %v", err)
+		}
+
+		err = tx.Savepoint()
+		if err != nil {
+			t.Fatalf("First Savepoint() failed: %v", err)
+		}
+
+		err = tx.AddRow(key2, `{"data":"second"}`)
+		if err != nil {
+			t.Fatalf("Second AddRow() failed: %v", err)
+		}
+
+		err = tx.Savepoint()
+		if err != nil {
+			t.Fatalf("Second Savepoint() failed: %v", err)
+		}
+
+		err = tx.AddRow(key3, `{"data":"third"}`)
+		if err != nil {
+			t.Fatalf("Third AddRow() failed: %v", err)
+		}
+
+		err = tx.AddRow(key4, `{"data":"fourth"}`)
+		if err != nil {
+			t.Fatalf("Fourth AddRow() failed: %v", err)
+		}
+
+		err = tx.Rollback(2)
+		if err != nil {
+			t.Fatalf("Rollback(2) failed: %v", err)
+		}
+
+		iter, err := tx.GetCommittedRows()
+		if err != nil {
+			t.Fatalf("GetCommittedRows() failed: %v", err)
+		}
+
+		var committedKeys []uuid.UUID
+		for row, more := iter(); more; row, more = iter() {
+			committedKeys = append(committedKeys, row.GetKey())
+		}
+
+		if len(committedKeys) != 2 {
+			t.Errorf("Expected 2 committed rows (up to savepoint 2), got %d", len(committedKeys))
+		}
+
+		if len(committedKeys) >= 2 && (committedKeys[0] != key1 || committedKeys[1] != key2) {
+			t.Errorf("Expected first two rows to be committed, got keys: %v", committedKeys)
+		}
+	})
+}
+
+// Test_S_013_FR_012_PartialRollbackInvalidatesRowsAfterSavepoint tests FR-012:
+// Partial rollback MUST invalidate all rows after the target savepoint
+func Test_S_013_FR_012_PartialRollbackInvalidatesRowsAfterSavepoint(t *testing.T) {
+	header := createTestHeader()
+
+	t.Run("rollback_to_savepoint_1_invalidates_subsequent_rows", func(t *testing.T) {
+		tx := &Transaction{Header: header}
+
+		err := tx.Begin()
+		if err != nil {
+			t.Fatalf("Begin() failed: %v", err)
+		}
+
+		key1, _ := uuid.NewV7()
+		key2, _ := uuid.NewV7()
+		key3, _ := uuid.NewV7()
+
+		err = tx.AddRow(key1, `{"data":"first"}`)
+		if err != nil {
+			t.Fatalf("First AddRow() failed: %v", err)
+		}
+
+		err = tx.Savepoint()
+		if err != nil {
+			t.Fatalf("Savepoint() failed: %v", err)
+		}
+
+		err = tx.AddRow(key2, `{"data":"second"}`)
+		if err != nil {
+			t.Fatalf("Second AddRow() failed: %v", err)
+		}
+
+		err = tx.AddRow(key3, `{"data":"third"}`)
+		if err != nil {
+			t.Fatalf("Third AddRow() failed: %v", err)
+		}
+
+		err = tx.Rollback(1)
+		if err != nil {
+			t.Fatalf("Rollback(1) failed: %v", err)
+		}
+
+		iter, err := tx.GetCommittedRows()
+		if err != nil {
+			t.Fatalf("GetCommittedRows() failed: %v", err)
+		}
+
+		var committedKeys []uuid.UUID
+		for row, more := iter(); more; row, more = iter() {
+			committedKeys = append(committedKeys, row.GetKey())
+		}
+
+		if len(committedKeys) != 1 {
+			t.Errorf("Expected only first row to be committed, got %d committed rows", len(committedKeys))
+		}
+
+		for _, key := range committedKeys {
+			if key == key2 || key == key3 {
+				t.Error("Rows after savepoint should not be committed")
+			}
+		}
+	})
+}
+
+// Test_S_013_FR_013_PartialRollbackUsesRnOrSnEndControl tests FR-013:
+// Partial rollback MUST use R1-R9 (no savepoint) or S1-S9 (with savepoint) end control encoding
+func Test_S_013_FR_013_PartialRollbackUsesRnOrSnEndControl(t *testing.T) {
+	header := createTestHeader()
+
+	t.Run("partial_rollback_uses_R1", func(t *testing.T) {
+		tx := &Transaction{Header: header}
+
+		err := tx.Begin()
+		if err != nil {
+			t.Fatalf("Begin() failed: %v", err)
+		}
+
+		key1, _ := uuid.NewV7()
+		key2, _ := uuid.NewV7()
+		key3, _ := uuid.NewV7()
+
+		err = tx.AddRow(key1, `{"data":"first"}`)
+		if err != nil {
+			t.Fatalf("First AddRow() failed: %v", err)
+		}
+
+		err = tx.Savepoint()
+		if err != nil {
+			t.Fatalf("Savepoint() failed: %v", err)
+		}
+
+		err = tx.AddRow(key2, `{"data":"second"}`)
+		if err != nil {
+			t.Fatalf("Second AddRow() failed: %v", err)
+		}
+
+		err = tx.AddRow(key3, `{"data":"third"}`)
+		if err != nil {
+			t.Fatalf("Third AddRow() failed: %v", err)
+		}
+
+		err = tx.Rollback(1)
+		if err != nil {
+			t.Fatalf("Rollback(1) failed: %v", err)
+		}
+
+		rows := tx.GetRows()
+		lastRow := rows[len(rows)-1]
+		if lastRow.EndControl[0] != 'R' && lastRow.EndControl[0] != 'S' {
+			t.Errorf("Expected last row end control to start with 'R' or 'S', got '%c'", lastRow.EndControl[0])
+		}
+		if lastRow.EndControl[1] != '1' {
+			t.Errorf("Expected last row end control to be '1' for rollback to savepoint 1, got '%c'", lastRow.EndControl[1])
 		}
 	})
 }
