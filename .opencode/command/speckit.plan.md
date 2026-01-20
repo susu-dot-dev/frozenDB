@@ -68,13 +68,19 @@ You **MUST** consider the user input before proceeding (if not empty).
    - Entity name, fields, relationships
    - Validation rules from requirements
    - State transitions if applicable
+   - Do not include code algorithms
 
 2. **Generate API contracts** from functional requirements:
    - For each user action → endpoint
    - Use standard REST/GraphQL patterns
    - Output OpenAPI/GraphQL schema to `/contracts/`
 
-3. **Agent context update**:
+3. **Generate a simple quickstart** from the API contracts
+   - Limit the quickstart to no more than 3 examples
+   - Show the general pattern for usage, not exhaustive edge cases
+   - Do not invent new functions in the quickstart. If needed for usage, these should go in the api.md
+
+4. **Agent context update**:
    - Run `.specify/scripts/bash/update-agent-context.sh opencode`
    - These scripts detect which AI agent is in use
    - Update the appropriate agent-specific context file

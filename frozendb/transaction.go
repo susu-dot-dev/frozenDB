@@ -10,19 +10,21 @@ import (
 // The first row must be the transaction start (StartControl = 'T'), and the last row
 // is either the end of the transaction or the transaction is still open.
 //
-// Transaction supports Begin() and Commit() operations for empty transaction workflows.
+// Transaction supports Begin(), AddRow(), and Commit() operations.
 // State is inferred from field values:
 //   - Inactive: rows empty, empty nil, last nil
-//   - Active: last non-nil, empty nil, rows empty
-//   - Committed: empty non-nil, last nil
+//   - Active: last non-nil, empty nil
+//   - Committed: empty non-nil, last nil (for empty transactions)
+//   - Committed: rows non-empty with transaction-ending control (for data transactions)
 //
 // After creating a Transaction struct directly, you MUST call Validate() before using it.
 type Transaction struct {
-	rows   []DataRow       // Single slice of DataRow objects (max 100) - unexported for immutability
-	empty  *NullRow        // Empty null row after successful commit
-	last   *PartialDataRow // Current partial data row being built
-	Header *Header         // Header reference for row creation
-	mu     sync.RWMutex    // Mutex for thread safety
+	rows         []DataRow       // Single slice of DataRow objects (max 100) - unexported for immutability
+	empty        *NullRow        // Empty null row after successful commit
+	last         *PartialDataRow // Current partial data row being built
+	Header       *Header         // Header reference for row creation
+	maxTimestamp int64           // Maximum timestamp seen in this transaction for UUID ordering
+	mu           sync.RWMutex    // Mutex for thread safety
 }
 
 // GetRows returns the rows slice for read-only access.
@@ -40,6 +42,48 @@ func (tx *Transaction) GetEmptyRow() *NullRow {
 	tx.mu.RLock()
 	defer tx.mu.RUnlock()
 	return tx.empty
+}
+
+// GetMaxTimestamp returns the current maximum timestamp seen in this transaction.
+// This value is used for UUID timestamp ordering validation.
+func (tx *Transaction) GetMaxTimestamp() int64 {
+	tx.mu.RLock()
+	defer tx.mu.RUnlock()
+	return tx.maxTimestamp
+}
+
+// extractUUIDv7Timestamp extracts the 48-bit millisecond timestamp from a UUIDv7.
+// The timestamp is stored in the first 6 bytes (48 bits) of the UUID.
+func extractUUIDv7Timestamp(u uuid.UUID) int64 {
+	// UUIDv7 format: first 48 bits are the timestamp in milliseconds
+	// Bytes 0-5 contain the timestamp, big-endian
+	return int64(u[0])<<40 | int64(u[1])<<32 | int64(u[2])<<24 |
+		int64(u[3])<<16 | int64(u[4])<<8 | int64(u[5])
+}
+
+// isActive returns true if the transaction is in active state.
+// Active: last non-nil, empty nil
+func (tx *Transaction) isActive() bool {
+	return tx.last != nil
+}
+
+// isCommittedState returns true if the transaction has been committed.
+// For empty transactions: empty non-nil
+// For data transactions: rows non-empty with transaction-ending control
+func (tx *Transaction) isCommittedState() bool {
+	// Empty transaction committed
+	if tx.empty != nil {
+		return true
+	}
+	// Data transaction committed
+	if len(tx.rows) > 0 {
+		lastRow := tx.rows[len(tx.rows)-1]
+		second := lastRow.EndControl[1]
+		if second == 'C' || (second >= '0' && second <= '9') {
+			return true
+		}
+	}
+	return false
 }
 
 // Begin initializes an empty transaction by creating a PartialDataRow in
@@ -91,20 +135,138 @@ func (tx *Transaction) Begin() error {
 	return nil
 }
 
-// Commit completes an empty transaction by converting the PartialDataRow to a NullRow.
-// This method can only be called when the transaction is active and the partial
-// data row is in PartialDataRowWithStartControl state.
+// AddRow adds a new key-value pair to the transaction.
+//
+// The data flow is:
+//   - Begin() creates a PartialDataRow with START_TRANSACTION in PartialDataRowWithStartControl state
+//   - First AddRow() adds key/value to the existing partial (advances to PartialDataRowWithPayload)
+//   - Subsequent AddRow() calls finalize the previous partial (with RE) and create a new one with ROW_CONTINUE
 //
 // Preconditions:
-//   - last field must be non-nil
-//   - last.GetState() must equal PartialDataRowWithStartControl
-//   - empty field must be nil
-//   - rows slice must be empty
+//   - Transaction must be active (last non-nil, empty nil)
+//   - Key must be valid UUIDv7
+//   - Value must be non-empty JSON string
+//   - Transaction must have < 100 rows total
+//   - UUID timestamp must satisfy: new_timestamp + skew_ms > max_timestamp
 //
 // Postconditions:
-//   - empty field points to created NullRow
-//   - last field is set to nil
-//   - rows slice is NOT modified for empty transactions
+//   - If partial had payload: finalized and moved to rows[], new partial created with ROW_CONTINUE
+//   - If partial had only start control: key/value added to existing partial
+//   - max_timestamp is updated if new_timestamp > previous max_timestamp
+//
+// Returns:
+//   - InvalidActionError: Transaction not active or already committed
+//   - InvalidInputError: Invalid UUIDv7, empty value, or >=100 rows
+//   - KeyOrderingError: Timestamp ordering violation
+func (tx *Transaction) AddRow(key uuid.UUID, value string) error {
+	tx.mu.Lock()
+	defer tx.mu.Unlock()
+
+	// FR-001, FR-011: Validate transaction is active
+	if !tx.isActive() {
+		if tx.isCommittedState() {
+			return NewInvalidActionError("AddRow() cannot be called on committed transaction", nil)
+		}
+		return NewInvalidActionError("AddRow() requires Begin() to be called first", nil)
+	}
+
+	// FR-006: Validate UUIDv7
+	if err := ValidateUUIDv7(key); err != nil {
+		return NewInvalidInputError("invalid UUIDv7 key", err)
+	}
+
+	// FR-007: Validate non-empty value
+	if value == "" {
+		return NewInvalidInputError("value cannot be empty", nil)
+	}
+
+	// FR-010: Validate row count
+	// Total rows after this AddRow = len(tx.rows) + 1 (if we finalize) + 1 (new/current partial)
+	// Or len(tx.rows) + 1 (if we just add to existing partial)
+	// Either way, we're adding one more row to the eventual total
+	currentTotal := len(tx.rows)
+	if tx.last.GetState() != PartialDataRowWithStartControl {
+		currentTotal++ // Current partial will become a row
+	}
+	if currentTotal >= 100 {
+		return NewInvalidInputError("transaction cannot contain more than 100 rows", nil)
+	}
+
+	// FR-014, FR-016, FR-017: Validate timestamp ordering
+	newTimestamp := extractUUIDv7Timestamp(key)
+	skewMs := int64(tx.Header.GetSkewMs())
+
+	// Validate: new_timestamp + skew_ms > max_timestamp
+	if newTimestamp+skewMs <= tx.maxTimestamp {
+		return NewKeyOrderingError("UUID timestamp violates ordering constraint: new_timestamp + skew_ms must be > max_timestamp", nil)
+	}
+
+	// Check the current state of the partial row
+	if tx.last.GetState() == PartialDataRowWithStartControl {
+		// First AddRow after Begin(): add key/value to the existing partial
+		// The partial already has START_TRANSACTION from Begin()
+		if err := tx.last.AddRow(key, value); err != nil {
+			return err
+		}
+	} else {
+		// Subsequent AddRow(): finalize current partial and create new one
+		// FR-002, FR-003: Finalize current PartialDataRow with ROW_END_CONTROL (RE)
+		dataRow, err := tx.last.EndRow()
+		if err != nil {
+			return NewInvalidActionError("failed to finalize previous row", err)
+		}
+		tx.rows = append(tx.rows, *dataRow)
+
+		// FR-004, FR-005: Create new PartialDataRow with ROW_CONTINUE
+		// All rows after the first use ROW_CONTINUE
+		newPdr := &PartialDataRow{
+			state: PartialDataRowWithStartControl,
+			d: DataRow{
+				baseRow[*DataRowPayload]{
+					Header:       tx.Header,
+					StartControl: ROW_CONTINUE,
+				},
+			},
+		}
+
+		// Validate the newly created PartialDataRow before adding data
+		if err := newPdr.Validate(); err != nil {
+			return NewInvalidActionError("created PartialDataRow failed validation", err)
+		}
+
+		// Add the key-value data to the new partial
+		if err := newPdr.AddRow(key, value); err != nil {
+			return err
+		}
+
+		tx.last = newPdr
+	}
+
+	// FR-015: Update max_timestamp
+	if newTimestamp > tx.maxTimestamp {
+		tx.maxTimestamp = newTimestamp
+	}
+
+	return nil
+}
+
+// Commit finalizes the transaction.
+//
+// For empty transactions (Begin() followed immediately by Commit() with no AddRow() calls):
+//   - Converts the PartialDataRow to a NullRow
+//   - Sets empty field to the NullRow
+//
+// For data transactions (Begin() followed by one or more AddRow() calls):
+//   - Finalizes the last PartialDataRow with proper end_control (TC or SC)
+//   - Adds the finalized DataRow to rows[]
+//
+// Preconditions:
+//   - Transaction must be active (last non-nil, empty nil)
+//   - empty field must be nil
+//
+// Postconditions:
+//   - For empty transactions: empty field points to created NullRow, last is nil
+//   - For data transactions: last PartialDataRow is finalized and added to rows[], last is nil
 //
 // Returns InvalidActionError if preconditions are not met.
 func (tx *Transaction) Commit() error {
@@ -113,45 +275,56 @@ func (tx *Transaction) Commit() error {
 
 	// Validate preconditions - transaction must be active
 	if tx.last == nil {
-		return NewInvalidActionError("Commit() requires a partial data row", nil)
+		return NewInvalidActionError("Commit() requires an active transaction (call Begin() first)", nil)
 	}
 	if tx.empty != nil {
-		return NewInvalidActionError("Commit() cannot be called when empty row already exists", nil)
-	}
-	if len(tx.rows) > 0 {
-		return NewInvalidActionError("Commit() cannot be called when rows exist (use regular commit flow)", nil)
+		return NewInvalidActionError("Commit() cannot be called when transaction is already committed", nil)
 	}
 
-	// Validate partial data row is in correct state
-	if tx.last.GetState() != PartialDataRowWithStartControl {
-		return NewInvalidActionError("Commit() requires PartialDataRowWithStartControl state", nil)
+	// FR-009: Handle empty transactions (Begin() + Commit() with no AddRow() calls)
+	if len(tx.rows) == 0 && tx.last.GetState() == PartialDataRowWithStartControl {
+		// Create and validate NullRowPayload
+		payload := &NullRowPayload{
+			Key: uuid.Nil,
+		}
+		if err := payload.Validate(); err != nil {
+			return NewInvalidActionError("created NullRowPayload failed validation", err)
+		}
+
+		// Create NullRow with validated payload
+		nullRow := &NullRow{
+			baseRow[*NullRowPayload]{
+				Header:       tx.Header,
+				StartControl: START_TRANSACTION,
+				EndControl:   NULL_ROW_CONTROL,
+				RowPayload:   payload,
+			},
+		}
+
+		// Validate the created NullRow
+		if err := nullRow.Validate(); err != nil {
+			return NewInvalidActionError("created NullRow failed validation", err)
+		}
+
+		// Update transaction state
+		tx.empty = nullRow
+		tx.last = nil
+
+		return nil
 	}
 
-	// Create and validate NullRowPayload
-	payload := &NullRowPayload{
-		Key: uuid.Nil,
-	}
-	if err := payload.Validate(); err != nil {
-		return NewInvalidActionError("created NullRowPayload failed validation", err)
+	// FR-008: Handle data transactions - finalize the last PartialDataRow
+	if tx.last.GetState() != PartialDataRowWithPayload && tx.last.GetState() != PartialDataRowWithSavepoint {
+		return NewInvalidActionError("Commit() requires PartialDataRow with payload", nil)
 	}
 
-	// Create NullRow with validated payload
-	nullRow := &NullRow{
-		baseRow[*NullRowPayload]{
-			Header:       tx.Header,
-			StartControl: START_TRANSACTION,
-			EndControl:   NULL_ROW_CONTROL,
-			RowPayload:   payload,
-		},
+	// Finalize with commit (Commit() returns DataRow with TC or SC end_control)
+	dataRow, err := tx.last.Commit()
+	if err != nil {
+		return NewInvalidActionError("failed to finalize last row for commit", err)
 	}
 
-	// Validate the created NullRow
-	if err := nullRow.Validate(); err != nil {
-		return NewInvalidActionError("created NullRow failed validation", err)
-	}
-
-	// Update transaction state
-	tx.empty = nullRow
+	tx.rows = append(tx.rows, *dataRow)
 	tx.last = nil
 
 	return nil
