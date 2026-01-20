@@ -439,13 +439,31 @@ All positions use zero-based indexing.
 
 - MUST be globally unique
 - MUST be Base64 encoded (24 bytes with "=" padding)
-- Timestamp component minus `skew_ms` MUST be ≥ previous row's timestamp
+- Timestamp ordering MUST follow the algorithm described below to prevent unbounded decreases
 - DataRows MUST NOT use uuid.Nil as a valid key. NullRows are the only row type that may use uuid.Nil.
 
+#### Timestamp Ordering Algorithm
+
+To prevent unbounded timestamp decreases while accounting for clock skew, implementations MUST enforce the following algorithm when inserting new data rows:
+
+1. **Track Maximum Timestamp**: Maintain the maximum timestamp observed across all committed data rows in the database (`max_timestamp`)
+2. **Validate New Row**: For any new data row with timestamp `new_timestamp`:
+   - `new_timestamp + skew_ms > max_timestamp` MUST be true
+   - If this condition fails, the row MUST be rejected
+3. **Update Maximum**: After successful insertion, update: `max_timestamp = max(max_timestamp, new_timestamp)`
+
+#### Example Prevention
+
+This algorithm prevents problematic scenarios like:
+- skew = 5ms, row1 = 100ms, row2 = 95ms, row3 = 90ms (unbounded decrease)
+- After row1 (100ms): `max_timestamp = 100ms`
+- For row2 (95ms): `95ms + 5ms > 100ms` → `100ms > 100ms` → **FAILS**
+- Row2 rejected, preventing the unbounded decrease
+
 For UUID timestamp ordering validation:
-- NullRows are ignored when validating ascending timestamps
+- NullRows are ignored when validating ascending timestamps and for `max_timestamp` tracking
 - A NullRow may be inserted regardless of previous DataRows timestamp
-- When validating a DataRow, implementations MUST find the previous DataRow (ignoring any intervening NullRows) to determine if timestamp is ascending within clock skew
+- When validating a DataRow, implementations MUST use the algorithm above against the tracked `max_timestamp`
 
 ### 8.5. Padding Calculation
 
