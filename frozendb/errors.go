@@ -78,6 +78,17 @@ func NewInvalidActionError(message string, err error) *InvalidActionError {
 	}
 }
 
+// NewKeyOrderingError creates a new KeyOrderingError.
+func NewKeyOrderingError(message string, err error) *KeyOrderingError {
+	return &KeyOrderingError{
+		FrozenDBError: FrozenDBError{
+			Code:    "key_ordering",
+			Message: message,
+			Err:     err,
+		},
+	}
+}
+
 // InvalidInputError is returned for input validation failures.
 // Used for: empty path, invalid parameter ranges, wrong file extension.
 type InvalidInputError struct {
@@ -105,5 +116,11 @@ type WriteError struct {
 // CorruptDatabaseError is returned for database corruption detection.
 // Used for: header validation failures, malformed file format, invalid field values.
 type CorruptDatabaseError struct {
+	FrozenDBError
+}
+
+// KeyOrderingError is returned when UUID timestamp ordering constraints are violated.
+// Used for: AddRow timestamp validation failures when new_timestamp + skew_ms <= max_timestamp.
+type KeyOrderingError struct {
 	FrozenDBError
 }

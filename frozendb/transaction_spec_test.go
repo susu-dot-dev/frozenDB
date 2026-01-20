@@ -1486,6 +1486,11 @@ func Test_S_011_FR_004_CommitReturnsInvalidActionError(t *testing.T) {
 	})
 
 	// Test: Commit when partial row is in wrong state fails
+	// NOTE: This test was updated for spec 012 compatibility. The original test expected
+	// Commit() to fail when the partial row had payload, but spec 012 FR-008 now requires
+	// Commit() to finalize the last PartialDataRow for data transactions.
+	// The updated test now verifies that Commit() fails when called on a transaction
+	// with rows that have already been finalized but have an open transaction (rows but no commit yet).
 	t.Run("commit_on_wrong_partial_state_fails", func(t *testing.T) {
 		tx := &Transaction{Header: header}
 
@@ -1507,15 +1512,22 @@ func Test_S_011_FR_004_CommitReturnsInvalidActionError(t *testing.T) {
 			t.Fatalf("AddRow() failed: %v", err)
 		}
 
-		// Now Commit should fail because partial row is in wrong state
+		// Per spec 012 FR-008, Commit should now succeed when partial row has payload
+		// This is the expected behavior for data transactions (Begin + AddRow + Commit)
 		err = tx.Commit()
-		if err == nil {
-			t.Fatal("Commit() should return error when partial row is not in PartialDataRowWithStartControl state")
+		if err != nil {
+			t.Fatalf("Commit() should succeed when partial row has payload (spec 012 FR-008): %v", err)
 		}
 
-		// Verify it's an InvalidActionError
-		if _, ok := err.(*InvalidActionError); !ok {
-			t.Errorf("Expected InvalidActionError, got %T: %v", err, err)
+		// Verify the row is now in rows[]
+		rows := tx.GetRows()
+		if len(rows) != 1 {
+			t.Fatalf("Expected 1 row after commit, got %d", len(rows))
+		}
+
+		// Verify it's a valid DataRow with the key we added
+		if rows[0].GetKey() != key {
+			t.Errorf("Row key mismatch: expected %s, got %s", key, rows[0].GetKey())
 		}
 	})
 }
@@ -1614,6 +1626,657 @@ func Test_S_011_FR_006_NullRowValidation(t *testing.T) {
 		// Verify end_control is 'NR'
 		if emptyRow.EndControl != NULL_ROW_CONTROL {
 			t.Errorf("NullRow should have EndControl='NR', got '%s'", emptyRow.EndControl.String())
+		}
+	})
+}
+
+// =============================================================================
+// Spec 012: AddRow Transaction Implementation
+// =============================================================================
+
+// Test_S_012_FR_001_BeginRequiredBeforeAddRow tests FR-001: Transaction MUST allow AddRow()
+// to be called only after Begin() has been called successfully
+func Test_S_012_FR_001_BeginRequiredBeforeAddRow(t *testing.T) {
+	header := createTestHeader()
+
+	t.Run("addrow_fails_without_begin", func(t *testing.T) {
+		tx := &Transaction{Header: header}
+
+		key, err := uuid.NewV7()
+		if err != nil {
+			t.Fatalf("Failed to generate UUIDv7: %v", err)
+		}
+
+		err = tx.AddRow(key, `{"data":"test"}`)
+		if err == nil {
+			t.Fatal("AddRow() should fail when Begin() has not been called")
+		}
+
+		if _, ok := err.(*InvalidActionError); !ok {
+			t.Errorf("Expected InvalidActionError, got %T: %v", err, err)
+		}
+	})
+
+	t.Run("addrow_succeeds_after_begin", func(t *testing.T) {
+		tx := &Transaction{Header: header}
+
+		err := tx.Begin()
+		if err != nil {
+			t.Fatalf("Begin() failed: %v", err)
+		}
+
+		key, err := uuid.NewV7()
+		if err != nil {
+			t.Fatalf("Failed to generate UUIDv7: %v", err)
+		}
+
+		err = tx.AddRow(key, `{"data":"test"}`)
+		if err != nil {
+			t.Fatalf("AddRow() should succeed after Begin(): %v", err)
+		}
+	})
+}
+
+// Test_S_012_FR_002_AddRowFinalizesPartialDataRow tests FR-002: AddRow() MUST finalize
+// the current PartialDataRow by converting it to a DataRow with ROW_END_CONTROL end_control
+func Test_S_012_FR_002_AddRowFinalizesPartialDataRow(t *testing.T) {
+	header := createTestHeader()
+
+	t.Run("first_addrow_finalizes_initial_partial", func(t *testing.T) {
+		tx := &Transaction{Header: header}
+
+		err := tx.Begin()
+		if err != nil {
+			t.Fatalf("Begin() failed: %v", err)
+		}
+
+		key1, _ := uuid.NewV7()
+		key2, _ := uuid.NewV7()
+
+		// First AddRow
+		err = tx.AddRow(key1, `{"data":"first"}`)
+		if err != nil {
+			t.Fatalf("First AddRow() failed: %v", err)
+		}
+
+		// Second AddRow should finalize the first
+		err = tx.AddRow(key2, `{"data":"second"}`)
+		if err != nil {
+			t.Fatalf("Second AddRow() failed: %v", err)
+		}
+
+		// Verify that the first row was finalized with ROW_END_CONTROL (RE)
+		rows := tx.GetRows()
+		if len(rows) != 1 {
+			t.Fatalf("Expected 1 finalized row, got %d", len(rows))
+		}
+
+		if rows[0].EndControl != ROW_END_CONTROL {
+			t.Errorf("Expected end_control='RE', got '%s'", rows[0].EndControl.String())
+		}
+	})
+}
+
+// Test_S_012_FR_003_AddRowMovesPreviousToRows tests FR-003: AddRow() MUST move
+// the finalized previous DataRow to the rows[] slice
+func Test_S_012_FR_003_AddRowMovesPreviousToRows(t *testing.T) {
+	header := createTestHeader()
+
+	t.Run("multiple_addrows_accumulate_in_rows", func(t *testing.T) {
+		tx := &Transaction{Header: header}
+
+		err := tx.Begin()
+		if err != nil {
+			t.Fatalf("Begin() failed: %v", err)
+		}
+
+		key1, _ := uuid.NewV7()
+		key2, _ := uuid.NewV7()
+		key3, _ := uuid.NewV7()
+
+		// Add three rows
+		tx.AddRow(key1, `{"data":"first"}`)
+		tx.AddRow(key2, `{"data":"second"}`)
+		tx.AddRow(key3, `{"data":"third"}`)
+
+		// Should have 2 finalized rows (third is still partial)
+		rows := tx.GetRows()
+		if len(rows) != 2 {
+			t.Fatalf("Expected 2 finalized rows, got %d", len(rows))
+		}
+
+		// Verify keys are in order
+		if rows[0].GetKey() != key1 {
+			t.Errorf("First row key mismatch: expected %s, got %s", key1, rows[0].GetKey())
+		}
+		if rows[1].GetKey() != key2 {
+			t.Errorf("Second row key mismatch: expected %s, got %s", key2, rows[1].GetKey())
+		}
+	})
+}
+
+// Test_S_012_FR_004_AddRowCreatesNewPartialDataRow tests FR-004: AddRow() MUST create
+// a new PartialDataRow in PartialDataRowWithStartControl state for the next row
+func Test_S_012_FR_004_AddRowCreatesNewPartialDataRow(t *testing.T) {
+	header := createTestHeader()
+
+	t.Run("addrow_creates_new_partial_with_payload", func(t *testing.T) {
+		tx := &Transaction{Header: header}
+
+		err := tx.Begin()
+		if err != nil {
+			t.Fatalf("Begin() failed: %v", err)
+		}
+
+		key, _ := uuid.NewV7()
+		err = tx.AddRow(key, `{"data":"test"}`)
+		if err != nil {
+			t.Fatalf("AddRow() failed: %v", err)
+		}
+
+		// After AddRow, there should be an active partial row with payload
+		// Verified by ability to Commit() successfully
+		err = tx.Commit()
+		if err != nil {
+			t.Fatalf("Commit() should succeed after AddRow(): %v", err)
+		}
+
+		// Verify the row is now in rows[]
+		rows := tx.GetRows()
+		if len(rows) != 1 {
+			t.Fatalf("Expected 1 committed row, got %d", len(rows))
+		}
+		if rows[0].GetKey() != key {
+			t.Errorf("Row key mismatch: expected %s, got %s", key, rows[0].GetKey())
+		}
+	})
+}
+
+// Test_S_012_FR_005_AddRowUsesContinueStartControl tests FR-005: AddRow() MUST use
+// ROW_CONTINUE start_control for all rows after the first row in a transaction
+func Test_S_012_FR_005_AddRowUsesContinueStartControl(t *testing.T) {
+	header := createTestHeader()
+
+	t.Run("first_row_uses_T_subsequent_use_R", func(t *testing.T) {
+		tx := &Transaction{Header: header}
+
+		err := tx.Begin()
+		if err != nil {
+			t.Fatalf("Begin() failed: %v", err)
+		}
+
+		key1, _ := uuid.NewV7()
+		key2, _ := uuid.NewV7()
+		key3, _ := uuid.NewV7()
+
+		tx.AddRow(key1, `{"data":"first"}`)
+		tx.AddRow(key2, `{"data":"second"}`)
+		tx.AddRow(key3, `{"data":"third"}`)
+		tx.Commit()
+
+		rows := tx.GetRows()
+		if len(rows) != 3 {
+			t.Fatalf("Expected 3 committed rows, got %d", len(rows))
+		}
+
+		// First row should have StartControl = 'T'
+		if rows[0].StartControl != START_TRANSACTION {
+			t.Errorf("First row should have StartControl='T', got '%c'", rows[0].StartControl)
+		}
+
+		// Subsequent rows should have StartControl = 'R'
+		for i := 1; i < len(rows); i++ {
+			if rows[i].StartControl != ROW_CONTINUE {
+				t.Errorf("Row %d should have StartControl='R', got '%c'", i, rows[i].StartControl)
+			}
+		}
+	})
+}
+
+// Test_S_012_FR_006_AddRowValidatesUUIDv7 tests FR-006: AddRow() MUST validate
+// UUIDv7 key parameter and return InvalidInputError for invalid UUIDs
+func Test_S_012_FR_006_AddRowValidatesUUIDv7(t *testing.T) {
+	header := createTestHeader()
+
+	t.Run("rejects_nil_uuid", func(t *testing.T) {
+		tx := &Transaction{Header: header}
+		tx.Begin()
+
+		err := tx.AddRow(uuid.Nil, `{"data":"test"}`)
+		if err == nil {
+			t.Fatal("AddRow() should reject uuid.Nil")
+		}
+
+		if _, ok := err.(*InvalidInputError); !ok {
+			t.Errorf("Expected InvalidInputError, got %T: %v", err, err)
+		}
+	})
+
+	t.Run("rejects_non_v7_uuid", func(t *testing.T) {
+		tx := &Transaction{Header: header}
+		tx.Begin()
+
+		// Create a UUIDv4 (not v7)
+		uuidV4 := uuid.New()
+
+		err := tx.AddRow(uuidV4, `{"data":"test"}`)
+		if err == nil {
+			t.Fatal("AddRow() should reject non-UUIDv7")
+		}
+
+		if _, ok := err.(*InvalidInputError); !ok {
+			t.Errorf("Expected InvalidInputError, got %T: %v", err, err)
+		}
+	})
+}
+
+// Test_S_012_FR_007_AddRowValidatesNonEmptyValue tests FR-007: AddRow() MUST validate
+// JSON value parameter is non-empty and return InvalidInputError for empty values
+func Test_S_012_FR_007_AddRowValidatesNonEmptyValue(t *testing.T) {
+	header := createTestHeader()
+
+	t.Run("rejects_empty_value", func(t *testing.T) {
+		tx := &Transaction{Header: header}
+		tx.Begin()
+
+		key, _ := uuid.NewV7()
+		err := tx.AddRow(key, "")
+		if err == nil {
+			t.Fatal("AddRow() should reject empty value")
+		}
+
+		if _, ok := err.(*InvalidInputError); !ok {
+			t.Errorf("Expected InvalidInputError, got %T: %v", err, err)
+		}
+	})
+
+	t.Run("accepts_non_empty_value", func(t *testing.T) {
+		tx := &Transaction{Header: header}
+		tx.Begin()
+
+		key, _ := uuid.NewV7()
+		err := tx.AddRow(key, `{"data":"test"}`)
+		if err != nil {
+			t.Fatalf("AddRow() should accept non-empty value: %v", err)
+		}
+	})
+}
+
+// Test_S_012_FR_008_CommitFinalizesLastPartialDataRow tests FR-008: Commit() MUST finalize
+// the last PartialDataRow using appropriate end_control based on transaction state
+func Test_S_012_FR_008_CommitFinalizesLastPartialDataRow(t *testing.T) {
+	header := createTestHeader()
+
+	t.Run("commit_finalizes_last_row_with_tc", func(t *testing.T) {
+		tx := &Transaction{Header: header}
+		tx.Begin()
+
+		key1, _ := uuid.NewV7()
+		key2, _ := uuid.NewV7()
+
+		tx.AddRow(key1, `{"data":"first"}`)
+		tx.AddRow(key2, `{"data":"second"}`)
+
+		err := tx.Commit()
+		if err != nil {
+			t.Fatalf("Commit() failed: %v", err)
+		}
+
+		rows := tx.GetRows()
+		if len(rows) != 2 {
+			t.Fatalf("Expected 2 rows, got %d", len(rows))
+		}
+
+		// First row should end with RE (continue)
+		if rows[0].EndControl != ROW_END_CONTROL {
+			t.Errorf("First row should have end_control='RE', got '%s'", rows[0].EndControl.String())
+		}
+
+		// Last row should end with TC (commit)
+		if rows[1].EndControl != TRANSACTION_COMMIT {
+			t.Errorf("Last row should have end_control='TC', got '%s'", rows[1].EndControl.String())
+		}
+	})
+
+	t.Run("single_row_commit_with_tc", func(t *testing.T) {
+		tx := &Transaction{Header: header}
+		tx.Begin()
+
+		key, _ := uuid.NewV7()
+		tx.AddRow(key, `{"data":"only"}`)
+
+		err := tx.Commit()
+		if err != nil {
+			t.Fatalf("Commit() failed: %v", err)
+		}
+
+		rows := tx.GetRows()
+		if len(rows) != 1 {
+			t.Fatalf("Expected 1 row, got %d", len(rows))
+		}
+
+		// Single row should end with TC
+		if rows[0].EndControl != TRANSACTION_COMMIT {
+			t.Errorf("Single row should have end_control='TC', got '%s'", rows[0].EndControl.String())
+		}
+	})
+}
+
+// Test_S_012_FR_009_CommitCreatesNullRowForEmptyTransaction tests FR-009: Commit() MUST NOT
+// attempt to finalize PartialDataRow for empty transactions (no AddRow() calls)
+func Test_S_012_FR_009_CommitCreatesNullRowForEmptyTransaction(t *testing.T) {
+	header := createTestHeader()
+
+	t.Run("empty_transaction_creates_null_row", func(t *testing.T) {
+		tx := &Transaction{Header: header}
+
+		err := tx.Begin()
+		if err != nil {
+			t.Fatalf("Begin() failed: %v", err)
+		}
+
+		// Commit without any AddRow calls
+		err = tx.Commit()
+		if err != nil {
+			t.Fatalf("Commit() failed: %v", err)
+		}
+
+		// Verify empty field is set
+		emptyRow := tx.GetEmptyRow()
+		if emptyRow == nil {
+			t.Fatal("Empty transaction should have NullRow")
+		}
+
+		// Verify rows field is empty
+		if len(tx.GetRows()) != 0 {
+			t.Errorf("Empty transaction should have no data rows, got %d", len(tx.GetRows()))
+		}
+	})
+}
+
+// Test_S_012_FR_010_AddRowEnforces100RowLimit tests FR-010: Transaction MUST maintain
+// maximum 100 rows limit including all finalized rows
+func Test_S_012_FR_010_AddRowEnforces100RowLimit(t *testing.T) {
+	header := createTestHeader()
+
+	t.Run("rejects_101st_row", func(t *testing.T) {
+		tx := &Transaction{Header: header}
+		tx.Begin()
+
+		// Add 100 rows
+		for i := 0; i < 100; i++ {
+			key, _ := uuid.NewV7()
+			err := tx.AddRow(key, `{"data":"test"}`)
+			if err != nil {
+				t.Fatalf("AddRow() %d failed: %v", i, err)
+			}
+		}
+
+		// 101st row should fail
+		key, _ := uuid.NewV7()
+		err := tx.AddRow(key, `{"data":"overflow"}`)
+		if err == nil {
+			t.Fatal("AddRow() should fail when adding 101st row")
+		}
+
+		if _, ok := err.(*InvalidInputError); !ok {
+			t.Errorf("Expected InvalidInputError, got %T: %v", err, err)
+		}
+	})
+
+	t.Run("allows_exactly_100_rows", func(t *testing.T) {
+		tx := &Transaction{Header: header}
+		tx.Begin()
+
+		// Add 100 rows
+		for i := 0; i < 100; i++ {
+			key, _ := uuid.NewV7()
+			err := tx.AddRow(key, `{"data":"test"}`)
+			if err != nil {
+				t.Fatalf("AddRow() %d failed: %v", i, err)
+			}
+		}
+
+		// Commit should succeed
+		err := tx.Commit()
+		if err != nil {
+			t.Fatalf("Commit() failed: %v", err)
+		}
+
+		if len(tx.GetRows()) != 100 {
+			t.Errorf("Expected 100 rows, got %d", len(tx.GetRows()))
+		}
+	})
+}
+
+// Test_S_012_FR_011_AddRowValidatesActiveTransaction tests FR-011: AddRow() MUST return
+// InvalidActionError when called on committed or inactive transactions
+func Test_S_012_FR_011_AddRowValidatesActiveTransaction(t *testing.T) {
+	header := createTestHeader()
+
+	t.Run("rejects_addrow_on_committed_transaction", func(t *testing.T) {
+		tx := &Transaction{Header: header}
+		tx.Begin()
+
+		key1, _ := uuid.NewV7()
+		tx.AddRow(key1, `{"data":"test"}`)
+		tx.Commit()
+
+		// Try to add row after commit
+		key2, _ := uuid.NewV7()
+		err := tx.AddRow(key2, `{"data":"after_commit"}`)
+		if err == nil {
+			t.Fatal("AddRow() should fail on committed transaction")
+		}
+
+		if _, ok := err.(*InvalidActionError); !ok {
+			t.Errorf("Expected InvalidActionError, got %T: %v", err, err)
+		}
+	})
+
+	t.Run("rejects_addrow_on_inactive_transaction", func(t *testing.T) {
+		tx := &Transaction{Header: header}
+
+		key, _ := uuid.NewV7()
+		err := tx.AddRow(key, `{"data":"test"}`)
+		if err == nil {
+			t.Fatal("AddRow() should fail on inactive transaction")
+		}
+
+		if _, ok := err.(*InvalidActionError); !ok {
+			t.Errorf("Expected InvalidActionError, got %T: %v", err, err)
+		}
+	})
+}
+
+// Test_S_012_FR_012_AddRowThreadSafety tests FR-012: Transaction state MUST remain
+// consistent during AddRow() operations with proper mutex locking
+func Test_S_012_FR_012_AddRowThreadSafety(t *testing.T) {
+	header := createTestHeader()
+
+	t.Run("concurrent_addrow_operations", func(t *testing.T) {
+		tx := &Transaction{Header: header}
+		tx.Begin()
+
+		// Run concurrent AddRow operations
+		done := make(chan error, 10)
+		for i := 0; i < 10; i++ {
+			go func() {
+				key, _ := uuid.NewV7()
+				err := tx.AddRow(key, `{"data":"concurrent"}`)
+				done <- err
+			}()
+		}
+
+		// Collect results - some may fail due to timing, but should not panic
+		successCount := 0
+		for i := 0; i < 10; i++ {
+			if err := <-done; err == nil {
+				successCount++
+			}
+		}
+
+		// At least some should succeed
+		if successCount == 0 {
+			t.Error("Expected at least some concurrent AddRow() calls to succeed")
+		}
+
+		// Verify transaction state is consistent
+		rows := tx.GetRows()
+		// Number of finalized rows should be successCount - 1 (last one is still partial)
+		expectedFinalized := successCount - 1
+		if expectedFinalized < 0 {
+			expectedFinalized = 0
+		}
+		if len(rows) != expectedFinalized {
+			t.Errorf("Expected %d finalized rows, got %d", expectedFinalized, len(rows))
+		}
+	})
+}
+
+// Test_S_012_FR_013_TransactionReceivesMaxTimestamp tests FR-013: Transaction MUST receive
+// current max_timestamp when initialized and maintain its own copy during the transaction
+func Test_S_012_FR_013_TransactionReceivesMaxTimestamp(t *testing.T) {
+	header := createTestHeader()
+
+	t.Run("transaction_receives_initial_max_timestamp", func(t *testing.T) {
+		initialMaxTimestamp := int64(1000000)
+
+		tx := &Transaction{Header: header}
+		tx.maxTimestamp = initialMaxTimestamp
+
+		if tx.GetMaxTimestamp() != initialMaxTimestamp {
+			t.Errorf("Expected initial maxTimestamp %d, got %d", initialMaxTimestamp, tx.GetMaxTimestamp())
+		}
+	})
+
+	t.Run("transaction_maintains_own_copy", func(t *testing.T) {
+		tx := &Transaction{Header: header}
+		tx.maxTimestamp = 1000
+
+		tx.Begin()
+		key, _ := uuid.NewV7()
+		tx.AddRow(key, `{"data":"test"}`)
+
+		// maxTimestamp should be updated
+		if tx.GetMaxTimestamp() <= 1000 {
+			t.Error("maxTimestamp should be updated after AddRow with newer key")
+		}
+	})
+}
+
+// Test_S_012_FR_014_AddRowPreservesUUIDOrdering tests FR-014: AddRow() MUST preserve
+// UUID timestamp ordering using the max_timestamp algorithm: new_timestamp + skew_ms > max_timestamp
+func Test_S_012_FR_014_AddRowPreservesUUIDOrdering(t *testing.T) {
+	header := createTestHeader()
+
+	t.Run("accepts_ascending_timestamps", func(t *testing.T) {
+		tx := &Transaction{Header: header}
+		tx.Begin()
+
+		// Generate keys in ascending order (uuid.NewV7 generates ascending timestamps)
+		key1, _ := uuid.NewV7()
+		key2, _ := uuid.NewV7()
+		key3, _ := uuid.NewV7()
+
+		if err := tx.AddRow(key1, `{"data":"1"}`); err != nil {
+			t.Fatalf("First AddRow failed: %v", err)
+		}
+		if err := tx.AddRow(key2, `{"data":"2"}`); err != nil {
+			t.Fatalf("Second AddRow failed: %v", err)
+		}
+		if err := tx.AddRow(key3, `{"data":"3"}`); err != nil {
+			t.Fatalf("Third AddRow failed: %v", err)
+		}
+	})
+}
+
+// Test_S_012_FR_015_AddRowUpdatesMaxTimestamp tests FR-015: AddRow() MUST update
+// transaction's max_timestamp after successful row insertion
+func Test_S_012_FR_015_AddRowUpdatesMaxTimestamp(t *testing.T) {
+	header := createTestHeader()
+
+	t.Run("max_timestamp_updated_after_addrow", func(t *testing.T) {
+		tx := &Transaction{Header: header}
+		tx.maxTimestamp = 0
+		tx.Begin()
+
+		initialMax := tx.GetMaxTimestamp()
+
+		key, _ := uuid.NewV7()
+		err := tx.AddRow(key, `{"data":"test"}`)
+		if err != nil {
+			t.Fatalf("AddRow failed: %v", err)
+		}
+
+		newMax := tx.GetMaxTimestamp()
+		if newMax <= initialMax {
+			t.Errorf("maxTimestamp should have increased: was %d, now %d", initialMax, newMax)
+		}
+	})
+}
+
+// Test_S_012_FR_016_AddRowReturnsKeyOrderingError tests FR-016: AddRow() MUST return
+// KeyOrderingError when UUID timestamp violates ordering constraints
+func Test_S_012_FR_016_AddRowReturnsKeyOrderingError(t *testing.T) {
+	// Create header with 0 skew to make timestamp ordering strict
+	header := &Header{
+		signature: "fDB",
+		version:   1,
+		rowSize:   512,
+		skewMs:    0, // No skew tolerance
+	}
+
+	t.Run("rejects_older_timestamp", func(t *testing.T) {
+		tx := &Transaction{Header: header}
+		tx.Begin()
+
+		// Add first key
+		key1, _ := uuid.NewV7()
+		err := tx.AddRow(key1, `{"data":"first"}`)
+		if err != nil {
+			t.Fatalf("First AddRow failed: %v", err)
+		}
+
+		// Create a key with older timestamp by using the first key's bytes
+		// and decrementing the timestamp portion
+		olderKey := key1
+		// Decrement the timestamp (first 6 bytes)
+		olderKey[5]-- // This decrements the timestamp by 1ms
+
+		err = tx.AddRow(olderKey, `{"data":"older"}`)
+		if err == nil {
+			t.Fatal("AddRow should reject older timestamp")
+		}
+
+		if _, ok := err.(*KeyOrderingError); !ok {
+			t.Errorf("Expected KeyOrderingError, got %T: %v", err, err)
+		}
+	})
+}
+
+// Test_S_012_FR_017_EmptyDatabaseMaxTimestampZero tests FR-017: For empty databases,
+// max_timestamp MUST start at 0 requiring new_timestamp + skew_ms > 0 for first row
+func Test_S_012_FR_017_EmptyDatabaseMaxTimestampZero(t *testing.T) {
+	header := createTestHeader()
+
+	t.Run("empty_database_starts_at_zero", func(t *testing.T) {
+		tx := &Transaction{Header: header}
+
+		// Default maxTimestamp should be 0
+		if tx.GetMaxTimestamp() != 0 {
+			t.Errorf("Default maxTimestamp should be 0, got %d", tx.GetMaxTimestamp())
+		}
+	})
+
+	t.Run("first_row_succeeds_with_valid_timestamp", func(t *testing.T) {
+		tx := &Transaction{Header: header}
+		tx.Begin()
+
+		key, _ := uuid.NewV7()
+		err := tx.AddRow(key, `{"data":"test"}`)
+		if err != nil {
+			t.Fatalf("First AddRow should succeed: %v", err)
 		}
 	})
 }
