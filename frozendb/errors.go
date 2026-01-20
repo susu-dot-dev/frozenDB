@@ -124,3 +124,19 @@ type CorruptDatabaseError struct {
 type KeyOrderingError struct {
 	FrozenDBError
 }
+
+// NewTombstonedError creates a new TombstonedError.
+func NewTombstonedError(message string, err error) *TombstonedError {
+	return &TombstonedError{
+		FrozenDBError: FrozenDBError{
+			Code:    "tombstoned",
+			Message: message,
+			Err:     err,
+		},
+	}
+}
+
+// TombstonedError is returned when operations are attempted on a tombstoned FileManager.
+type TombstonedError struct {
+	FrozenDBError
+}
