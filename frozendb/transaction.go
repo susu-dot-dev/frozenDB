@@ -361,6 +361,141 @@ func (tx *Transaction) IsCommitted() bool {
 	return false
 }
 
+// Savepoint creates a savepoint at the current position in the transaction.
+//
+// Preconditions:
+//   - Transaction must be active (Begin() has been called, not yet committed/rolled back)
+//   - Transaction must contain at least one data row
+//   - Savepoint count must be less than 9
+//
+// Postconditions:
+//   - Current row is marked as a savepoint (EndControl will use 'S' prefix when finalized)
+//   - Transaction state transitions to PartialDataRowWithSavepoint
+//
+// Returns InvalidActionError if preconditions are not met.
+func (tx *Transaction) Savepoint() error {
+	tx.mu.Lock()
+	defer tx.mu.Unlock()
+
+	// Validate transaction is active
+	if !tx.isActive() {
+		if tx.isCommittedState() {
+			return NewInvalidActionError("Savepoint() cannot be called on committed transaction", nil)
+		}
+		return NewInvalidActionError("Savepoint() requires Begin() to be called first", nil)
+	}
+
+	// Validate at least one data row exists
+	// A data row exists if:
+	//   - We have finalized rows (len(tx.rows) > 0), OR
+	//   - The current partial row has payload (state != PartialDataRowWithStartControl)
+	hasDataRow := len(tx.rows) > 0 || tx.last.GetState() != PartialDataRowWithStartControl
+	if !hasDataRow {
+		return NewInvalidActionError("cannot savepoint empty transaction", nil)
+	}
+
+	// Validate savepoint limit (max 9)
+	savepointIndices := tx.getSavepointIndicesUnlocked()
+	if len(savepointIndices) >= 9 {
+		return NewInvalidActionError("transaction cannot have more than 9 savepoints", nil)
+	}
+
+	// Call PartialDataRow.Savepoint()
+	if err := tx.last.Savepoint(); err != nil {
+		return NewInvalidActionError("failed to create savepoint", err)
+	}
+
+	return nil
+}
+
+// Rollback rolls back the transaction to a specified savepoint or fully closes it.
+//
+// Parameters:
+//   - savepointId: Target savepoint number (0-9)
+//   - 0: Full rollback (invalidate all rows)
+//   - 1-9: Partial rollback to specified savepoint
+//
+// Preconditions:
+//   - Transaction must be active
+//   - savepointId must be valid (0 to current savepoint count)
+//
+// Postconditions:
+//   - For savepointId = 0: All rows invalidated, NullRow created if transaction empty
+//   - For savepointId > 0: Rows up to savepoint committed, subsequent rows invalidated
+//   - Transaction is closed and no longer active
+//   - Appropriate end control encoding applied (R0-R9, S0-S9)
+//
+// Returns:
+//   - nil on success
+//   - InvalidActionError if transaction is inactive
+//   - InvalidInputError if savepointId is out of valid range
+func (tx *Transaction) Rollback(savepointId int) error {
+	tx.mu.Lock()
+	defer tx.mu.Unlock()
+
+	// Validate transaction is active
+	if !tx.isActive() {
+		if tx.isCommittedState() {
+			return NewInvalidActionError("Rollback() cannot be called on committed transaction", nil)
+		}
+		return NewInvalidActionError("Rollback() requires Begin() to be called first", nil)
+	}
+
+	// Validate savepointId range
+	if savepointId < 0 || savepointId > 9 {
+		return NewInvalidInputError("savepointId must be between 0 and 9", nil)
+	}
+
+	// Validate savepoint target exists (for partial rollback)
+	savepointIndices := tx.getSavepointIndicesUnlocked()
+	if savepointId > 0 && savepointId > len(savepointIndices) {
+		return NewInvalidInputError("rollback target savepoint does not exist", nil)
+	}
+
+	// Handle empty transaction (Begin() + Rollback() with no AddRow)
+	if len(tx.rows) == 0 && tx.last.GetState() == PartialDataRowWithStartControl {
+		// Create NullRowPayload
+		payload := &NullRowPayload{
+			Key: uuid.Nil,
+		}
+		if err := payload.Validate(); err != nil {
+			return NewInvalidActionError("created NullRowPayload failed validation", err)
+		}
+
+		// Create NullRow with validated payload
+		nullRow := &NullRow{
+			baseRow[*NullRowPayload]{
+				Header:       tx.Header,
+				StartControl: START_TRANSACTION,
+				EndControl:   NULL_ROW_CONTROL,
+				RowPayload:   payload,
+			},
+		}
+
+		// Validate the created NullRow
+		if err := nullRow.Validate(); err != nil {
+			return NewInvalidActionError("created NullRow failed validation", err)
+		}
+
+		// Update transaction state
+		tx.empty = nullRow
+		tx.last = nil
+
+		return nil
+	}
+
+	// Handle data transaction - finalize current partial row with rollback end control
+	dataRow, err := tx.last.Rollback(savepointId)
+	if err != nil {
+		return NewInvalidActionError("failed to finalize last row for rollback", err)
+	}
+	tx.rows = append(tx.rows, *dataRow)
+
+	tx.last = nil
+
+	return nil
+}
+
 // GetCommittedRows returns an iterator function that yields only rows that are committed
 // according to v1 file format rollback logic. The iterator function returns:
 //   - row: The DataRow if more data is available
