@@ -1,6 +1,6 @@
 # FileManager Quickstart
 
-**Spec**: 013-file-manager\
+**Spec**: 014-file-manager\
 **Date**: 2026-01-20\
 **Version**: 1.0.0
 

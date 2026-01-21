@@ -2,7 +2,7 @@
 
 **Purpose**: Validate specification completeness and quality before proceeding to planning  
 **Created**: 2026-01-20  
-**Feature**: [013-file-manager/spec.md](../spec.md)
+**Feature**: [014-file-manager/spec.md](../spec.md)
 
 ## Content Quality
 

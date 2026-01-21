@@ -1,6 +1,6 @@
 # API Contracts: FileManager Implementation
 
-**Feature**: 013-file-manager\
+**Feature**: 014-file-manager\
 **Date**: 2026-01-20\
 **Repository**: github.com/susu-dot-dev/frozenDB
 
@@ -308,7 +308,7 @@ FileManager operates after header & checksum rows:
 Each functional requirement FR-XXX must have corresponding spec test:
 
 ```go
-// Naming convention: Test_S_013_FR_XXX_Description
+// Naming convention: Test_S_014_FR_XXX_Description
 //
 // Location: module/file_manager_spec_test.go
 //

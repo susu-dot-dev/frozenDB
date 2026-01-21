@@ -40,7 +40,7 @@ The FileManager is a thread-safe file I/O abstraction for frozenDB that provides
 ### Documentation (this feature)
 
 ```text
-specs/013-file-manager/
+specs/014-file-manager/
 ├── plan.md              # This file (/speckit.plan command output)
 ├── research.md          # Phase 0 output (/speckit.plan command)
 ├── data-model.md        # Phase 1 output (/speckit.plan command)
@@ -66,7 +66,7 @@ frozendb/                          # Core database package
 ├── errors.go                       # Existing error types + new FileManager errors
 └── [existing files...]
 
-specs/013-file-manager/             # Feature specification documents
+specs/014-file-manager/             # Feature specification documents
 ├── plan.md                        # This implementation plan
 ├── research.md                    # Research and technical decisions
 ├── data-model.md                  # Data model documentation

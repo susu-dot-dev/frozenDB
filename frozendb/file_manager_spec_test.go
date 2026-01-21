@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-func Test_S_013_FR_001_ReadMethodReturnsRawBytes(t *testing.T) {
+func Test_S_014_FR_001_ReadMethodReturnsRawBytes(t *testing.T) {
 	t.Parallel()
 
 	tmpFile, err := os.CreateTemp("", "frozendb_test_*.fdb")
@@ -48,7 +48,7 @@ func Test_S_013_FR_001_ReadMethodReturnsRawBytes(t *testing.T) {
 	}
 }
 
-func Test_S_013_FR_002_AllowConcurrentReadOperations(t *testing.T) {
+func Test_S_014_FR_002_AllowConcurrentReadOperations(t *testing.T) {
 	t.Parallel()
 
 	tmpFile, err := os.CreateTemp("", "frozendb_test_*.fdb")
@@ -107,7 +107,7 @@ func Test_S_013_FR_002_AllowConcurrentReadOperations(t *testing.T) {
 	}
 }
 
-func Test_S_013_FR_003_EnforceExclusiveWriteAccess(t *testing.T) {
+func Test_S_014_FR_003_EnforceExclusiveWriteAccess(t *testing.T) {
 	t.Parallel()
 
 	tmpFile, err := os.CreateTemp("", "frozendb_test_*.fdb")
@@ -145,7 +145,7 @@ func Test_S_013_FR_003_EnforceExclusiveWriteAccess(t *testing.T) {
 	close(dataChan1)
 }
 
-func Test_S_013_FR_004_SetWriterReturnsErrorIfWriterActive(t *testing.T) {
+func Test_S_014_FR_004_SetWriterReturnsErrorIfWriterActive(t *testing.T) {
 	t.Parallel()
 
 	tmpFile, err := os.CreateTemp("", "frozendb_test_*.fdb")
@@ -185,7 +185,7 @@ func Test_S_013_FR_004_SetWriterReturnsErrorIfWriterActive(t *testing.T) {
 	close(dataChan)
 }
 
-func Test_S_013_FR_005_AcceptWritesThroughDataChannel(t *testing.T) {
+func Test_S_014_FR_005_AcceptWritesThroughDataChannel(t *testing.T) {
 	t.Parallel()
 
 	tmpFile, err := os.CreateTemp("", "frozendb_test_*.fdb")
@@ -225,7 +225,7 @@ func Test_S_013_FR_005_AcceptWritesThroughDataChannel(t *testing.T) {
 	close(dataChan)
 }
 
-func Test_S_013_FR_006_DataPayloadContainsResponseChannel(t *testing.T) {
+func Test_S_014_FR_006_DataPayloadContainsResponseChannel(t *testing.T) {
 	t.Parallel()
 
 	tmpFile, err := os.CreateTemp("", "frozendb_test_*.fdb")
@@ -269,7 +269,7 @@ func Test_S_013_FR_006_DataPayloadContainsResponseChannel(t *testing.T) {
 	close(dataChan)
 }
 
-func Test_S_013_FR_007_MaintainThreadSafeAccess(t *testing.T) {
+func Test_S_014_FR_007_MaintainThreadSafeAccess(t *testing.T) {
 	t.Parallel()
 
 	tmpFile, err := os.CreateTemp("", "frozendb_test_*.fdb")
@@ -327,7 +327,7 @@ func Test_S_013_FR_007_MaintainThreadSafeAccess(t *testing.T) {
 	}
 }
 
-func Test_S_013_FR_008_ReadOperationsAccessStableData(t *testing.T) {
+func Test_S_014_FR_008_ReadOperationsAccessStableData(t *testing.T) {
 	t.Parallel()
 
 	tmpFile, err := os.CreateTemp("", "frozendb_test_*.fdb")
@@ -390,7 +390,7 @@ func Test_S_013_FR_008_ReadOperationsAccessStableData(t *testing.T) {
 	}
 }
 
-func Test_S_013_FR_009_TrackCurrentFileEndPosition(t *testing.T) {
+func Test_S_014_FR_009_TrackCurrentFileEndPosition(t *testing.T) {
 	t.Parallel()
 
 	tmpFile, err := os.CreateTemp("", "frozendb_test_*.fdb")
@@ -441,7 +441,7 @@ func Test_S_013_FR_009_TrackCurrentFileEndPosition(t *testing.T) {
 	close(dataChan)
 }
 
-func Test_S_013_FR_010_WriteOperationsAppendInOrder(t *testing.T) {
+func Test_S_014_FR_010_WriteOperationsAppendInOrder(t *testing.T) {
 	t.Parallel()
 
 	tmpFile, err := os.CreateTemp("", "frozendb_test_*.fdb")
@@ -493,7 +493,7 @@ func Test_S_013_FR_010_WriteOperationsAppendInOrder(t *testing.T) {
 	}
 }
 
-func Test_S_013_FR_011_ReturnErrorsOnCorruptionDetection(t *testing.T) {
+func Test_S_014_FR_011_ReturnErrorsOnCorruptionDetection(t *testing.T) {
 	t.Parallel()
 
 	tmpFile, err := os.CreateTemp("", "frozendb_test_*.fdb")
@@ -539,7 +539,7 @@ func Test_S_013_FR_011_ReturnErrorsOnCorruptionDetection(t *testing.T) {
 	close(dataChan)
 }
 
-func Test_S_013_FR_012_SignalWriteErrorsViaResponseChannels(t *testing.T) {
+func Test_S_014_FR_012_SignalWriteErrorsViaResponseChannels(t *testing.T) {
 	t.Parallel()
 
 	tmpFile, err := os.CreateTemp("", "frozendb_test_*.fdb")
@@ -586,7 +586,7 @@ func Test_S_013_FR_012_SignalWriteErrorsViaResponseChannels(t *testing.T) {
 	close(dataChan)
 }
 
-func Test_S_013_FR_013_NoArtificialReadSizeLimits(t *testing.T) {
+func Test_S_014_FR_013_NoArtificialReadSizeLimits(t *testing.T) {
 	t.Parallel()
 
 	sizesToTest := []int{
