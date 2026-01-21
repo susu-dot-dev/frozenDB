@@ -1,6 +1,6 @@
 # Research: FileManager Implementation
 
-**Spec**: 013-file-manager  
+**Spec**: 014-file-manager  
 **Date**: 2026-01-20  
 **Status**: Complete  
 

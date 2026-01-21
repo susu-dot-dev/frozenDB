@@ -1,9 +1,9 @@
 # Feature Specification: FileManager
 
-**Feature Branch**: `013-file-manager`  
+**Feature Branch**: `014-file-manager`  
 **Created**: 2026-01-20  
 **Status**: Draft  
-**Input**: User description: "Implement a FileManager struct abstraction for thread-safe file operations. The FileManager helps reading and writing raw bytes starting after the initial header & checksum row. For reading, the FileManager should support Read(start int64, size int) (byte[], error). Since the underlying file is append only, and the FileManager is the only object that will be writing, it can allow concurrent read access to any byte less than the last written one. For writing, the abstraction should help enforce a pattern of only one caller (usually a Transaction), being able to write at once. To accomplish this, the FileManager should support SetWriter(<-chan Data) error. FileManager will error out if it is already listening to a writer, otherwise it will accept writes until closed. The Data payload should contain a response channel, to allow callers to wait for the write to be completed. This is spec 013, and do NOT implement any code, as your job is to follow the instructions and generate the spec"
+**Input**: User description: "Implement a FileManager struct abstraction for thread-safe file operations. The FileManager helps reading and writing raw bytes starting after the initial header & checksum row. For reading, the FileManager should support Read(start int64, size int) (byte[], error). Since the underlying file is append only, and the FileManager is the only object that will be writing, it can allow concurrent read access to any byte less than the last written one. For writing, the abstraction should help enforce a pattern of only one caller (usually a Transaction), being able to write at once. To accomplish this, the FileManager should support SetWriter(<-chan Data) error. FileManager will error out if it is already listening to a writer, otherwise it will accept writes until closed. The Data payload should contain a response channel, to allow callers to wait for the write to be completed. This is spec 014, and do NOT implement any code, as your job is to follow the instructions and generate the spec"
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -101,7 +101,7 @@ Database transactions need to know when their writes have completed successfully
 Each functional requirement (FR-XXX) MUST have corresponding spec tests that:
 - Validate the requirement exactly as specified
 - Are placed in `module/[filename]_spec_test.go` where `filename` matches the implementation file being tested
-- Follow naming convention `Test_S_XXX_FR_XXX_Description()`
+- Follow naming convention `Test_S_014_FR_XXX_Description()`
 - MUST NOT be modified after implementation without explicit user permission
 - Are distinct from unit tests and focus on functional validation
 
