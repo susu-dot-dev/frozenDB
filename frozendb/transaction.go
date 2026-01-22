@@ -25,22 +25,33 @@ type Transaction struct {
 	Header       *Header         // Header reference for row creation
 	maxTimestamp int64           // Maximum timestamp seen in this transaction for UUID ordering
 	mu           sync.RWMutex    // Mutex for thread safety
+	writeChan    chan<- Data     // Write channel for sending Data structs to FileManager
+	bytesWritten int             // Tracks how many bytes of current PartialDataRow have been written
+	tombstone    bool            // Tombstone flag set when write operation fails
 }
 
 // GetRows returns the rows slice for read-only access.
 // Since all fields of DataRow are unexported, modifications to the slice
 // elements won't affect the internal transaction state.
+// Returns empty slice if transaction is tombstoned.
 func (tx *Transaction) GetRows() []DataRow {
 	tx.mu.RLock()
 	defer tx.mu.RUnlock()
+	if tx.tombstone {
+		return []DataRow{}
+	}
 	return tx.rows
 }
 
 // GetEmptyRow returns the empty NullRow if present, nil otherwise.
 // This field is set after a successful empty transaction commit.
+// Returns nil if transaction is tombstoned.
 func (tx *Transaction) GetEmptyRow() *NullRow {
 	tx.mu.RLock()
 	defer tx.mu.RUnlock()
+	if tx.tombstone {
+		return nil
+	}
 	return tx.empty
 }
 
@@ -50,6 +61,23 @@ func (tx *Transaction) GetMaxTimestamp() int64 {
 	tx.mu.RLock()
 	defer tx.mu.RUnlock()
 	return tx.maxTimestamp
+}
+
+// IsTombstoned returns true if the transaction has been tombstoned due to a write failure.
+// Once tombstoned, all subsequent public API calls will return TombstonedError.
+func (tx *Transaction) IsTombstoned() bool {
+	tx.mu.RLock()
+	defer tx.mu.RUnlock()
+	return tx.tombstone
+}
+
+// checkTombstone checks if the transaction is tombstoned and returns TombstonedError if so.
+// The caller must hold at least a read lock on tx.mu.
+func (tx *Transaction) checkTombstone() error {
+	if tx.tombstone {
+		return NewTombstonedError("transaction is tombstoned due to write failure", nil)
+	}
+	return nil
 }
 
 // extractUUIDv7Timestamp extracts the 48-bit millisecond timestamp from a UUIDv7.
@@ -86,6 +114,52 @@ func (tx *Transaction) isCommittedState() bool {
 	return false
 }
 
+// writeBytes writes bytes for a PartialDataRow or finalized DataRow, automatically
+// handling incremental writes by slicing off already-written bytes using bytesWritten.
+// Takes the full bytes array from MarshalText() and only writes the new portion.
+// On successful write, updates tx.bytesWritten to the full length.
+// Returns an error if the write fails. This is a synchronous operation.
+// On write failure, the transaction is tombstoned.
+func (tx *Transaction) writeBytes(fullBytes []byte) error {
+	if tx.writeChan == nil {
+		return NewInvalidActionError("write channel not set", nil)
+	}
+
+	// Slice off already-written bytes
+	newBytes := fullBytes[tx.bytesWritten:]
+	if len(newBytes) == 0 {
+		// Nothing new to write
+		return nil
+	}
+
+	// Create response channel with buffer for synchronous wait
+	responseChan := make(chan error, 1)
+
+	// Send data to write channel
+	data := Data{
+		Bytes:    newBytes,
+		Response: responseChan,
+	}
+
+	select {
+	case tx.writeChan <- data:
+		// Wait for response
+		err := <-responseChan
+		if err != nil {
+			// FR-006: Tombstone transaction on write failure
+			tx.tombstone = true
+			return err
+		}
+		// Update bytesWritten to full length after successful write
+		tx.bytesWritten = len(fullBytes)
+		return nil
+	default:
+		// FR-006: Tombstone transaction on write failure
+		tx.tombstone = true
+		return NewWriteError("write channel is full or closed", nil)
+	}
+}
+
 // Begin initializes an empty transaction by creating a PartialDataRow in
 // PartialDataRowWithStartControl state. This method can only be called when
 // the transaction is inactive (all fields empty/nil).
@@ -94,15 +168,26 @@ func (tx *Transaction) isCommittedState() bool {
 //   - rows slice must be empty
 //   - empty field must be nil
 //   - last field must be nil
+//   - writeChan must be set
+//   - transaction must not be tombstoned
 //
 // Postconditions:
 //   - last field points to new PartialDataRow with start control
+//   - bytesWritten is automatically updated to 2 (ROW_START + START_TRANSACTION)
+//   - PartialDataRow is written to disk via writeChan
 //   - All other fields remain unchanged
 //
 // Returns InvalidActionError if preconditions are not met.
+// Returns TombstonedError if transaction is tombstoned.
+// Returns WriteError if write operation fails (transaction is tombstoned on failure).
 func (tx *Transaction) Begin() error {
 	tx.mu.Lock()
 	defer tx.mu.Unlock()
+
+	// FR-006: Check if tombstoned
+	if err := tx.checkTombstone(); err != nil {
+		return err
+	}
 
 	// Validate preconditions - transaction must be inactive
 	if len(tx.rows) > 0 {
@@ -131,6 +216,21 @@ func (tx *Transaction) Begin() error {
 		return NewInvalidActionError("created PartialDataRow failed validation", err)
 	}
 
+	// Write PartialDataRow to disk (FR-001)
+	// MarshalText() returns 2 bytes: ROW_START + 'T'
+	bytes, err := pdr.MarshalText()
+	if err != nil {
+		return NewInvalidActionError("failed to marshal PartialDataRow", err)
+	}
+
+	// Write bytes synchronously (FR-005)
+	// bytesWritten is automatically updated by writeBytes
+	if err := tx.writeBytes(bytes); err != nil {
+		// FR-006: Transaction is tombstoned by writeBytes on error
+		return err
+	}
+
+	// Update state only after successful write
 	tx.last = pdr
 	return nil
 }
@@ -148,6 +248,7 @@ func (tx *Transaction) Begin() error {
 //   - Value must be non-empty JSON string
 //   - Transaction must have < 100 rows total
 //   - UUID timestamp must satisfy: new_timestamp + skew_ms > max_timestamp
+//   - transaction must not be tombstoned
 //
 // Postconditions:
 //   - If partial had payload: finalized and moved to rows[], new partial created with ROW_CONTINUE
@@ -158,9 +259,15 @@ func (tx *Transaction) Begin() error {
 //   - InvalidActionError: Transaction not active or already committed
 //   - InvalidInputError: Invalid UUIDv7, empty value, or >=100 rows
 //   - KeyOrderingError: Timestamp ordering violation
+//   - TombstonedError: Transaction is tombstoned
 func (tx *Transaction) AddRow(key uuid.UUID, value string) error {
 	tx.mu.Lock()
 	defer tx.mu.Unlock()
+
+	// FR-006: Check if tombstoned
+	if err := tx.checkTombstone(); err != nil {
+		return err
+	}
 
 	// FR-001, FR-011: Validate transaction is active
 	if !tx.isActive() {
@@ -205,17 +312,49 @@ func (tx *Transaction) AddRow(key uuid.UUID, value string) error {
 	if tx.last.GetState() == PartialDataRowWithStartControl {
 		// First AddRow after Begin(): add key/value to the existing partial
 		// The partial already has START_TRANSACTION from Begin()
+
 		if err := tx.last.AddRow(key, value); err != nil {
 			return err
 		}
+
+		// Write incremental bytes (FR-002)
+		// MarshalText() returns rowSize-5 bytes (complete up to padding)
+		allBytes, err := tx.last.MarshalText()
+		if err != nil {
+			return NewInvalidActionError("failed to marshal PartialDataRow", err)
+		}
+
+		// Write only the new bytes (FR-005: synchronous)
+		// bytesWritten is automatically updated by writeBytes
+		if err := tx.writeBytes(allBytes); err != nil {
+			// FR-006: Transaction is tombstoned by writeBytes on error
+			return err
+		}
 	} else {
-		// Subsequent AddRow(): finalize current partial and create new one
-		// FR-002, FR-003: Finalize current PartialDataRow with ROW_END_CONTROL (RE)
+		// Subsequent AddRow(): finalize current partial and create new one (FR-002)
+		// Finalize previous PartialDataRow with ROW_END_CONTROL (RE)
 		dataRow, err := tx.last.EndRow()
 		if err != nil {
 			return NewInvalidActionError("failed to finalize previous row", err)
 		}
+
+		// Write finalization bytes: RE + parity + ROW_END (5 bytes)
+		// Get the complete row bytes - writeBytes will slice off already-written portion
+		completeRowBytes, err := dataRow.MarshalText()
+		if err != nil {
+			return NewInvalidActionError("failed to marshal finalized DataRow", err)
+		}
+
+		// Write remaining bytes (FR-005: synchronous)
+		// bytesWritten is automatically updated by writeBytes
+		if err := tx.writeBytes(completeRowBytes); err != nil {
+			// FR-006: Transaction is tombstoned by writeBytes on error
+			return err
+		}
+
+		// Only update state after successful write
 		tx.rows = append(tx.rows, *dataRow)
+		tx.bytesWritten = 0 // Reset for new partial row
 
 		// FR-004, FR-005: Create new PartialDataRow with ROW_CONTINUE
 		// All rows after the first use ROW_CONTINUE
@@ -236,6 +375,19 @@ func (tx *Transaction) AddRow(key uuid.UUID, value string) error {
 
 		// Add the key-value data to the new partial
 		if err := newPdr.AddRow(key, value); err != nil {
+			return err
+		}
+
+		// Write new PartialDataRow (rowSize-5 bytes, all new bytes)
+		newPartialBytes, err := newPdr.MarshalText()
+		if err != nil {
+			return NewInvalidActionError("failed to marshal new PartialDataRow", err)
+		}
+
+		// Write all bytes (new row, start fresh) (FR-005: synchronous)
+		// bytesWritten is automatically updated by writeBytes
+		if err := tx.writeBytes(newPartialBytes); err != nil {
+			// FR-006: Transaction is tombstoned by writeBytes on error
 			return err
 		}
 
@@ -263,15 +415,23 @@ func (tx *Transaction) AddRow(key uuid.UUID, value string) error {
 // Preconditions:
 //   - Transaction must be active (last non-nil, empty nil)
 //   - empty field must be nil
+//   - transaction must not be tombstoned
 //
 // Postconditions:
 //   - For empty transactions: empty field points to created NullRow, last is nil
 //   - For data transactions: last PartialDataRow is finalized and added to rows[], last is nil
 //
 // Returns InvalidActionError if preconditions are not met.
+// Returns TombstonedError if transaction is tombstoned.
+// Returns WriteError if write operation fails (transaction is tombstoned on failure).
 func (tx *Transaction) Commit() error {
 	tx.mu.Lock()
 	defer tx.mu.Unlock()
+
+	// FR-006: Check if tombstoned
+	if err := tx.checkTombstone(); err != nil {
+		return err
+	}
 
 	// Validate preconditions - transaction must be active
 	if tx.last == nil {
@@ -281,7 +441,7 @@ func (tx *Transaction) Commit() error {
 		return NewInvalidActionError("Commit() cannot be called when transaction is already committed", nil)
 	}
 
-	// FR-009: Handle empty transactions (Begin() + Commit() with no AddRow() calls)
+	// FR-004: Handle empty transactions (Begin() + Commit() with no AddRow() calls)
 	if len(tx.rows) == 0 && tx.last.GetState() == PartialDataRowWithStartControl {
 		// Create and validate NullRowPayload
 		payload := &NullRowPayload{
@@ -306,14 +466,29 @@ func (tx *Transaction) Commit() error {
 			return NewInvalidActionError("created NullRow failed validation", err)
 		}
 
-		// Update transaction state
+		// Write NullRow to disk (FR-004)
+		// MarshalText() returns rowSize bytes (complete row)
+		nullRowBytes, err := nullRow.MarshalText()
+		if err != nil {
+			return NewInvalidActionError("failed to marshal NullRow", err)
+		}
+
+		// Write remaining bytes (FR-005: synchronous)
+		// bytesWritten is automatically updated by writeBytes
+		if err := tx.writeBytes(nullRowBytes); err != nil {
+			// FR-006: Transaction is tombstoned by writeBytes on error
+			return err
+		}
+
+		// Update transaction state only after successful write
 		tx.empty = nullRow
 		tx.last = nil
+		tx.bytesWritten = 0
 
 		return nil
 	}
 
-	// FR-008: Handle data transactions - finalize the last PartialDataRow
+	// FR-003: Handle data transactions - finalize the last PartialDataRow
 	if tx.last.GetState() != PartialDataRowWithPayload && tx.last.GetState() != PartialDataRowWithSavepoint {
 		return NewInvalidActionError("Commit() requires PartialDataRow with payload", nil)
 	}
@@ -324,8 +499,24 @@ func (tx *Transaction) Commit() error {
 		return NewInvalidActionError("failed to finalize last row for commit", err)
 	}
 
+	// Write final data row to disk (FR-003)
+	// MarshalText() returns rowSize bytes (complete row)
+	completeRowBytes, err := dataRow.MarshalText()
+	if err != nil {
+		return NewInvalidActionError("failed to marshal finalized DataRow", err)
+	}
+
+	// Write remaining bytes (FR-005: synchronous)
+	// bytesWritten is automatically updated by writeBytes
+	if err := tx.writeBytes(completeRowBytes); err != nil {
+		// FR-006: Transaction is tombstoned by writeBytes on error
+		return err
+	}
+
+	// Update transaction state only after successful write
 	tx.rows = append(tx.rows, *dataRow)
 	tx.last = nil
+	tx.bytesWritten = 0
 
 	return nil
 }
@@ -333,9 +524,14 @@ func (tx *Transaction) Commit() error {
 // IsCommitted returns true if the transaction has proper termination (commit or rollback).
 // Returns false if the transaction is still open (last row ends with 'E').
 // For empty transactions, returns true if empty field is non-nil.
+// Returns false if transaction is tombstoned.
 func (tx *Transaction) IsCommitted() bool {
 	tx.mu.RLock()
 	defer tx.mu.RUnlock()
+
+	if tx.tombstone {
+		return false
+	}
 
 	// For empty transactions, check if empty field is set
 	if tx.empty != nil {
@@ -367,15 +563,22 @@ func (tx *Transaction) IsCommitted() bool {
 //   - Transaction must be active (Begin() has been called, not yet committed/rolled back)
 //   - Transaction must contain at least one data row
 //   - Savepoint count must be less than 9
+//   - transaction must not be tombstoned
 //
 // Postconditions:
 //   - Current row is marked as a savepoint (EndControl will use 'S' prefix when finalized)
 //   - Transaction state transitions to PartialDataRowWithSavepoint
 //
 // Returns InvalidActionError if preconditions are not met.
+// Returns TombstonedError if transaction is tombstoned.
 func (tx *Transaction) Savepoint() error {
 	tx.mu.Lock()
 	defer tx.mu.Unlock()
+
+	// FR-006: Check if tombstoned
+	if err := tx.checkTombstone(); err != nil {
+		return err
+	}
 
 	// Validate transaction is active
 	if !tx.isActive() {
@@ -418,6 +621,7 @@ func (tx *Transaction) Savepoint() error {
 // Preconditions:
 //   - Transaction must be active
 //   - savepointId must be valid (0 to current savepoint count)
+//   - transaction must not be tombstoned
 //
 // Postconditions:
 //   - For savepointId = 0: All rows invalidated, NullRow created if transaction empty
@@ -429,9 +633,15 @@ func (tx *Transaction) Savepoint() error {
 //   - nil on success
 //   - InvalidActionError if transaction is inactive
 //   - InvalidInputError if savepointId is out of valid range
+//   - TombstonedError if transaction is tombstoned
 func (tx *Transaction) Rollback(savepointId int) error {
 	tx.mu.Lock()
 	defer tx.mu.Unlock()
+
+	// FR-006: Check if tombstoned
+	if err := tx.checkTombstone(); err != nil {
+		return err
+	}
 
 	// Validate transaction is active
 	if !tx.isActive() {
@@ -502,9 +712,15 @@ func (tx *Transaction) Rollback(savepointId int) error {
 //   - more: true if more rows are available, false otherwise
 //
 // Returns an error if the transaction is invalid or cannot be processed.
+// Returns TombstonedError if transaction is tombstoned.
 func (tx *Transaction) GetCommittedRows() (func() (DataRow, bool), error) {
 	tx.mu.RLock()
 	defer tx.mu.RUnlock()
+
+	// FR-006: Check if tombstoned
+	if err := tx.checkTombstone(); err != nil {
+		return nil, err
+	}
 
 	// Determine which rows are committed based on transaction ending
 	committedIndices := tx.calculateCommittedIndicesUnlocked()
@@ -572,9 +788,15 @@ func (tx *Transaction) calculateCommittedIndicesUnlocked() []int {
 // IsRowCommitted determines if the specific row at the given index is committed.
 // Applies transaction-wide rollback logic to individual row queries.
 // Returns an error if the index is out of bounds.
+// Returns TombstonedError if transaction is tombstoned.
 func (tx *Transaction) IsRowCommitted(index int) (bool, error) {
 	tx.mu.RLock()
 	defer tx.mu.RUnlock()
+
+	// FR-006: Check if tombstoned
+	if err := tx.checkTombstone(); err != nil {
+		return false, err
+	}
 
 	if index < 0 || index >= len(tx.rows) {
 		return false, NewInvalidInputError("Row index out of bounds", nil)
@@ -592,9 +814,13 @@ func (tx *Transaction) IsRowCommitted(index int) (bool, error) {
 // GetSavepointIndices identifies all savepoint locations within the transaction
 // using EndControl patterns with 'S' as first character.
 // Returns indices for easy reference within the slice.
+// Returns empty slice if transaction is tombstoned.
 func (tx *Transaction) GetSavepointIndices() []int {
 	tx.mu.RLock()
 	defer tx.mu.RUnlock()
+	if tx.tombstone {
+		return []int{}
+	}
 	return tx.getSavepointIndicesUnlocked()
 }
 
@@ -619,6 +845,7 @@ func (tx *Transaction) getSavepointIndicesUnlocked() []int {
 //   - Only one transaction termination within range (or transaction is still open)
 //
 // Returns CorruptDatabaseError for corruption scenarios or InvalidInputError for logic/instruction errors.
+// Returns TombstonedError if transaction is tombstoned.
 func (tx *Transaction) Validate() error {
 	if tx == nil {
 		return NewInvalidInputError("Transaction cannot be nil", nil)
@@ -626,6 +853,11 @@ func (tx *Transaction) Validate() error {
 
 	tx.mu.RLock()
 	defer tx.mu.RUnlock()
+
+	// FR-006: Check if tombstoned
+	if err := tx.checkTombstone(); err != nil {
+		return err
+	}
 
 	// Allow empty transactions that have been committed (empty field set)
 	if len(tx.rows) == 0 {
