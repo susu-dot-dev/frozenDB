@@ -104,7 +104,7 @@ frozendb/
 ├── partial_data_row.go    # PartialDataRow structure
 ├── null_row.go            # NullRow structure
 ├── row.go                 # Base row interface
- ├── transaction.go         # Transaction struct (MODIFIED - add write channel and bytesWritten field)
+ ├── transaction.go         # Transaction struct (MODIFIED - add write channel and rowBytesWritten field)
 ├── file_manager.go        # FileManager for append-only file operations
 ├── frozendb.go            # Main database API
 ├── open.go                # Database opening
@@ -131,7 +131,7 @@ and test files co-located in the same package directory.
 3. Transaction Integration: Add writeChan field to Transaction, caller sets up
    FileManager
 4. Error Handling: Tombstone transaction on write failure, return TombstonedError for subsequent calls
-5. PartialDataRow Incremental Write Strategy: Transaction tracks bytesWritten
+5. PartialDataRow Incremental Write Strategy: Transaction tracks rowBytesWritten
    and slices MarshalText() output
 6. Thread-Safety for Concurrent Access: Use existing Transaction.mu
    (sync.RWMutex) to protect all state modifications (FR-010)
@@ -161,10 +161,10 @@ and test files co-located in the same package directory.
 **Design Decisions**:
 
 - Transaction struct adds `writeChan chan<- Data` field
-- Transaction struct adds `bytesWritten int` field to track PartialDataRow write
-  progress
+- Transaction struct adds `rowBytesWritten int` field to track PartialDataRow write
+  progress (internal field, NOT initialized by caller)
 - Write helper function: create responseChan, send Data, wait for error
-- PartialDataRow writes use slicing: `newBytes := allBytes[tx.bytesWritten:]`
+- PartialDataRow writes use slicing: `newBytes := allBytes[tx.rowBytesWritten:]`
 - All operations synchronous (wait for write completion before returning)
 - All state modifications protected by Transaction.mu (Write lock for changes,
   Read lock for reads) - FR-010
