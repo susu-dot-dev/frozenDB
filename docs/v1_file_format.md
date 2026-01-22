@@ -329,14 +329,22 @@ For checksum rows: start_control = `C`, end_control = `CS`
 ### 6.2. CRC32 Calculation
 
 - Algorithm: IEEE CRC32 (polynomial 0xedb88320)
-- Input: All bytes covered since previous checksum row (or from the beginning of the file for first checksum)
+- Input: All bytes covered since previous checksum row, including the previous checksum row itself (or from the beginning of the file for first checksum)
 - Encoding: Standard Base64 of 4-byte CRC32 value (8 bytes output with "==" padding)
+
+**Coverage Details:**
+- First checksum row (at offset 64): Covers bytes [0..63] (the 64-byte header)
+- Second checksum row: Covers bytes starting at byte 65 (the first checksum row) through the end of the next 10,000 complete Data Rows or Null Rows (in any combination)
+- Subsequent checksum rows: Each covers the previous checksum row, plus the next 10,000 complete Data or Null rows
+
+This ensures complete coverage of the file without gaps, as each checksum row includes the previous checksum row in its calculation.
 
 ### 6.3. Placement Rules
 
 1. First checksum row: Immediately after header (offset 64). This checksum row MUST be present and MUST be validated when reading the file. Since there is no previous row, this checksum MUST cover bytes [0..63] (length 64) to cover the entire header
-2. Subsequent: After every 10,000 complete data rows plus null rows. A checksum row MUST be placed before the 10,001st complete data row or null row is written. Implementations MAY choose to write the checksum immediately after writing the 10,000th complete data row or null row, or defer it until just before writing the 10,001st complete data row or null row.
-3. File may end after any number of complete data rows. If a file ends with fewer than 10,000 complete data rows since the last checksum, no final checksum is required. A file may optionally end with a single PartialDataRow as the very last row; this PartialDataRow is excluded from the 10,000-row count.
+2. Subsequent: After every 10,000 complete Data Rows or Null Rows (in any combination). A checksum row MUST be placed before the 10,001st complete Data Row or Null Row is written. Implementations MAY choose to write the checksum immediately after writing the 10,000th complete Data Row or Null Row, or defer it until just before writing the 10,001st complete Data Row or Null Row.
+3. File may end after any number of complete Data Rows or Null Rows. If a file ends with fewer than 10,000 complete Data Rows or Null Rows since the last checksum, no final checksum is required. A file may optionally end with a single PartialDataRow as the very last row; this PartialDataRow is excluded from the 10,000-row count.
+
 
 ## 7. Data Corruption Detection
 
