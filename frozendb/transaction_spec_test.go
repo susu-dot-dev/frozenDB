@@ -3667,9 +3667,9 @@ func Test_S_015_FR_005_BeginSynchronousWrite(t *testing.T) {
 			t.Errorf("Expected file size to increase after Begin(), before: %d, after: %d", sizeBefore, sizeAfter)
 		}
 
-		// Verify bytesWritten is set correctly
-		if tx.bytesWritten != 2 {
-			t.Errorf("Expected bytesWritten=2, got %d", tx.bytesWritten)
+		// Verify rowBytesWritten is set correctly
+		if tx.rowBytesWritten != 2 {
+			t.Errorf("Expected rowBytesWritten=2, got %d", tx.rowBytesWritten)
 		}
 	})
 }

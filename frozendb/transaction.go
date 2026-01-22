@@ -19,15 +19,15 @@ import (
 //
 // After creating a Transaction struct directly, you MUST call Validate() before using it.
 type Transaction struct {
-	rows         []DataRow       // Single slice of DataRow objects (max 100) - unexported for immutability
-	empty        *NullRow        // Empty null row after successful commit
-	last         *PartialDataRow // Current partial data row being built
-	Header       *Header         // Header reference for row creation
-	maxTimestamp int64           // Maximum timestamp seen in this transaction for UUID ordering
-	mu           sync.RWMutex    // Mutex for thread safety
-	writeChan    chan<- Data     // Write channel for sending Data structs to FileManager
-	bytesWritten int             // Tracks how many bytes of current PartialDataRow have been written
-	tombstone    bool            // Tombstone flag set when write operation fails
+	rows            []DataRow       // Single slice of DataRow objects (max 100) - unexported for immutability
+	empty           *NullRow        // Empty null row after successful commit
+	last            *PartialDataRow // Current partial data row being built
+	Header          *Header         // Header reference for row creation
+	maxTimestamp    int64           // Maximum timestamp seen in this transaction for UUID ordering
+	mu              sync.RWMutex    // Mutex for thread safety
+	writeChan       chan<- Data     // Write channel for sending Data structs to FileManager
+	rowBytesWritten int             // Tracks how many bytes of current PartialDataRow have been written (internal, not initialized by caller)
+	tombstone       bool            // Tombstone flag set when write operation fails
 }
 
 // GetRows returns the rows slice for read-only access.
@@ -115,9 +115,9 @@ func (tx *Transaction) isCommittedState() bool {
 }
 
 // writeBytes writes bytes for a PartialDataRow or finalized DataRow, automatically
-// handling incremental writes by slicing off already-written bytes using bytesWritten.
+// handling incremental writes by slicing off already-written bytes using rowBytesWritten.
 // Takes the full bytes array from MarshalText() and only writes the new portion.
-// On successful write, updates tx.bytesWritten to the full length.
+// On successful write, updates tx.rowBytesWritten to the full length.
 // Returns an error if the write fails. This is a synchronous operation.
 // On write failure, the transaction is tombstoned.
 func (tx *Transaction) writeBytes(fullBytes []byte) error {
@@ -126,7 +126,7 @@ func (tx *Transaction) writeBytes(fullBytes []byte) error {
 	}
 
 	// Slice off already-written bytes
-	newBytes := fullBytes[tx.bytesWritten:]
+	newBytes := fullBytes[tx.rowBytesWritten:]
 	if len(newBytes) == 0 {
 		// Nothing new to write
 		return nil
@@ -150,8 +150,8 @@ func (tx *Transaction) writeBytes(fullBytes []byte) error {
 			tx.tombstone = true
 			return err
 		}
-		// Update bytesWritten to full length after successful write
-		tx.bytesWritten = len(fullBytes)
+		// Update rowBytesWritten to full length after successful write
+		tx.rowBytesWritten = len(fullBytes)
 		return nil
 	default:
 		// FR-006: Tombstone transaction on write failure
@@ -173,7 +173,7 @@ func (tx *Transaction) writeBytes(fullBytes []byte) error {
 //
 // Postconditions:
 //   - last field points to new PartialDataRow with start control
-//   - bytesWritten is automatically updated to 2 (ROW_START + START_TRANSACTION)
+//   - rowBytesWritten is automatically updated to 2 (ROW_START + START_TRANSACTION)
 //   - PartialDataRow is written to disk via writeChan
 //   - All other fields remain unchanged
 //
@@ -224,7 +224,7 @@ func (tx *Transaction) Begin() error {
 	}
 
 	// Write bytes synchronously (FR-005)
-	// bytesWritten is automatically updated by writeBytes
+	// rowBytesWritten is automatically updated by writeBytes
 	if err := tx.writeBytes(bytes); err != nil {
 		// FR-006: Transaction is tombstoned by writeBytes on error
 		return err
@@ -325,7 +325,7 @@ func (tx *Transaction) AddRow(key uuid.UUID, value string) error {
 		}
 
 		// Write only the new bytes (FR-005: synchronous)
-		// bytesWritten is automatically updated by writeBytes
+		// rowBytesWritten is automatically updated by writeBytes
 		if err := tx.writeBytes(allBytes); err != nil {
 			// FR-006: Transaction is tombstoned by writeBytes on error
 			return err
@@ -346,7 +346,7 @@ func (tx *Transaction) AddRow(key uuid.UUID, value string) error {
 		}
 
 		// Write remaining bytes (FR-005: synchronous)
-		// bytesWritten is automatically updated by writeBytes
+		// rowBytesWritten is automatically updated by writeBytes
 		if err := tx.writeBytes(completeRowBytes); err != nil {
 			// FR-006: Transaction is tombstoned by writeBytes on error
 			return err
@@ -354,7 +354,7 @@ func (tx *Transaction) AddRow(key uuid.UUID, value string) error {
 
 		// Only update state after successful write
 		tx.rows = append(tx.rows, *dataRow)
-		tx.bytesWritten = 0 // Reset for new partial row
+		tx.rowBytesWritten = 0 // Reset for new partial row
 
 		// FR-004, FR-005: Create new PartialDataRow with ROW_CONTINUE
 		// All rows after the first use ROW_CONTINUE
@@ -385,7 +385,7 @@ func (tx *Transaction) AddRow(key uuid.UUID, value string) error {
 		}
 
 		// Write all bytes (new row, start fresh) (FR-005: synchronous)
-		// bytesWritten is automatically updated by writeBytes
+		// rowBytesWritten is automatically updated by writeBytes
 		if err := tx.writeBytes(newPartialBytes); err != nil {
 			// FR-006: Transaction is tombstoned by writeBytes on error
 			return err
@@ -474,7 +474,7 @@ func (tx *Transaction) Commit() error {
 		}
 
 		// Write remaining bytes (FR-005: synchronous)
-		// bytesWritten is automatically updated by writeBytes
+		// rowBytesWritten is automatically updated by writeBytes
 		if err := tx.writeBytes(nullRowBytes); err != nil {
 			// FR-006: Transaction is tombstoned by writeBytes on error
 			return err
@@ -483,7 +483,7 @@ func (tx *Transaction) Commit() error {
 		// Update transaction state only after successful write
 		tx.empty = nullRow
 		tx.last = nil
-		tx.bytesWritten = 0
+		tx.rowBytesWritten = 0
 
 		return nil
 	}
@@ -507,7 +507,7 @@ func (tx *Transaction) Commit() error {
 	}
 
 	// Write remaining bytes (FR-005: synchronous)
-	// bytesWritten is automatically updated by writeBytes
+	// rowBytesWritten is automatically updated by writeBytes
 	if err := tx.writeBytes(completeRowBytes); err != nil {
 		// FR-006: Transaction is tombstoned by writeBytes on error
 		return err
@@ -516,7 +516,7 @@ func (tx *Transaction) Commit() error {
 	// Update transaction state only after successful write
 	tx.rows = append(tx.rows, *dataRow)
 	tx.last = nil
-	tx.bytesWritten = 0
+	tx.rowBytesWritten = 0
 
 	return nil
 }

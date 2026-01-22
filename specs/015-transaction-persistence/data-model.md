@@ -22,8 +22,8 @@ channel to FileManager.
 - `mu sync.RWMutex` - Mutex for thread safety
 - `writeChan chan<- Data` - Write channel for sending Data structs to
   FileManager (NEW for this feature)
-- `bytesWritten int` - Tracks how many bytes of current PartialDataRow have been
-  written (NEW for this feature)
+- `rowBytesWritten int` - Tracks how many bytes of current PartialDataRow have been
+  written (NEW for this feature, internal field, NOT initialized by caller)
 - `tombstone bool` - Tombstone flag set when write operation fails (NEW for this
   feature)
 
@@ -205,7 +205,7 @@ it.
 3. Transaction sends Data{Bytes: 2 bytes, Response: responseChan} to writeChan
 4. Transaction waits: err := <-responseChan
 5. If err != nil, Transaction returns error (no state change)
-6. Otherwise, tx.bytesWritten = 2, tx.last = pdr (transaction is now Active)
+6. Otherwise, tx.rowBytesWritten = 2, tx.last = pdr (transaction is now Active)
 
 **AddRow() Operation (first AddRow after Begin)**:
 
@@ -218,7 +218,7 @@ it.
 5. Transaction sends new bytes to writeChan
 6. Transaction waits for response
 7. If err != nil, Transaction returns error (no state change)
-8. Otherwise, tx.bytesWritten = rowSize-5, AddRow completes (partial row now has
+8. Otherwise, tx.rowBytesWritten = rowSize-5, AddRow completes (partial row now has
    payload)
 
 **AddRow() Operation (subsequent AddRow calls)**:
@@ -235,7 +235,7 @@ it.
 6. Transaction sends all rowSize-5 bytes to writeChan
 7. Transaction waits for response
 8. If err != nil, Transaction returns error (no state change)
-9. Otherwise, tx.bytesWritten = rowSize-5, tx.last = newPartial (ready for next
+9. Otherwise, tx.rowBytesWritten = rowSize-5, tx.last = newPartial (ready for next
    AddRow or Commit)
 
 **Commit() Operation (empty transaction)**:
@@ -247,18 +247,18 @@ it.
 4. Transaction sends new bytes to writeChan
 5. Transaction waits for response
 6. If err != nil, Transaction returns error (no state change)
-7. Otherwise, tx.bytesWritten = 0, tx.empty = nullRow, tx.last = nil
+7. Otherwise, tx.rowBytesWritten = 0, tx.empty = nullRow, tx.last = nil
    (transaction Committed)
 
 **Commit() Operation (data transaction)**:
 
 1. Transaction calls tx.last.Commit() → finalized DataRow with TC or SC
 2. Transaction calls DataRow.MarshalText() → rowSize bytes (complete row)
-3. Transaction slices off bytesWritten bytes: newBytes = bytes[tx.bytesWritten:]
+3. Transaction slices off rowBytesWritten bytes: newBytes = bytes[tx.rowBytesWritten:]
 4. Transaction sends new bytes to writeChan
 5. Transaction waits for response
 6. If err != nil, Transaction returns error (no state change)
-7. Otherwise, tx.rows.append(finalizedRow), tx.bytesWritten = 0, tx.last = nil
+7. Otherwise, tx.rows.append(finalizedRow), tx.rowBytesWritten = 0, tx.last = nil
    (transaction Committed)
 
 ### Error Handling Model

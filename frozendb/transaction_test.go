@@ -2119,9 +2119,9 @@ func TestBegin_DiskPersistence(t *testing.T) {
 			t.Errorf("Second byte should be 'T', got '%c'", bytes[1])
 		}
 
-		// Verify bytesWritten is updated
-		if tx.bytesWritten != 2 {
-			t.Errorf("Expected bytesWritten=2, got %d", tx.bytesWritten)
+		// Verify rowBytesWritten is updated
+		if tx.rowBytesWritten != 2 {
+			t.Errorf("Expected rowBytesWritten=2, got %d", tx.rowBytesWritten)
 		}
 	})
 

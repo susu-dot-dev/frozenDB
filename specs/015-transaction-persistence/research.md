@@ -92,7 +92,7 @@ subsequent calls
 
 ### Decision 5: PartialDataRow Incremental Write Strategy
 
-**Decision**: Transaction tracks bytesWritten for current PartialDataRow and
+**Decision**: Transaction tracks rowBytesWritten for current PartialDataRow and
 slices MarshalText() output to append only new bytes
 
 **Rationale**:
@@ -106,14 +106,14 @@ slices MarshalText() output to append only new bytes
   - State 3 (PartialDataRowWithSavepoint): State 2 + 'S' = rowSize-4 bytes
 - Calling MarshalText() at each state would rewrite all bytes, violating
   append-only semantics
-- Solution: Add `bytesWritten int` field to Transaction to track how many bytes
-  of current PartialDataRow have been written
+- Solution: Add `rowBytesWritten int` field to Transaction to track how many bytes
+  of current PartialDataRow have been written (internal field, NOT initialized by caller)
 - When writing, call MarshalText() and slice off beginning:
-  `newBytes := allBytes[tx.bytesWritten:]`
+  `newBytes := allBytes[tx.rowBytesWritten:]`
 
 **Alternatives Considered**:
 
-- PartialDataRow tracks bytesWritten internally: Rejected because would require
+- PartialDataRow tracks rowBytesWritten internally: Rejected because would require
   modifying PartialDataRow struct and MarshalText() behavior; Transaction is
   better place for bookkeeping
 - Read database to see what exists: Rejected because requires file I/O on every
@@ -155,7 +155,7 @@ state modifications
   access
 - Transaction.mu (sync.RWMutex) is already present in the struct
 - All state modifications (fields: rows, empty, last, maxTimestamp,
-  bytesWritten, writeChan) must be protected by mu
+  rowBytesWritten, writeChan) must be protected by mu
 - Use Write lock for modifications (Begin, AddRow, Commit, Rollback, Savepoint)
 - Use Read lock for reads (GetRows, GetEmptyRow, GetMaxTimestamp, IsCommitted,
   etc.)
@@ -201,8 +201,8 @@ type Transaction struct {
     Header       *Header
     maxTimestamp int64
     mu           sync.RWMutex
-    writeChan    chan<- Data   // NEW: channel for write requests
-    bytesWritten int          // NEW: tracks bytes written for current PartialDataRow
+    writeChan       chan<- Data   // NEW: channel for write requests
+    rowBytesWritten int          // NEW: tracks bytes written for current PartialDataRow (internal, NOT initialized by caller)
 }
 ```
 
@@ -228,10 +228,10 @@ func (tx *Transaction) writePartialRow(pdr *PartialDataRow) error {
     }
 
     // Slice off bytes already written
-    newBytes := allBytes[tx.bytesWritten:]
+    newBytes := allBytes[tx.rowBytesWritten:]
 
     // Track bytes written
-    tx.bytesWritten = len(allBytes)
+    tx.rowBytesWritten = len(allBytes)
 
     return tx.writeBytes(newBytes)
 }
@@ -245,7 +245,7 @@ func (tx *Transaction) writePartialRow(pdr *PartialDataRow) error {
    state=PartialDataRowWithStartControl
 2. MarshalText() → 2 bytes (ROW_START + 'T')
 3. writeBytes(2 bytes)
-4. bytesWritten = 2
+4. rowBytesWritten = 2
 5. Return error if write fails
 
 **AddRow() (first AddRow after Begin)**:
@@ -255,7 +255,7 @@ func (tx *Transaction) writePartialRow(pdr *PartialDataRow) error {
 3. MarshalText() → rowSize-5 bytes (ROW_START + 'T' + UUID + JSON + padding)
 4. Slice off first 2 bytes: newBytes = bytes[2:] → rowSize-7 bytes
 5. writeBytes(newBytes)
-6. bytesWritten = rowSize-5
+6. rowBytesWritten = rowSize-5
 7. Tombstone transaction if write fails
 
 **AddRow() (subsequent AddRow calls)**:
@@ -269,7 +269,7 @@ func (tx *Transaction) writePartialRow(pdr *PartialDataRow) error {
 3. Call newPartial.AddRow(key, value) → advances to PartialDataRowWithPayload
 4. MarshalText() → rowSize-5 bytes (ROW_START + 'R' + UUID + JSON + padding)
 5. writeBytes(all rowSize-5 bytes) → this is a NEW row, start fresh
-6. bytesWritten = rowSize-5
+6. rowBytesWritten = rowSize-5
 7. Tombstone transaction if write fails
 
 **Commit() (empty transaction)**:
@@ -280,17 +280,17 @@ func (tx *Transaction) writePartialRow(pdr *PartialDataRow) error {
    - Write rowSize-2 bytes (skip ROW_START + 'T' = 2 bytes, add NR + parity +
      ROW_END)
    - Or: writeBytes(rowSize - 2) for remaining bytes
-3. Set tx.empty = nullRow, tx.last = nil, bytesWritten = 0
+3. Set tx.empty = nullRow, tx.last = nil, rowBytesWritten = 0
 4. Return error if write fails
 
 **Commit() (data transaction)**:
 
 1. Finalize PartialDataRow with TC or SC end_control
 2. MarshalText() on finalized DataRow → rowSize bytes (complete row)
-3. Slice off bytesWritten bytes: newBytes = allBytes[tx.bytesWritten:]
+3. Slice off rowBytesWritten bytes: newBytes = allBytes[tx.rowBytesWritten:]
 4. writeBytes(newBytes)
 5. Append finalized DataRow to tx.rows
-6. Set tx.last = nil, bytesWritten = 0
+6. Set tx.last = nil, rowBytesWritten = 0
 7. Tombstone transaction if write fails
 
 ## Key Constraints
@@ -298,8 +298,8 @@ func (tx *Transaction) writePartialRow(pdr *PartialDataRow) error {
 - All writes must be synchronous (wait for response before returning)
 - Write failure tombstones transaction and returns error; subsequent calls
   return TombstonedError
-- bytesWritten tracks bytes for current PartialDataRow, reset to 0 when row
-  finalized or transaction committed
+- rowBytesWritten tracks bytes for current PartialDataRow, reset to 0 when row
+  finalized or transaction committed (internal field, NOT initialized by caller)
 - All state modifications must be protected by Transaction.mu (sync.RWMutex) for
   thread-safety (FR-010)
 - No checksum rows written (assumes < 10,000 rows)

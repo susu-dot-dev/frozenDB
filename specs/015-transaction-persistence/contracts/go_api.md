@@ -89,7 +89,7 @@ tx := &Transaction{
 
 1. The final PartialDataRow is finalized with TC or SC end_control
 2. The finalized DataRow is marshaled to bytes (rowSize bytes)
-3. Only incremental bytes (positions bytesWritten to rowSize-1) are written to channel
+3. Only incremental bytes (positions rowBytesWritten to rowSize-1) are written to channel
 
 4. The method waits synchronously for write completion before returning
 
