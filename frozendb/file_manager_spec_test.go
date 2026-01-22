@@ -28,7 +28,7 @@ func Test_S_014_FR_001_ReadMethodReturnsRawBytes(t *testing.T) {
 	}
 	defer fm.Close()
 
-	data, err := fm.Read(0, len(testData))
+	data, err := fm.Read(0, int32(len(testData)))
 	if err != nil {
 		t.Fatalf("Read failed: %v", err)
 	}
@@ -86,7 +86,7 @@ func Test_S_014_FR_002_AllowConcurrentReadOperations(t *testing.T) {
 			for j := 0; j < readsPerReader; j++ {
 				start := int64((readerID + j) % (fileSize - 1000))
 				size := 1000
-				data, err := fm.Read(start, size)
+				data, err := fm.Read(start, int32(size))
 				if err != nil {
 					errorChan <- err
 					return
@@ -356,7 +356,7 @@ func Test_S_014_FR_008_ReadOperationsAccessStableData(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			data, err := fm.Read(0, len(stableData))
+			data, err := fm.Read(0, int32(len(stableData)))
 			if err != nil {
 				t.Errorf("Read failed during stable data check: %v", err)
 				return
@@ -516,8 +516,10 @@ func Test_S_014_FR_011_ReturnErrorsOnCorruptionDetection(t *testing.T) {
 		t.Fatalf("SetWriter failed: %v", err)
 	}
 
-	fm.file.Close()
-	fm.file = nil
+	file := fm.file.Load().(*os.File)
+	file.Close()
+	// Use Close() to properly set the sentinel value
+	fm.Close()
 
 	responseChan := make(chan error, 1)
 	dataChan <- Data{
@@ -531,8 +533,8 @@ func Test_S_014_FR_011_ReturnErrorsOnCorruptionDetection(t *testing.T) {
 	}
 
 	if err != nil {
-		if _, ok := err.(*WriteError); !ok {
-			t.Errorf("Expected WriteError, got %T: %v", err, err)
+		if _, ok := err.(*TombstonedError); !ok {
+			t.Errorf("Expected TombstonedError, got %T: %v", err, err)
 		}
 	}
 
@@ -563,8 +565,10 @@ func Test_S_014_FR_012_SignalWriteErrorsViaResponseChannels(t *testing.T) {
 		t.Fatalf("SetWriter failed: %v", err)
 	}
 
-	fm.file.Close()
-	fm.file = nil
+	file := fm.file.Load().(*os.File)
+	file.Close()
+	// Use Close() to properly set the sentinel value
+	fm.Close()
 
 	responseChan := make(chan error, 1)
 	dataChan <- Data{
@@ -578,8 +582,8 @@ func Test_S_014_FR_012_SignalWriteErrorsViaResponseChannels(t *testing.T) {
 	}
 
 	if err != nil {
-		if _, ok := err.(*WriteError); !ok {
-			t.Errorf("Expected WriteError, got %T: %v", err, err)
+		if _, ok := err.(*TombstonedError); !ok {
+			t.Errorf("Expected TombstonedError, got %T: %v", err, err)
 		}
 	}
 
@@ -626,7 +630,7 @@ func Test_S_014_FR_013_NoArtificialReadSizeLimits(t *testing.T) {
 			t.Fatalf("Failed to create FileManager for size %d: %v", size, err)
 		}
 
-		data, err := fm.Read(0, size)
+		data, err := fm.Read(0, int32(size))
 		fm.Close()
 		os.Remove(tmpFile2.Name())
 
