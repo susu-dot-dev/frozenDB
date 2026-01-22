@@ -1,9 +1,10 @@
 package frozendb
 
 import (
+	"errors"
 	"math"
 	"os"
-	"sync"
+	"sync/atomic"
 )
 
 type Data struct {
@@ -12,13 +13,9 @@ type Data struct {
 }
 
 type FileManager struct {
-	filePath     string
-	file         *os.File
-	mutex        sync.RWMutex
-	writeChannel <-chan Data
-	currentSize  int64
-	tombstone    bool
-	closed       bool
+	file         atomic.Value // stores *os.File (nil after Close())
+	writeChannel atomic.Value // stores <-chan Data (nil when no writer)
+	currentSize  atomic.Uint64
 }
 
 func NewFileManager(filePath string) (*FileManager, error) {
@@ -26,7 +23,7 @@ func NewFileManager(filePath string) (*FileManager, error) {
 		return nil, NewInvalidInputError("file path cannot be empty", nil)
 	}
 
-	file, err := os.OpenFile(filePath, os.O_RDWR, 0644)
+	file, err := os.OpenFile(filePath, os.O_RDWR|os.O_APPEND, 0644)
 	if err != nil {
 		return nil, NewPathError("failed to open file", err)
 	}
@@ -37,45 +34,38 @@ func NewFileManager(filePath string) (*FileManager, error) {
 		return nil, NewPathError("failed to stat file", err)
 	}
 
-	fm := &FileManager{
-		filePath:    filePath,
-		file:        file,
-		currentSize: fileInfo.Size(),
-		tombstone:   false,
-		closed:      false,
-	}
+	fm := &FileManager{}
+	fm.file.Store(file)
+	fm.writeChannel.Store((<-chan Data)(nil))
+	fm.currentSize.Store(uint64(fileInfo.Size()))
 
 	return fm, nil
 }
 
-func (fm *FileManager) Read(start int64, size int) ([]byte, error) {
-	fm.mutex.RLock()
-	defer fm.mutex.RUnlock()
-
-	if fm.closed {
-		return nil, NewInvalidActionError("file manager is closed", nil)
-	}
-	if fm.tombstone {
-		return nil, NewInvalidActionError("file manager is tombstoned", nil)
-	}
-
+func (fm *FileManager) Read(start int64, size int32) ([]byte, error) {
 	if start < 0 {
 		return nil, NewInvalidInputError("start offset cannot be negative", nil)
 	}
 	if size <= 0 {
 		return nil, NewInvalidInputError("size must be positive", nil)
 	}
-	size64 := int64(size)
-	if size64 > math.MaxInt64-start {
-		return nil, NewInvalidInputError("read range overflows int64", nil)
-	}
-	if start+size64 > fm.currentSize {
+	// Guaranteed not to overflow because start is int64 and size is int32
+	// Thus, the max value is MAX_INT64 + MAX_INT32 < MAX_UINT64
+	if uint64(start)+uint64(size) > fm.currentSize.Load() {
 		return nil, NewInvalidInputError("read exceeds file size", nil)
 	}
 
 	data := make([]byte, size)
-	_, err := fm.file.ReadAt(data, start)
+	file, err := fm.getFile()
 	if err != nil {
+		return nil, err
+	}
+	_, err = file.ReadAt(data, start)
+	if err != nil {
+		// If there's a race, and Close() is called before the read, detect that and wrap the correct frozendDB error
+		if errors.Is(err, os.ErrClosed) {
+			return nil, NewTombstonedError("file manager is closed", err)
+		}
 		return nil, NewCorruptDatabaseError("failed to read from file", err)
 	}
 
@@ -83,53 +73,24 @@ func (fm *FileManager) Read(start int64, size int) ([]byte, error) {
 }
 
 func (fm *FileManager) Size() int64 {
-	fm.mutex.RLock()
-	defer fm.mutex.RUnlock()
-	return fm.currentSize
-}
-
-func (fm *FileManager) IsTombstoned() bool {
-	fm.mutex.RLock()
-	defer fm.mutex.RUnlock()
-	return fm.tombstone
+	return int64(fm.currentSize.Load())
 }
 
 func (fm *FileManager) Close() error {
-	fm.mutex.Lock()
-	defer fm.mutex.Unlock()
-
-	if fm.closed {
-		return nil
+	file := fm.file.Load().(*os.File)
+	if file != nil && fm.file.CompareAndSwap(file, (*os.File)(nil)) {
+		// First time Close() was called, and also we won any race calling Close() multiple times
+		_ = file.Close()
 	}
-
-	fm.closed = true
-
-	if fm.file != nil {
-		fileErr := fm.file.Close()
-		fm.file = nil
-		if fileErr != nil {
-			return NewWriteError("failed to close file", fileErr)
-		}
-	}
-
 	return nil
 }
 
 func (fm *FileManager) SetWriter(dataChan <-chan Data) error {
-	fm.mutex.Lock()
-	defer fm.mutex.Unlock()
-
-	if fm.closed {
-		return NewInvalidActionError("file manager is closed", nil)
-	}
-	if fm.tombstone {
-		return NewInvalidActionError("file manager is tombstoned", nil)
-	}
-	if fm.writeChannel != nil {
+	// The writer channel is allowed to be set when the FileManager is closed
+	// In that case, any writes will fail
+	if !fm.writeChannel.CompareAndSwap((<-chan Data)(nil), dataChan) {
 		return NewInvalidActionError("writer already active", nil)
 	}
-
-	fm.writeChannel = dataChan
 	go fm.writerLoop(dataChan)
 
 	return nil
@@ -139,6 +100,7 @@ func (fm *FileManager) SetWriter(dataChan <-chan Data) error {
 // The channel is passed as a parameter to ensure this goroutine drains
 // the channel it was started with, even if fm.writeChannel changes.
 func (fm *FileManager) writerLoop(dataChan <-chan Data) {
+	defer fm.writeChannel.Store((<-chan Data)(nil))
 	for data := range dataChan {
 		err := fm.processWrite(data.Bytes)
 		data.Response <- err
@@ -146,50 +108,45 @@ func (fm *FileManager) writerLoop(dataChan <-chan Data) {
 			return
 		}
 	}
-
-	fm.mutex.Lock()
-	fm.writeChannel = nil
-	fm.mutex.Unlock()
 }
 
 // processWrite handles a single write operation.
 // Returns an error if the write fails or would overflow; on error, the file is tombstoned.
 func (fm *FileManager) processWrite(bytes []byte) error {
-	dataLen := int64(len(bytes))
+	// There is still a potential race condition with this function and Close()
+	// because Close() can be called at any point after it was checked above.
+	// However, in that case, either the last write will slip through the covers
+	// or the file will be closed, and file.Write() will fail from the OS perspective
+	// processWrite is the only function that can write to the file, and since there can only be
+	// writerLoop, only this function can change the currentSize. Thus, we can read the currentSize
+	// and know it won't be changed from under us.
+	currentSize := fm.currentSize.Load()
+	appendSize := uint64(len(bytes))
+	if appendSize > math.MaxInt64 || appendSize+currentSize > math.MaxInt64 {
+		return NewInvalidInputError("write would overflow file size", nil)
+	}
 
-	// RLock for validation and the write operation itself
-	writeOffset, err := func() (int64, error) {
-		fm.mutex.RLock()
-		defer fm.mutex.RUnlock()
-
-		if dataLen > math.MaxInt64-fm.currentSize {
-			return 0, NewInvalidInputError("write would overflow file size", nil)
-		}
-		if fm.file == nil {
-			return 0, NewWriteError("file is closed", nil)
-		}
-		return fm.currentSize, nil
-	}()
+	file, err := fm.getFile()
 	if err != nil {
-		fm.setTombstone()
 		return err
 	}
-
-	_, writeErr := fm.file.WriteAt(bytes, writeOffset)
+	// The file is opened with O_APPEND, so Write will append to the end of the file
+	_, writeErr := file.Write(bytes)
 	if writeErr != nil {
-		fm.setTombstone()
+		_ = fm.Close()
+		if errors.Is(writeErr, os.ErrClosed) {
+			return NewTombstonedError("file manager is closed", writeErr)
+		}
 		return NewWriteError("failed to write data", writeErr)
 	}
-
-	// Exclusive lock only for updating currentSize
-	fm.mutex.Lock()
-	defer fm.mutex.Unlock()
-	fm.currentSize += dataLen
+	fm.currentSize.Add(appendSize)
 	return nil
 }
 
-func (fm *FileManager) setTombstone() {
-	fm.mutex.Lock()
-	defer fm.mutex.Unlock()
-	fm.tombstone = true
+func (fm *FileManager) getFile() (*os.File, error) {
+	file := fm.file.Load().(*os.File)
+	if file == nil {
+		return nil, NewTombstonedError("file manager is closed", os.ErrClosed)
+	}
+	return file, nil
 }

@@ -140,7 +140,7 @@ func TestFileManager_ReadBoundaryConditions(t *testing.T) {
 				defer fm.Close()
 			}
 
-			_, err = fm.Read(tt.start, tt.size)
+			_, err = fm.Read(tt.start, int32(tt.size))
 
 			if tt.wantErrType != nil {
 				if err == nil {
@@ -208,29 +208,7 @@ func TestFileManager_Size(t *testing.T) {
 	}
 }
 
-func TestFileManager_IsTombstoned(t *testing.T) {
-	t.Parallel()
-
-	tmpFile, err := os.CreateTemp("", "frozendb_test_*.fdb")
-	if err != nil {
-		t.Fatalf("Failed to create temp file: %v", err)
-	}
-	defer os.Remove(tmpFile.Name())
-	defer tmpFile.Close()
-
-	tmpFile.WriteString("X")
-	tmpFile.Close()
-
-	fm, err := NewFileManager(tmpFile.Name())
-	if err != nil {
-		t.Fatalf("Failed to create FileManager: %v", err)
-	}
-	defer fm.Close()
-
-	if fm.IsTombstoned() {
-		t.Error("IsTombstoned() = true, want false")
-	}
-}
+// TestFileManager_IsTombstoned removed - tombstone functionality no longer exists
 
 func TestFileManager_CloseIdempotent(t *testing.T) {
 	t.Parallel()
@@ -351,9 +329,25 @@ func TestFileManager_SetWriterClosedFileManager(t *testing.T) {
 
 	dataChan := make(chan Data, 1)
 	err = fm.SetWriter(dataChan)
-	if err == nil {
-		t.Error("SetWriter on closed FileManager should fail")
+	if err != nil {
+		t.Errorf("SetWriter on closed FileManager should succeed, but got error: %v", err)
 	}
+
+	// Verify writes fail when closed
+	responseChan := make(chan error, 1)
+	dataChan <- Data{
+		Bytes:    []byte("TEST"),
+		Response: responseChan,
+	}
+	err = <-responseChan
+	if err == nil {
+		t.Error("Write should fail when FileManager is closed")
+	}
+	if _, ok := err.(*TombstonedError); !ok {
+		t.Errorf("Expected TombstonedError, got %T: %v", err, err)
+	}
+
+	close(dataChan)
 }
 
 func TestFileManager_WriteDataAndVerify(t *testing.T) {
@@ -395,7 +389,7 @@ func TestFileManager_WriteDataAndVerify(t *testing.T) {
 
 	close(dataChan)
 
-	readData, err := fm.Read(7, len(testData))
+	readData, err := fm.Read(7, int32(len(testData)))
 	if err != nil {
 		t.Fatalf("Read failed: %v", err)
 	}
@@ -452,7 +446,7 @@ func TestFileManager_WriteSequence(t *testing.T) {
 	}
 }
 
-func TestFileManager_TombstoneOnWriteError(t *testing.T) {
+func TestFileManager_CloseOnWriteError(t *testing.T) {
 	t.Parallel()
 
 	tmpFile, err := os.CreateTemp("", "frozendb_test_*.fdb")
@@ -477,8 +471,10 @@ func TestFileManager_TombstoneOnWriteError(t *testing.T) {
 	}
 
 	// Close the underlying file to force a write error
-	fm.file.Close()
-	fm.file = nil
+	file := fm.file.Load().(*os.File)
+	file.Close()
+	// Use Close() to properly set the sentinel value
+	fm.Close()
 
 	responseChan := make(chan error, 1)
 	dataChan <- Data{
@@ -491,8 +487,10 @@ func TestFileManager_TombstoneOnWriteError(t *testing.T) {
 		t.Error("Write should have failed")
 	}
 
-	if !fm.IsTombstoned() {
-		t.Error("FileManager should be tombstoned after write error")
+	// FileManager should be closed after write error (check via getFile which uses the sentinel)
+	_, err = fm.getFile()
+	if err == nil {
+		t.Error("FileManager should be closed after write error")
 	}
 
 	close(dataChan)
@@ -807,7 +805,7 @@ func TestFileManager_MultipleWriteResponseChannels(t *testing.T) {
 	close(dataChan)
 }
 
-func TestFileManager_ReadWhileTombstoned(t *testing.T) {
+func TestFileManager_ReadWhileClosed(t *testing.T) {
 	t.Parallel()
 
 	tmpFile, err := os.CreateTemp("", "frozendb_test_*.fdb")
@@ -830,9 +828,11 @@ func TestFileManager_ReadWhileTombstoned(t *testing.T) {
 		t.Fatalf("SetWriter failed: %v", err)
 	}
 
-	// Force tombstone by closing file and attempting write
-	fm.file.Close()
-	fm.file = nil
+	// Force close by closing file and attempting write
+	file := fm.file.Load().(*os.File)
+	file.Close()
+	// Use Close() to properly set the sentinel value
+	fm.Close()
 
 	responseChan := make(chan error, 1)
 	dataChan <- Data{
@@ -841,23 +841,25 @@ func TestFileManager_ReadWhileTombstoned(t *testing.T) {
 	}
 	<-responseChan
 
-	if !fm.IsTombstoned() {
-		t.Fatal("Expected tombstoned state")
+	// FileManager should be closed after write error (check via getFile which uses the sentinel)
+	_, err = fm.getFile()
+	if err == nil {
+		t.Fatal("Expected closed state")
 	}
 
-	// Reads should fail when tombstoned
+	// Reads should fail when closed
 	_, err = fm.Read(0, 4)
 	if err == nil {
-		t.Error("Read should fail when tombstoned")
+		t.Error("Read should fail when closed")
 	}
-	if _, ok := err.(*InvalidActionError); !ok {
-		t.Errorf("Expected InvalidActionError, got %T: %v", err, err)
+	if _, ok := err.(*TombstonedError); !ok {
+		t.Errorf("Expected TombstonedError, got %T: %v", err, err)
 	}
 
 	close(dataChan)
 }
 
-func TestFileManager_SetWriterWhileTombstoned(t *testing.T) {
+func TestFileManager_SetWriterWhileClosed(t *testing.T) {
 	t.Parallel()
 
 	tmpFile, err := os.CreateTemp("", "frozendb_test_*.fdb")
@@ -880,9 +882,11 @@ func TestFileManager_SetWriterWhileTombstoned(t *testing.T) {
 		t.Fatalf("SetWriter failed: %v", err)
 	}
 
-	// Force tombstone
-	fm.file.Close()
-	fm.file = nil
+	// Force close by closing file and attempting write
+	file := fm.file.Load().(*os.File)
+	file.Close()
+	// Use Close() to properly set the sentinel value
+	fm.Close()
 
 	responseChan := make(chan error, 1)
 	dataChan <- Data{
@@ -892,18 +896,48 @@ func TestFileManager_SetWriterWhileTombstoned(t *testing.T) {
 	<-responseChan
 	close(dataChan)
 
-	// Wait for writerLoop to exit
-	time.Sleep(10 * time.Millisecond)
+	// Wait for writerLoop to exit and reset writeChannel to nil
+	// Poll until SetWriter succeeds or timeout
+	var newChan chan Data
+	timeout := time.After(1 * time.Second)
+	ticker := time.NewTicker(1 * time.Millisecond)
+	defer ticker.Stop()
 
-	// SetWriter should fail when tombstoned
-	newChan := make(chan Data, 1)
-	err = fm.SetWriter(newChan)
+	writerSet := false
+	for !writerSet {
+		select {
+		case <-timeout:
+			t.Fatal("Timeout waiting for first writerLoop to finish")
+		case <-ticker.C:
+			newChan = make(chan Data, 1)
+			err = fm.SetWriter(newChan)
+			if err == nil {
+				// SetWriter succeeded
+				writerSet = true
+			} else {
+				// SetWriter failed (writer still active), close channel and retry
+				close(newChan)
+			}
+		}
+	}
+
+	// SetWriter is allowed when closed, but writes will fail
+
+	// Verify writes fail when closed
+	responseChan2 := make(chan error, 1)
+	newChan <- Data{
+		Bytes:    []byte("Y"),
+		Response: responseChan2,
+	}
+	err = <-responseChan2
 	if err == nil {
-		t.Error("SetWriter should fail when tombstoned")
+		t.Error("Write should fail when FileManager is closed")
 	}
-	if _, ok := err.(*InvalidActionError); !ok {
-		t.Errorf("Expected InvalidActionError, got %T: %v", err, err)
+	if _, ok := err.(*TombstonedError); !ok {
+		t.Errorf("Expected TombstonedError, got %T: %v", err, err)
 	}
+
+	close(newChan)
 }
 
 func TestFileManager_ConcurrentCloseAttempts(t *testing.T) {
@@ -1164,7 +1198,7 @@ func TestFileManager_LargeWriteData(t *testing.T) {
 	}
 
 	// Verify data integrity
-	readData, err := fm.Read(0, len(largeData))
+	readData, err := fm.Read(0, int32(len(largeData)))
 	if err != nil {
 		t.Fatalf("Read failed: %v", err)
 	}
@@ -1206,8 +1240,9 @@ func TestFileManager_WriteErrorStopsLoop(t *testing.T) {
 	}
 
 	// Close file to cause write errors
-	fm.file.Close()
-	fm.file = nil
+	file := fm.file.Load().(*os.File)
+	file.Close()
+	fm.file.Store((*os.File)(nil))
 
 	for i := 0; i < 5; i++ {
 		dataChan <- Data{
@@ -1226,9 +1261,10 @@ func TestFileManager_WriteErrorStopsLoop(t *testing.T) {
 	// Give time for any processing
 	time.Sleep(20 * time.Millisecond)
 
-	// The file manager should be tombstoned
-	if !fm.IsTombstoned() {
-		t.Error("FileManager should be tombstoned after write error")
+	// The file manager should be closed after write error (check via getFile which uses the sentinel)
+	_, err = fm.getFile()
+	if err == nil {
+		t.Error("FileManager should be closed after write error")
 	}
 
 	close(dataChan)
@@ -1343,7 +1379,7 @@ func TestFileManager_ReadAfterMultipleWrites(t *testing.T) {
 
 	// Read each write back
 	for i, w := range writes {
-		data, err := fm.Read(offsets[i], len(w))
+		data, err := fm.Read(offsets[i], int32(len(w)))
 		if err != nil {
 			t.Errorf("Read %d failed: %v", i, err)
 			continue
