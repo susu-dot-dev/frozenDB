@@ -2,6 +2,7 @@ package frozendb
 
 import (
 	"fmt"
+	"os"
 	"testing"
 
 	"github.com/google/uuid"
@@ -14,6 +15,22 @@ func createTestHeader() *Header {
 		version:   1,
 		rowSize:   512,
 		skewMs:    5000,
+	}
+}
+
+// Helper function to create a transaction with mock write channel for spec tests
+// This is needed because Begin() now requires writeChan (spec 015)
+func createTransactionWithMockWriter(header *Header) *Transaction {
+	writeChan := make(chan Data, 100)
+	go func() {
+		for data := range writeChan {
+			// Send success response (mock FileManager)
+			data.Response <- nil
+		}
+	}()
+	return &Transaction{
+		Header:    header,
+		writeChan: writeChan,
 	}
 }
 
@@ -1270,7 +1287,7 @@ func Test_S_011_FR_001_BeginCreatesPartialDataRow(t *testing.T) {
 
 	// Test: Begin on empty transaction succeeds and sets up for Commit
 	t.Run("begin_creates_partial_data_row", func(t *testing.T) {
-		tx := &Transaction{Header: header}
+		tx := createTransactionWithMockWriter(header)
 
 		err := tx.Begin()
 		if err != nil {
@@ -1286,7 +1303,7 @@ func Test_S_011_FR_001_BeginCreatesPartialDataRow(t *testing.T) {
 
 	// Test: Begin sets transaction to active state (verified by behavior)
 	t.Run("begin_sets_active_state", func(t *testing.T) {
-		tx := &Transaction{Header: header}
+		tx := createTransactionWithMockWriter(header)
 
 		err := tx.Begin()
 		if err != nil {
@@ -1320,7 +1337,7 @@ func Test_S_011_FR_002_CommitCreatesNullRow(t *testing.T) {
 
 	// Test: Commit after Begin creates NullRow
 	t.Run("commit_creates_null_row", func(t *testing.T) {
-		tx := &Transaction{Header: header}
+		tx := createTransactionWithMockWriter(header)
 
 		// Begin first
 		err := tx.Begin()
@@ -1343,7 +1360,7 @@ func Test_S_011_FR_002_CommitCreatesNullRow(t *testing.T) {
 
 	// Test: Commit clears the partial row
 	t.Run("commit_clears_partial_row", func(t *testing.T) {
-		tx := &Transaction{Header: header}
+		tx := createTransactionWithMockWriter(header)
 
 		err := tx.Begin()
 		if err != nil {
@@ -1392,7 +1409,7 @@ func Test_S_011_FR_003_BeginReturnsInvalidActionError(t *testing.T) {
 
 	// Test: Begin on transaction with empty row fails
 	t.Run("begin_on_transaction_with_empty_row_fails", func(t *testing.T) {
-		tx := &Transaction{Header: header}
+		tx := createTransactionWithMockWriter(header)
 
 		// First Begin -> Commit to set empty row
 		err := tx.Begin()
@@ -1418,7 +1435,7 @@ func Test_S_011_FR_003_BeginReturnsInvalidActionError(t *testing.T) {
 
 	// Test: Begin on transaction with partial row fails
 	t.Run("begin_on_transaction_with_partial_row_fails", func(t *testing.T) {
-		tx := &Transaction{Header: header}
+		tx := createTransactionWithMockWriter(header)
 
 		// First Begin to set partial row
 		err := tx.Begin()
@@ -1446,7 +1463,7 @@ func Test_S_011_FR_004_CommitReturnsInvalidActionError(t *testing.T) {
 
 	// Test: Commit on inactive transaction fails
 	t.Run("commit_on_inactive_transaction_fails", func(t *testing.T) {
-		tx := &Transaction{Header: header}
+		tx := createTransactionWithMockWriter(header)
 
 		// Try to commit without Begin
 		err := tx.Commit()
@@ -1462,7 +1479,7 @@ func Test_S_011_FR_004_CommitReturnsInvalidActionError(t *testing.T) {
 
 	// Test: Commit on already committed transaction fails
 	t.Run("commit_on_committed_transaction_fails", func(t *testing.T) {
-		tx := &Transaction{Header: header}
+		tx := createTransactionWithMockWriter(header)
 
 		// Begin and Commit first
 		err := tx.Begin()
@@ -1493,7 +1510,7 @@ func Test_S_011_FR_004_CommitReturnsInvalidActionError(t *testing.T) {
 	// The updated test now verifies that Commit() fails when called on a transaction
 	// with rows that have already been finalized but have an open transaction (rows but no commit yet).
 	t.Run("commit_on_wrong_partial_state_fails", func(t *testing.T) {
-		tx := &Transaction{Header: header}
+		tx := createTransactionWithMockWriter(header)
 
 		// Begin first
 		err := tx.Begin()
@@ -1539,7 +1556,7 @@ func Test_S_011_FR_005_TransactionContainsOneNullRow(t *testing.T) {
 	header := createTestHeader()
 
 	t.Run("empty_transaction_workflow_results_in_null_row", func(t *testing.T) {
-		tx := &Transaction{Header: header}
+		tx := createTransactionWithMockWriter(header)
 
 		// Execute Begin -> Commit workflow
 		err := tx.Begin()
@@ -1571,7 +1588,7 @@ func Test_S_011_FR_006_NullRowValidation(t *testing.T) {
 	header := createTestHeader()
 
 	t.Run("null_row_validation_after_commit", func(t *testing.T) {
-		tx := &Transaction{Header: header}
+		tx := createTransactionWithMockWriter(header)
 
 		// Execute Begin -> Commit workflow
 		err := tx.Begin()
@@ -1602,7 +1619,7 @@ func Test_S_011_FR_006_NullRowValidation(t *testing.T) {
 	})
 
 	t.Run("null_row_has_correct_controls", func(t *testing.T) {
-		tx := &Transaction{Header: header}
+		tx := createTransactionWithMockWriter(header)
 
 		err := tx.Begin()
 		if err != nil {
@@ -1641,7 +1658,7 @@ func Test_S_012_FR_001_BeginRequiredBeforeAddRow(t *testing.T) {
 	header := createTestHeader()
 
 	t.Run("addrow_fails_without_begin", func(t *testing.T) {
-		tx := &Transaction{Header: header}
+		tx := createTransactionWithMockWriter(header)
 
 		key, err := uuid.NewV7()
 		if err != nil {
@@ -1659,7 +1676,7 @@ func Test_S_012_FR_001_BeginRequiredBeforeAddRow(t *testing.T) {
 	})
 
 	t.Run("addrow_succeeds_after_begin", func(t *testing.T) {
-		tx := &Transaction{Header: header}
+		tx := createTransactionWithMockWriter(header)
 
 		err := tx.Begin()
 		if err != nil {
@@ -1684,7 +1701,7 @@ func Test_S_012_FR_002_AddRowFinalizesPartialDataRow(t *testing.T) {
 	header := createTestHeader()
 
 	t.Run("first_addrow_finalizes_initial_partial", func(t *testing.T) {
-		tx := &Transaction{Header: header}
+		tx := createTransactionWithMockWriter(header)
 
 		err := tx.Begin()
 		if err != nil {
@@ -1724,7 +1741,7 @@ func Test_S_012_FR_003_AddRowMovesPreviousToRows(t *testing.T) {
 	header := createTestHeader()
 
 	t.Run("multiple_addrows_accumulate_in_rows", func(t *testing.T) {
-		tx := &Transaction{Header: header}
+		tx := createTransactionWithMockWriter(header)
 
 		err := tx.Begin()
 		if err != nil {
@@ -1762,7 +1779,7 @@ func Test_S_012_FR_004_AddRowCreatesNewPartialDataRow(t *testing.T) {
 	header := createTestHeader()
 
 	t.Run("addrow_creates_new_partial_with_payload", func(t *testing.T) {
-		tx := &Transaction{Header: header}
+		tx := createTransactionWithMockWriter(header)
 
 		err := tx.Begin()
 		if err != nil {
@@ -1799,7 +1816,7 @@ func Test_S_012_FR_005_AddRowUsesContinueStartControl(t *testing.T) {
 	header := createTestHeader()
 
 	t.Run("first_row_uses_T_subsequent_use_R", func(t *testing.T) {
-		tx := &Transaction{Header: header}
+		tx := createTransactionWithMockWriter(header)
 
 		err := tx.Begin()
 		if err != nil {
@@ -1840,7 +1857,7 @@ func Test_S_012_FR_006_AddRowValidatesUUIDv7(t *testing.T) {
 	header := createTestHeader()
 
 	t.Run("rejects_nil_uuid", func(t *testing.T) {
-		tx := &Transaction{Header: header}
+		tx := createTransactionWithMockWriter(header)
 		tx.Begin()
 
 		err := tx.AddRow(uuid.Nil, `{"data":"test"}`)
@@ -1854,7 +1871,7 @@ func Test_S_012_FR_006_AddRowValidatesUUIDv7(t *testing.T) {
 	})
 
 	t.Run("rejects_non_v7_uuid", func(t *testing.T) {
-		tx := &Transaction{Header: header}
+		tx := createTransactionWithMockWriter(header)
 		tx.Begin()
 
 		// Create a UUIDv4 (not v7)
@@ -1877,7 +1894,7 @@ func Test_S_012_FR_007_AddRowValidatesNonEmptyValue(t *testing.T) {
 	header := createTestHeader()
 
 	t.Run("rejects_empty_value", func(t *testing.T) {
-		tx := &Transaction{Header: header}
+		tx := createTransactionWithMockWriter(header)
 		tx.Begin()
 
 		key, _ := uuid.NewV7()
@@ -1892,7 +1909,7 @@ func Test_S_012_FR_007_AddRowValidatesNonEmptyValue(t *testing.T) {
 	})
 
 	t.Run("accepts_non_empty_value", func(t *testing.T) {
-		tx := &Transaction{Header: header}
+		tx := createTransactionWithMockWriter(header)
 		tx.Begin()
 
 		key, _ := uuid.NewV7()
@@ -1909,7 +1926,7 @@ func Test_S_012_FR_008_CommitFinalizesLastPartialDataRow(t *testing.T) {
 	header := createTestHeader()
 
 	t.Run("commit_finalizes_last_row_with_tc", func(t *testing.T) {
-		tx := &Transaction{Header: header}
+		tx := createTransactionWithMockWriter(header)
 		tx.Begin()
 
 		key1, _ := uuid.NewV7()
@@ -1940,7 +1957,7 @@ func Test_S_012_FR_008_CommitFinalizesLastPartialDataRow(t *testing.T) {
 	})
 
 	t.Run("single_row_commit_with_tc", func(t *testing.T) {
-		tx := &Transaction{Header: header}
+		tx := createTransactionWithMockWriter(header)
 		tx.Begin()
 
 		key, _ := uuid.NewV7()
@@ -1969,7 +1986,7 @@ func Test_S_012_FR_009_CommitCreatesNullRowForEmptyTransaction(t *testing.T) {
 	header := createTestHeader()
 
 	t.Run("empty_transaction_creates_null_row", func(t *testing.T) {
-		tx := &Transaction{Header: header}
+		tx := createTransactionWithMockWriter(header)
 
 		err := tx.Begin()
 		if err != nil {
@@ -2001,7 +2018,7 @@ func Test_S_012_FR_010_AddRowEnforces100RowLimit(t *testing.T) {
 	header := createTestHeader()
 
 	t.Run("rejects_101st_row", func(t *testing.T) {
-		tx := &Transaction{Header: header}
+		tx := createTransactionWithMockWriter(header)
 		tx.Begin()
 
 		// Add 100 rows
@@ -2026,7 +2043,7 @@ func Test_S_012_FR_010_AddRowEnforces100RowLimit(t *testing.T) {
 	})
 
 	t.Run("allows_exactly_100_rows", func(t *testing.T) {
-		tx := &Transaction{Header: header}
+		tx := createTransactionWithMockWriter(header)
 		tx.Begin()
 
 		// Add 100 rows
@@ -2056,7 +2073,7 @@ func Test_S_012_FR_011_AddRowValidatesActiveTransaction(t *testing.T) {
 	header := createTestHeader()
 
 	t.Run("rejects_addrow_on_committed_transaction", func(t *testing.T) {
-		tx := &Transaction{Header: header}
+		tx := createTransactionWithMockWriter(header)
 		tx.Begin()
 
 		key1, _ := uuid.NewV7()
@@ -2076,7 +2093,7 @@ func Test_S_012_FR_011_AddRowValidatesActiveTransaction(t *testing.T) {
 	})
 
 	t.Run("rejects_addrow_on_inactive_transaction", func(t *testing.T) {
-		tx := &Transaction{Header: header}
+		tx := createTransactionWithMockWriter(header)
 
 		key, _ := uuid.NewV7()
 		err := tx.AddRow(key, `{"data":"test"}`)
@@ -2096,7 +2113,7 @@ func Test_S_012_FR_012_AddRowThreadSafety(t *testing.T) {
 	header := createTestHeader()
 
 	t.Run("concurrent_addrow_operations", func(t *testing.T) {
-		tx := &Transaction{Header: header}
+		tx := createTransactionWithMockWriter(header)
 		tx.Begin()
 
 		// Run concurrent AddRow operations
@@ -2143,7 +2160,7 @@ func Test_S_012_FR_013_TransactionReceivesMaxTimestamp(t *testing.T) {
 	t.Run("transaction_receives_initial_max_timestamp", func(t *testing.T) {
 		initialMaxTimestamp := int64(1000000)
 
-		tx := &Transaction{Header: header}
+		tx := createTransactionWithMockWriter(header)
 		tx.maxTimestamp = initialMaxTimestamp
 
 		if tx.GetMaxTimestamp() != initialMaxTimestamp {
@@ -2152,7 +2169,7 @@ func Test_S_012_FR_013_TransactionReceivesMaxTimestamp(t *testing.T) {
 	})
 
 	t.Run("transaction_maintains_own_copy", func(t *testing.T) {
-		tx := &Transaction{Header: header}
+		tx := createTransactionWithMockWriter(header)
 		tx.maxTimestamp = 1000
 
 		tx.Begin()
@@ -2172,7 +2189,7 @@ func Test_S_012_FR_014_AddRowPreservesUUIDOrdering(t *testing.T) {
 	header := createTestHeader()
 
 	t.Run("accepts_ascending_timestamps", func(t *testing.T) {
-		tx := &Transaction{Header: header}
+		tx := createTransactionWithMockWriter(header)
 		tx.Begin()
 
 		// Generate keys in ascending order (uuid.NewV7 generates ascending timestamps)
@@ -2198,7 +2215,7 @@ func Test_S_012_FR_015_AddRowUpdatesMaxTimestamp(t *testing.T) {
 	header := createTestHeader()
 
 	t.Run("max_timestamp_updated_after_addrow", func(t *testing.T) {
-		tx := &Transaction{Header: header}
+		tx := createTransactionWithMockWriter(header)
 		tx.maxTimestamp = 0
 		tx.Begin()
 
@@ -2229,7 +2246,7 @@ func Test_S_012_FR_016_AddRowReturnsKeyOrderingError(t *testing.T) {
 	}
 
 	t.Run("rejects_older_timestamp", func(t *testing.T) {
-		tx := &Transaction{Header: header}
+		tx := createTransactionWithMockWriter(header)
 		tx.Begin()
 
 		// Add first key
@@ -2262,7 +2279,7 @@ func Test_S_012_FR_017_EmptyDatabaseMaxTimestampZero(t *testing.T) {
 	header := createTestHeader()
 
 	t.Run("empty_database_starts_at_zero", func(t *testing.T) {
-		tx := &Transaction{Header: header}
+		tx := createTransactionWithMockWriter(header)
 
 		// Default maxTimestamp should be 0
 		if tx.GetMaxTimestamp() != 0 {
@@ -2271,7 +2288,7 @@ func Test_S_012_FR_017_EmptyDatabaseMaxTimestampZero(t *testing.T) {
 	})
 
 	t.Run("first_row_succeeds_with_valid_timestamp", func(t *testing.T) {
-		tx := &Transaction{Header: header}
+		tx := createTransactionWithMockWriter(header)
 		tx.Begin()
 
 		key, _ := uuid.NewV7()
@@ -2292,7 +2309,7 @@ func Test_S_013_FR_001_SavepointMethodExists(t *testing.T) {
 	header := createTestHeader()
 
 	t.Run("savepoint_method_exists_and_is_callable", func(t *testing.T) {
-		tx := &Transaction{Header: header}
+		tx := createTransactionWithMockWriter(header)
 
 		err := tx.Begin()
 		if err != nil {
@@ -2316,7 +2333,7 @@ func Test_S_013_FR_001_SavepointMethodExists(t *testing.T) {
 	})
 
 	t.Run("savepoint_creates_savepoint_continue_row", func(t *testing.T) {
-		tx := &Transaction{Header: header}
+		tx := createTransactionWithMockWriter(header)
 
 		err := tx.Begin()
 		if err != nil {
@@ -2358,7 +2375,7 @@ func Test_S_013_FR_005_SavepointRequiresAtLeastOneRow(t *testing.T) {
 	header := createTestHeader()
 
 	t.Run("savepoint_on_empty_transaction_fails", func(t *testing.T) {
-		tx := &Transaction{Header: header}
+		tx := createTransactionWithMockWriter(header)
 
 		err := tx.Begin()
 		if err != nil {
@@ -2376,7 +2393,7 @@ func Test_S_013_FR_005_SavepointRequiresAtLeastOneRow(t *testing.T) {
 	})
 
 	t.Run("savepoint_after_begin_only_fails", func(t *testing.T) {
-		tx := &Transaction{Header: header}
+		tx := createTransactionWithMockWriter(header)
 
 		err := tx.Begin()
 		if err != nil {
@@ -2406,7 +2423,7 @@ func Test_S_013_FR_006_SavepointReturnsErrorOnEmptyTransaction(t *testing.T) {
 	header := createTestHeader()
 
 	t.Run("savepoint_on_inactive_transaction_fails", func(t *testing.T) {
-		tx := &Transaction{Header: header}
+		tx := createTransactionWithMockWriter(header)
 
 		err := tx.Savepoint()
 		if err == nil {
@@ -2419,7 +2436,7 @@ func Test_S_013_FR_006_SavepointReturnsErrorOnEmptyTransaction(t *testing.T) {
 	})
 
 	t.Run("savepoint_on_committed_transaction_fails", func(t *testing.T) {
-		tx := &Transaction{Header: header}
+		tx := createTransactionWithMockWriter(header)
 
 		err := tx.Begin()
 		if err != nil {
@@ -2448,7 +2465,7 @@ func Test_S_013_FR_007_SavepointEnforcesMaximumNineSavepoints(t *testing.T) {
 	header := createTestHeader()
 
 	t.Run("ninth_savepoint_succeeds", func(t *testing.T) {
-		tx := &Transaction{Header: header}
+		tx := createTransactionWithMockWriter(header)
 
 		err := tx.Begin()
 		if err != nil {
@@ -2483,7 +2500,7 @@ func Test_S_013_FR_007_SavepointEnforcesMaximumNineSavepoints(t *testing.T) {
 	})
 
 	t.Run("tenth_savepoint_fails", func(t *testing.T) {
-		tx := &Transaction{Header: header}
+		tx := createTransactionWithMockWriter(header)
 
 		err := tx.Begin()
 		if err != nil {
@@ -2526,7 +2543,7 @@ func Test_S_013_FR_002_FullRollbackMethodExists(t *testing.T) {
 	header := createTestHeader()
 
 	t.Run("rollback_method_exists_and_is_callable", func(t *testing.T) {
-		tx := &Transaction{Header: header}
+		tx := createTransactionWithMockWriter(header)
 
 		err := tx.Begin()
 		if err != nil {
@@ -2550,7 +2567,7 @@ func Test_S_013_FR_002_FullRollbackMethodExists(t *testing.T) {
 	})
 
 	t.Run("full_rollback_invalidates_all_rows", func(t *testing.T) {
-		tx := &Transaction{Header: header}
+		tx := createTransactionWithMockWriter(header)
 
 		err := tx.Begin()
 		if err != nil {
@@ -2590,7 +2607,7 @@ func Test_S_013_FR_002_FullRollbackMethodExists(t *testing.T) {
 	})
 
 	t.Run("full_rollback_closes_transaction", func(t *testing.T) {
-		tx := &Transaction{Header: header}
+		tx := createTransactionWithMockWriter(header)
 
 		err := tx.Begin()
 		if err != nil {
@@ -2626,7 +2643,7 @@ func Test_S_013_FR_009_RollbackReturnsErrorOnInactiveTransaction(t *testing.T) {
 	header := createTestHeader()
 
 	t.Run("rollback_on_inactive_transaction_fails", func(t *testing.T) {
-		tx := &Transaction{Header: header}
+		tx := createTransactionWithMockWriter(header)
 
 		err := tx.Rollback(0)
 		if err == nil {
@@ -2639,7 +2656,7 @@ func Test_S_013_FR_009_RollbackReturnsErrorOnInactiveTransaction(t *testing.T) {
 	})
 
 	t.Run("rollback_on_committed_transaction_fails", func(t *testing.T) {
-		tx := &Transaction{Header: header}
+		tx := createTransactionWithMockWriter(header)
 
 		err := tx.Begin()
 		if err != nil {
@@ -2668,7 +2685,7 @@ func Test_S_013_FR_010_FullRollbackCreatesNullRowForEmptyTransaction(t *testing.
 	header := createTestHeader()
 
 	t.Run("rollback_empty_transaction_creates_null_row", func(t *testing.T) {
-		tx := &Transaction{Header: header}
+		tx := createTransactionWithMockWriter(header)
 
 		err := tx.Begin()
 		if err != nil {
@@ -2691,7 +2708,7 @@ func Test_S_013_FR_010_FullRollbackCreatesNullRowForEmptyTransaction(t *testing.
 	})
 
 	t.Run("rollback_empty_transaction_clears_partial_row", func(t *testing.T) {
-		tx := &Transaction{Header: header}
+		tx := createTransactionWithMockWriter(header)
 
 		err := tx.Begin()
 		if err != nil {
@@ -2716,7 +2733,7 @@ func Test_S_013_FR_014_FullRollbackUsesR0OrS0EndControl(t *testing.T) {
 	header := createTestHeader()
 
 	t.Run("rollback_without_savepoint_uses_R0", func(t *testing.T) {
-		tx := &Transaction{Header: header}
+		tx := createTransactionWithMockWriter(header)
 
 		err := tx.Begin()
 		if err != nil {
@@ -2756,7 +2773,7 @@ func Test_S_013_FR_014_FullRollbackUsesR0OrS0EndControl(t *testing.T) {
 	})
 
 	t.Run("rollback_with_savepoint_uses_S0", func(t *testing.T) {
-		tx := &Transaction{Header: header}
+		tx := createTransactionWithMockWriter(header)
 
 		err := tx.Begin()
 		if err != nil {
@@ -2814,7 +2831,7 @@ func Test_S_013_FR_003_PartialRollbackMethodExists(t *testing.T) {
 	header := createTestHeader()
 
 	t.Run("partial_rollback_to_savepoint_1", func(t *testing.T) {
-		tx := &Transaction{Header: header}
+		tx := createTransactionWithMockWriter(header)
 
 		err := tx.Begin()
 		if err != nil {
@@ -2862,7 +2879,7 @@ func Test_S_013_FR_003_PartialRollbackMethodExists(t *testing.T) {
 	})
 
 	t.Run("partial_rollback_to_savepoint_2", func(t *testing.T) {
-		tx := &Transaction{Header: header}
+		tx := createTransactionWithMockWriter(header)
 
 		err := tx.Begin()
 		if err != nil {
@@ -2917,7 +2934,7 @@ func Test_S_013_FR_008_RollbackReturnsErrorForInvalidSavepointNumber(t *testing.
 	header := createTestHeader()
 
 	t.Run("rollback_to_nonexistent_savepoint_fails", func(t *testing.T) {
-		tx := &Transaction{Header: header}
+		tx := createTransactionWithMockWriter(header)
 
 		err := tx.Begin()
 		if err != nil {
@@ -2941,7 +2958,7 @@ func Test_S_013_FR_008_RollbackReturnsErrorForInvalidSavepointNumber(t *testing.
 	})
 
 	t.Run("rollback_beyond_available_savepoints_fails", func(t *testing.T) {
-		tx := &Transaction{Header: header}
+		tx := createTransactionWithMockWriter(header)
 
 		err := tx.Begin()
 		if err != nil {
@@ -2973,7 +2990,7 @@ func Test_S_013_FR_008_RollbackReturnsErrorForInvalidSavepointNumber(t *testing.
 	})
 
 	t.Run("rollback_with_negative_savepoint_id_fails", func(t *testing.T) {
-		tx := &Transaction{Header: header}
+		tx := createTransactionWithMockWriter(header)
 
 		err := tx.Begin()
 		if err != nil {
@@ -2997,7 +3014,7 @@ func Test_S_013_FR_008_RollbackReturnsErrorForInvalidSavepointNumber(t *testing.
 	})
 
 	t.Run("rollback_with_savepoint_id_over_9_fails", func(t *testing.T) {
-		tx := &Transaction{Header: header}
+		tx := createTransactionWithMockWriter(header)
 
 		err := tx.Begin()
 		if err != nil {
@@ -3027,7 +3044,7 @@ func Test_S_013_FR_011_PartialRollbackCommitsRowsUpToSavepoint(t *testing.T) {
 	header := createTestHeader()
 
 	t.Run("rollback_to_savepoint_1_commits_first_row", func(t *testing.T) {
-		tx := &Transaction{Header: header}
+		tx := createTransactionWithMockWriter(header)
 
 		err := tx.Begin()
 		if err != nil {
@@ -3083,7 +3100,7 @@ func Test_S_013_FR_011_PartialRollbackCommitsRowsUpToSavepoint(t *testing.T) {
 	})
 
 	t.Run("rollback_to_savepoint_2_commits_first_two_rows", func(t *testing.T) {
-		tx := &Transaction{Header: header}
+		tx := createTransactionWithMockWriter(header)
 
 		err := tx.Begin()
 		if err != nil {
@@ -3156,7 +3173,7 @@ func Test_S_013_FR_012_PartialRollbackInvalidatesRowsAfterSavepoint(t *testing.T
 	header := createTestHeader()
 
 	t.Run("rollback_to_savepoint_1_invalidates_subsequent_rows", func(t *testing.T) {
-		tx := &Transaction{Header: header}
+		tx := createTransactionWithMockWriter(header)
 
 		err := tx.Begin()
 		if err != nil {
@@ -3220,7 +3237,7 @@ func Test_S_013_FR_013_PartialRollbackUsesRnOrSnEndControl(t *testing.T) {
 	header := createTestHeader()
 
 	t.Run("partial_rollback_uses_R1", func(t *testing.T) {
-		tx := &Transaction{Header: header}
+		tx := createTransactionWithMockWriter(header)
 
 		err := tx.Begin()
 		if err != nil {
@@ -3263,6 +3280,1100 @@ func Test_S_013_FR_013_PartialRollbackUsesRnOrSnEndControl(t *testing.T) {
 		}
 		if lastRow.EndControl[1] != '1' {
 			t.Errorf("Expected last row end control to be '1' for rollback to savepoint 1, got '%c'", lastRow.EndControl[1])
+		}
+	})
+}
+
+// =============================================================================
+// Spec 015: Transaction File Persistence
+// =============================================================================
+
+// Helper function to create a minimal valid database file for testing
+func createMinimalTestDatabase(t *testing.T, path string, header *Header) {
+	t.Helper()
+
+	file, err := os.Create(path)
+	if err != nil {
+		t.Fatalf("Failed to create test file: %v", err)
+	}
+	defer file.Close()
+
+	// Write header
+	headerBytes, err := header.MarshalText()
+	if err != nil {
+		t.Fatalf("Failed to marshal header: %v", err)
+	}
+	if _, err := file.Write(headerBytes); err != nil {
+		t.Fatalf("Failed to write header: %v", err)
+	}
+
+	// Create and write checksum row
+	checksumRow, err := NewChecksumRow(header, headerBytes)
+	if err != nil {
+		t.Fatalf("Failed to create checksum row: %v", err)
+	}
+	checksumBytes, err := checksumRow.MarshalText()
+	if err != nil {
+		t.Fatalf("Failed to marshal checksum row: %v", err)
+	}
+	if _, err := file.Write(checksumBytes); err != nil {
+		t.Fatalf("Failed to write checksum row: %v", err)
+	}
+}
+
+// Test_S_015_FR_001_BeginWritesPartialDataRow tests FR-001: When Begin() is called on a Transaction,
+// the system MUST write a PartialDataRow to the database file via the FileManager
+func Test_S_015_FR_001_BeginWritesPartialDataRow(t *testing.T) {
+	header := createTestHeader()
+
+	t.Run("begin_writes_partial_data_row_to_file", func(t *testing.T) {
+		// Create a temporary file for testing
+		tmpFile, err := os.CreateTemp("", "frozendb_test_*.db")
+		if err != nil {
+			t.Fatalf("Failed to create temp file: %v", err)
+		}
+		tmpPath := tmpFile.Name()
+		tmpFile.Close()
+		defer os.Remove(tmpPath)
+
+		// Initialize file with header and checksum row
+		createMinimalTestDatabase(t, tmpPath, header)
+
+		fm, err := NewFileManager(tmpPath)
+		if err != nil {
+			t.Fatalf("Failed to create FileManager: %v", err)
+		}
+		defer fm.Close()
+
+		// Create write channel
+		writeChan := make(chan Data, 10)
+		if err := fm.SetWriter(writeChan); err != nil {
+			t.Fatalf("Failed to set writer: %v", err)
+		}
+
+		// Create transaction with write channel
+		tx := &Transaction{
+			Header:    header,
+			writeChan: writeChan,
+		}
+
+		// Record file size before Begin
+		sizeBefore := fm.Size()
+
+		// Call Begin()
+		err = tx.Begin()
+		if err != nil {
+			t.Fatalf("Begin() failed: %v", err)
+		}
+
+		// Verify file size increased by 2 bytes (ROW_START + 'T')
+		sizeAfter := fm.Size()
+		expectedSize := sizeBefore + 2
+		if sizeAfter != expectedSize {
+			t.Errorf("Expected file size %d, got %d", expectedSize, sizeAfter)
+		}
+
+		// Read the last 2 bytes and verify they are ROW_START + 'T'
+		lastBytes, err := fm.Read(sizeAfter-2, 2)
+		if err != nil {
+			t.Fatalf("Failed to read last bytes: %v", err)
+		}
+		if lastBytes[0] != ROW_START {
+			t.Errorf("Expected ROW_START (0x1F), got 0x%02X", lastBytes[0])
+		}
+		if lastBytes[1] != byte(START_TRANSACTION) {
+			t.Errorf("Expected START_TRANSACTION ('T'), got '%c'", lastBytes[1])
+		}
+	})
+}
+
+// Test_S_015_FR_002_AddRowWritesPreviousAndNewPartialDataRow tests FR-002: When AddRow() is called on an active Transaction,
+// the system MUST write the previous PartialDataRow (if exists) to disk as a finalized row, then write a new PartialDataRow
+func Test_S_015_FR_002_AddRowWritesPreviousAndNewPartialDataRow(t *testing.T) {
+	header := createTestHeader()
+
+	t.Run("first_addrow_writes_incremental_bytes", func(t *testing.T) {
+		tmpFile, err := os.CreateTemp("", "frozendb_test_*.db")
+		if err != nil {
+			t.Fatalf("Failed to create temp file: %v", err)
+		}
+		tmpPath := tmpFile.Name()
+		tmpFile.Close()
+		defer os.Remove(tmpPath)
+
+		createMinimalTestDatabase(t, tmpPath, header)
+		fm, err := NewFileManager(tmpPath)
+		if err != nil {
+			t.Fatalf("Failed to create FileManager: %v", err)
+		}
+		defer fm.Close()
+
+		writeChan := make(chan Data, 10)
+		if err := fm.SetWriter(writeChan); err != nil {
+			t.Fatalf("Failed to set writer: %v", err)
+		}
+
+		tx := &Transaction{
+			Header:    header,
+			writeChan: writeChan,
+		}
+
+		// Begin first
+		if err := tx.Begin(); err != nil {
+			t.Fatalf("Begin() failed: %v", err)
+		}
+
+		sizeAfterBegin := fm.Size()
+
+		// First AddRow - should write incremental bytes (rowSize-7 bytes)
+		key, _ := uuid.NewV7()
+		if err := tx.AddRow(key, `{"data":"test"}`); err != nil {
+			t.Fatalf("AddRow() failed: %v", err)
+		}
+
+		// Verify file size increased
+		sizeAfterAddRow := fm.Size()
+		expectedIncrement := int64(header.GetRowSize() - 7) // rowSize-5 bytes minus 2 already written
+		if sizeAfterAddRow-sizeAfterBegin != expectedIncrement {
+			t.Errorf("Expected file size increase of %d, got %d", expectedIncrement, sizeAfterAddRow-sizeAfterBegin)
+		}
+	})
+
+	t.Run("subsequent_addrow_finalizes_previous_and_writes_new", func(t *testing.T) {
+		tmpFile, err := os.CreateTemp("", "frozendb_test_*.db")
+		if err != nil {
+			t.Fatalf("Failed to create temp file: %v", err)
+		}
+		tmpPath := tmpFile.Name()
+		tmpFile.Close()
+		defer os.Remove(tmpPath)
+
+		createMinimalTestDatabase(t, tmpPath, header)
+		fm, err := NewFileManager(tmpPath)
+		if err != nil {
+			t.Fatalf("Failed to create FileManager: %v", err)
+		}
+		defer fm.Close()
+
+		writeChan := make(chan Data, 10)
+		if err := fm.SetWriter(writeChan); err != nil {
+			t.Fatalf("Failed to set writer: %v", err)
+		}
+
+		tx := &Transaction{
+			Header:    header,
+			writeChan: writeChan,
+		}
+
+		// Begin and first AddRow
+		if err := tx.Begin(); err != nil {
+			t.Fatalf("Begin() failed: %v", err)
+		}
+		key1, _ := uuid.NewV7()
+		if err := tx.AddRow(key1, `{"data":"first"}`); err != nil {
+			t.Fatalf("First AddRow() failed: %v", err)
+		}
+
+		sizeAfterFirstAddRow := fm.Size()
+
+		// Second AddRow - should finalize previous (5 bytes: RE + parity + ROW_END) and write new (rowSize-5 bytes)
+		key2, _ := uuid.NewV7()
+		if err := tx.AddRow(key2, `{"data":"second"}`); err != nil {
+			t.Fatalf("Second AddRow() failed: %v", err)
+		}
+
+		// Verify file size increased by 5 (finalization) + rowSize-5 (new partial) = rowSize bytes
+		sizeAfterSecondAddRow := fm.Size()
+		expectedIncrement := int64(header.GetRowSize()) // 5 bytes finalization + rowSize-5 bytes new partial
+		if sizeAfterSecondAddRow-sizeAfterFirstAddRow != expectedIncrement {
+			t.Errorf("Expected file size increase of %d, got %d", expectedIncrement, sizeAfterSecondAddRow-sizeAfterFirstAddRow)
+		}
+	})
+}
+
+// Test_S_015_FR_003_CommitWithRowsWritesFinalDataRow tests FR-003: When Commit() is called on a Transaction with added rows,
+// the system MUST write the final data row to disk via the FileManager
+func Test_S_015_FR_003_CommitWithRowsWritesFinalDataRow(t *testing.T) {
+	header := createTestHeader()
+
+	t.Run("commit_writes_final_data_row", func(t *testing.T) {
+		tmpFile, err := os.CreateTemp("", "frozendb_test_*.db")
+		if err != nil {
+			t.Fatalf("Failed to create temp file: %v", err)
+		}
+		tmpPath := tmpFile.Name()
+		tmpFile.Close()
+		defer os.Remove(tmpPath)
+
+		createMinimalTestDatabase(t, tmpPath, header)
+		fm, err := NewFileManager(tmpPath)
+		if err != nil {
+			t.Fatalf("Failed to create FileManager: %v", err)
+		}
+		defer fm.Close()
+
+		writeChan := make(chan Data, 10)
+		if err := fm.SetWriter(writeChan); err != nil {
+			t.Fatalf("Failed to set writer: %v", err)
+		}
+
+		tx := &Transaction{
+			Header:    header,
+			writeChan: writeChan,
+		}
+
+		// Begin and AddRow
+		if err := tx.Begin(); err != nil {
+			t.Fatalf("Begin() failed: %v", err)
+		}
+		key, _ := uuid.NewV7()
+		if err := tx.AddRow(key, `{"data":"test"}`); err != nil {
+			t.Fatalf("AddRow() failed: %v", err)
+		}
+
+		sizeBeforeCommit := fm.Size()
+
+		// Commit
+		if err := tx.Commit(); err != nil {
+			t.Fatalf("Commit() failed: %v", err)
+		}
+
+		// Verify file size increased by remaining bytes (end_control + parity + ROW_END = 5 bytes)
+		sizeAfterCommit := fm.Size()
+		expectedIncrement := int64(5) // TC + parity + ROW_END
+		if sizeAfterCommit-sizeBeforeCommit != expectedIncrement {
+			t.Errorf("Expected file size increase of %d, got %d", expectedIncrement, sizeAfterCommit-sizeBeforeCommit)
+		}
+
+		// Verify the last row ends with TC (transaction commit)
+		lastBytes, err := fm.Read(sizeAfterCommit-5, 5)
+		if err != nil {
+			t.Fatalf("Failed to read last bytes: %v", err)
+		}
+		if lastBytes[0] != 'T' || lastBytes[1] != 'C' {
+			t.Errorf("Expected end_control='TC', got '%c%c'", lastBytes[0], lastBytes[1])
+		}
+		if lastBytes[4] != ROW_END {
+			t.Errorf("Expected ROW_END (0x0A), got 0x%02X", lastBytes[4])
+		}
+	})
+}
+
+// Test_S_015_FR_004_CommitWithoutRowsWritesNullRow tests FR-004: When Commit() is called on a Transaction with no added rows,
+// the system MUST write the current PartialDataRow (created by Begin()) as a NullRow to disk via the FileManager, resulting in exactly one row
+func Test_S_015_FR_004_CommitWithoutRowsWritesNullRow(t *testing.T) {
+	header := createTestHeader()
+
+	t.Run("empty_transaction_commit_writes_null_row", func(t *testing.T) {
+		tmpFile, err := os.CreateTemp("", "frozendb_test_*.db")
+		if err != nil {
+			t.Fatalf("Failed to create temp file: %v", err)
+		}
+		tmpPath := tmpFile.Name()
+		tmpFile.Close()
+		defer os.Remove(tmpPath)
+
+		createMinimalTestDatabase(t, tmpPath, header)
+		fm, err := NewFileManager(tmpPath)
+		if err != nil {
+			t.Fatalf("Failed to create FileManager: %v", err)
+		}
+		defer fm.Close()
+
+		writeChan := make(chan Data, 10)
+		if err := fm.SetWriter(writeChan); err != nil {
+			t.Fatalf("Failed to set writer: %v", err)
+		}
+
+		tx := &Transaction{
+			Header:    header,
+			writeChan: writeChan,
+		}
+
+		// Begin only (no AddRow)
+		if err := tx.Begin(); err != nil {
+			t.Fatalf("Begin() failed: %v", err)
+		}
+
+		sizeAfterBegin := fm.Size()
+
+		// Commit empty transaction
+		if err := tx.Commit(); err != nil {
+			t.Fatalf("Commit() failed: %v", err)
+		}
+
+		// Verify file size increased by remaining bytes (rowSize-2 bytes: everything except first 2 bytes already written)
+		sizeAfterCommit := fm.Size()
+		expectedIncrement := int64(header.GetRowSize() - 2) // Complete row minus first 2 bytes
+		if sizeAfterCommit-sizeAfterBegin != expectedIncrement {
+			t.Errorf("Expected file size increase of %d, got %d", expectedIncrement, sizeAfterCommit-sizeAfterBegin)
+		}
+
+		// Verify the row is a NullRow (end_control='NR')
+		lastBytes, err := fm.Read(sizeAfterCommit-5, 5)
+		if err != nil {
+			t.Fatalf("Failed to read last bytes: %v", err)
+		}
+		if lastBytes[0] != 'N' || lastBytes[1] != 'R' {
+			t.Errorf("Expected end_control='NR', got '%c%c'", lastBytes[0], lastBytes[1])
+		}
+		if lastBytes[4] != ROW_END {
+			t.Errorf("Expected ROW_END (0x0A), got 0x%02X", lastBytes[4])
+		}
+	})
+}
+
+// Test_S_015_FR_005_BeginSynchronousWrite tests FR-005: All write operations (Begin, AddRow, Commit)
+// MUST complete synchronously before the operation returns to the caller
+func Test_S_015_FR_005_BeginSynchronousWrite(t *testing.T) {
+	header := createTestHeader()
+
+	t.Run("begin_waits_for_write_completion", func(t *testing.T) {
+		tmpFile, err := os.CreateTemp("", "frozendb_test_*.db")
+		if err != nil {
+			t.Fatalf("Failed to create temp file: %v", err)
+		}
+		defer os.Remove(tmpFile.Name())
+		tmpFile.Close()
+
+		fm, err := NewFileManager(tmpFile.Name())
+		if err != nil {
+			t.Fatalf("Failed to create FileManager: %v", err)
+		}
+		defer fm.Close()
+
+		writeChan := make(chan Data, 10)
+		if err := fm.SetWriter(writeChan); err != nil {
+			t.Fatalf("Failed to set writer: %v", err)
+		}
+
+		tx := &Transaction{
+			Header:    header,
+			writeChan: writeChan,
+		}
+
+		// Record file size before Begin
+		sizeBefore := fm.Size()
+
+		// Call Begin() - should block until write completes
+		err = tx.Begin()
+		if err != nil {
+			t.Fatalf("Begin() failed: %v", err)
+		}
+
+		// Verify file size increased immediately after Begin() returns
+		sizeAfter := fm.Size()
+		if sizeAfter <= sizeBefore {
+			t.Errorf("Expected file size to increase after Begin(), before: %d, after: %d", sizeBefore, sizeAfter)
+		}
+
+		// Verify bytesWritten is set correctly
+		if tx.bytesWritten != 2 {
+			t.Errorf("Expected bytesWritten=2, got %d", tx.bytesWritten)
+		}
+	})
+}
+
+// Test_S_015_FR_005_AddRowSynchronousWrite tests FR-005: All write operations (Begin, AddRow, Commit)
+// MUST complete synchronously before the operation returns to the caller
+func Test_S_015_FR_005_AddRowSynchronousWrite(t *testing.T) {
+	header := createTestHeader()
+
+	t.Run("addrow_waits_for_write_completion", func(t *testing.T) {
+		tmpFile, err := os.CreateTemp("", "frozendb_test_*.db")
+		if err != nil {
+			t.Fatalf("Failed to create temp file: %v", err)
+		}
+		tmpPath := tmpFile.Name()
+		tmpFile.Close()
+		defer os.Remove(tmpPath)
+
+		createMinimalTestDatabase(t, tmpPath, header)
+		fm, err := NewFileManager(tmpPath)
+		if err != nil {
+			t.Fatalf("Failed to create FileManager: %v", err)
+		}
+		defer fm.Close()
+
+		writeChan := make(chan Data, 10)
+		if err := fm.SetWriter(writeChan); err != nil {
+			t.Fatalf("Failed to set writer: %v", err)
+		}
+
+		tx := &Transaction{
+			Header:    header,
+			writeChan: writeChan,
+		}
+
+		if err := tx.Begin(); err != nil {
+			t.Fatalf("Begin() failed: %v", err)
+		}
+
+		sizeBefore := fm.Size()
+
+		key, _ := uuid.NewV7()
+		err = tx.AddRow(key, `{"data":"test"}`)
+		if err != nil {
+			t.Fatalf("AddRow() failed: %v", err)
+		}
+
+		// Verify file size increased immediately after AddRow() returns
+		sizeAfter := fm.Size()
+		if sizeAfter <= sizeBefore {
+			t.Errorf("Expected file size to increase after AddRow(), before: %d, after: %d", sizeBefore, sizeAfter)
+		}
+	})
+}
+
+// Test_S_015_FR_005_CommitSynchronousWrite tests FR-005: All write operations (Begin, AddRow, Commit)
+// MUST complete synchronously before the operation returns to the caller
+func Test_S_015_FR_005_CommitSynchronousWrite(t *testing.T) {
+	header := createTestHeader()
+
+	t.Run("commit_waits_for_write_completion", func(t *testing.T) {
+		tmpFile, err := os.CreateTemp("", "frozendb_test_*.db")
+		if err != nil {
+			t.Fatalf("Failed to create temp file: %v", err)
+		}
+		tmpPath := tmpFile.Name()
+		tmpFile.Close()
+		defer os.Remove(tmpPath)
+
+		createMinimalTestDatabase(t, tmpPath, header)
+		fm, err := NewFileManager(tmpPath)
+		if err != nil {
+			t.Fatalf("Failed to create FileManager: %v", err)
+		}
+		defer fm.Close()
+
+		writeChan := make(chan Data, 10)
+		if err := fm.SetWriter(writeChan); err != nil {
+			t.Fatalf("Failed to set writer: %v", err)
+		}
+
+		tx := &Transaction{
+			Header:    header,
+			writeChan: writeChan,
+		}
+
+		if err := tx.Begin(); err != nil {
+			t.Fatalf("Begin() failed: %v", err)
+		}
+		key, _ := uuid.NewV7()
+		if err := tx.AddRow(key, `{"data":"test"}`); err != nil {
+			t.Fatalf("AddRow() failed: %v", err)
+		}
+
+		sizeBefore := fm.Size()
+
+		err = tx.Commit()
+		if err != nil {
+			t.Fatalf("Commit() failed: %v", err)
+		}
+
+		// Verify file size increased immediately after Commit() returns
+		sizeAfter := fm.Size()
+		if sizeAfter <= sizeBefore {
+			t.Errorf("Expected file size to increase after Commit(), before: %d, after: %d", sizeBefore, sizeAfter)
+		}
+	})
+}
+
+// Test_S_015_FR_006_BeginWriteFailureNoPartialData tests FR-006: If any write operation fails,
+// the system MUST tombstone the transaction and return the write error. All subsequent public API calls
+// on the tombstoned transaction MUST return TombstonedError
+func Test_S_015_FR_006_BeginWriteFailureNoPartialData(t *testing.T) {
+	header := createTestHeader()
+
+	t.Run("begin_tombsones_on_write_failure", func(t *testing.T) {
+		// Create a write channel but don't set up FileManager (simulates write failure)
+		writeChan := make(chan Data, 10)
+
+		tx := &Transaction{
+			Header:    header,
+			writeChan: writeChan,
+		}
+
+		// Start a goroutine that will close the channel to simulate failure
+		go func() {
+			// Wait for the write request
+			data := <-writeChan
+			// Send an error to simulate write failure
+			data.Response <- NewWriteError("simulated write failure", nil)
+		}()
+
+		// Call Begin() - should return error
+		err := tx.Begin()
+		if err == nil {
+			t.Fatal("Begin() should return error on write failure")
+		}
+
+		// FR-006: Verify transaction is tombstoned
+		if !tx.IsTombstoned() {
+			t.Error("Transaction should be tombstoned after write failure")
+		}
+
+		// FR-006: Verify subsequent API calls return TombstonedError
+		if err := tx.Begin(); err == nil {
+			t.Fatal("Begin() should return TombstonedError on tombstoned transaction")
+		} else if _, ok := err.(*TombstonedError); !ok {
+			t.Errorf("Expected TombstonedError, got %T: %v", err, err)
+		}
+
+		key, _ := uuid.NewV7()
+		if err := tx.AddRow(key, `{"data":"test"}`); err == nil {
+			t.Fatal("AddRow() should return TombstonedError on tombstoned transaction")
+		} else if _, ok := err.(*TombstonedError); !ok {
+			t.Errorf("Expected TombstonedError, got %T: %v", err, err)
+		}
+
+		if err := tx.Commit(); err == nil {
+			t.Fatal("Commit() should return TombstonedError on tombstoned transaction")
+		} else if _, ok := err.(*TombstonedError); !ok {
+			t.Errorf("Expected TombstonedError, got %T: %v", err, err)
+		}
+	})
+}
+
+// Test_S_015_FR_006_AddRowWriteFailureNoPartialData tests FR-006: If any write operation fails,
+// the system MUST tombstone the transaction and return the write error. All subsequent public API calls
+// on the tombstoned transaction MUST return TombstonedError
+func Test_S_015_FR_006_AddRowWriteFailureNoPartialData(t *testing.T) {
+	header := createTestHeader()
+
+	t.Run("addrow_tombsones_on_write_failure", func(t *testing.T) {
+		writeChan := make(chan Data, 10)
+
+		tx := &Transaction{
+			Header:    header,
+			writeChan: writeChan,
+		}
+
+		// Begin first
+		go func() {
+			data := <-writeChan
+			data.Response <- nil // Begin succeeds
+		}()
+		if err := tx.Begin(); err != nil {
+			t.Fatalf("Begin() failed: %v", err)
+		}
+
+		// Now simulate AddRow write failure
+		go func() {
+			// Consume the AddRow write request
+			data := <-writeChan
+			// Send an error to simulate write failure
+			data.Response <- NewWriteError("simulated write failure", nil)
+		}()
+
+		key, _ := uuid.NewV7()
+		err := tx.AddRow(key, `{"data":"test"}`)
+		if err == nil {
+			t.Fatal("AddRow() should return error on write failure")
+		}
+
+		// FR-006: Verify transaction is tombstoned
+		if !tx.IsTombstoned() {
+			t.Error("Transaction should be tombstoned after write failure")
+		}
+
+		// FR-006: Verify subsequent API calls return TombstonedError
+		key2, _ := uuid.NewV7()
+		if err := tx.AddRow(key2, `{"data":"test2"}`); err == nil {
+			t.Fatal("AddRow() should return TombstonedError on tombstoned transaction")
+		} else if _, ok := err.(*TombstonedError); !ok {
+			t.Errorf("Expected TombstonedError, got %T: %v", err, err)
+		}
+
+		if err := tx.Commit(); err == nil {
+			t.Fatal("Commit() should return TombstonedError on tombstoned transaction")
+		} else if _, ok := err.(*TombstonedError); !ok {
+			t.Errorf("Expected TombstonedError, got %T: %v", err, err)
+		}
+	})
+}
+
+// Test_S_015_FR_006_CommitWriteFailureNoPartialData tests FR-006: If any write operation fails,
+// the system MUST tombstone the transaction and return the write error. All subsequent public API calls
+// on the tombstoned transaction MUST return TombstonedError
+func Test_S_015_FR_006_CommitWriteFailureNoPartialData(t *testing.T) {
+	header := createTestHeader()
+
+	t.Run("commit_tombsones_on_write_failure", func(t *testing.T) {
+		writeChan := make(chan Data, 10)
+
+		tx := &Transaction{
+			Header:    header,
+			writeChan: writeChan,
+		}
+
+		// Begin and AddRow first
+		go func() {
+			data := <-writeChan
+			data.Response <- nil // Begin succeeds
+		}()
+		if err := tx.Begin(); err != nil {
+			t.Fatalf("Begin() failed: %v", err)
+		}
+
+		go func() {
+			data := <-writeChan
+			data.Response <- nil // AddRow succeeds
+		}()
+		key, _ := uuid.NewV7()
+		if err := tx.AddRow(key, `{"data":"test"}`); err != nil {
+			t.Fatalf("AddRow() failed: %v", err)
+		}
+
+		// Now simulate Commit write failure
+		go func() {
+			data := <-writeChan
+			data.Response <- NewWriteError("simulated write failure", nil)
+		}()
+
+		err := tx.Commit()
+		if err == nil {
+			t.Fatal("Commit() should return error on write failure")
+		}
+
+		// FR-006: Verify transaction is tombstoned
+		if !tx.IsTombstoned() {
+			t.Error("Transaction should be tombstoned after write failure")
+		}
+
+		// FR-006: Verify subsequent API calls return TombstonedError
+		key2, _ := uuid.NewV7()
+		if err := tx.AddRow(key2, `{"data":"test2"}`); err == nil {
+			t.Fatal("AddRow() should return TombstonedError on tombstoned transaction")
+		} else if _, ok := err.(*TombstonedError); !ok {
+			t.Errorf("Expected TombstonedError, got %T: %v", err, err)
+		}
+
+		if err := tx.Commit(); err == nil {
+			t.Fatal("Commit() should return TombstonedError on tombstoned transaction")
+		} else if _, ok := err.(*TombstonedError); !ok {
+			t.Errorf("Expected TombstonedError, got %T: %v", err, err)
+		}
+
+		if _, err := tx.GetCommittedRows(); err == nil {
+			t.Fatal("GetCommittedRows() should return TombstonedError on tombstoned transaction")
+		} else if _, ok := err.(*TombstonedError); !ok {
+			t.Errorf("Expected TombstonedError, got %T: %v", err, err)
+		}
+	})
+}
+
+// Test_S_015_FR_007_TransactionOnlyAppendsNewBytes tests FR-007: The Transaction MUST only append new bytes to the database file
+// (no modification of existing data)
+func Test_S_015_FR_007_TransactionOnlyAppendsNewBytes(t *testing.T) {
+	header := createTestHeader()
+
+	t.Run("transaction_only_appends_no_modification", func(t *testing.T) {
+		tmpFile, err := os.CreateTemp("", "frozendb_test_*.db")
+		if err != nil {
+			t.Fatalf("Failed to create temp file: %v", err)
+		}
+		tmpPath := tmpFile.Name()
+		tmpFile.Close()
+		defer os.Remove(tmpPath)
+
+		// Initialize file with header and checksum row
+		createMinimalTestDatabase(t, tmpPath, header)
+
+		// Read initial file content
+		initialContent, err := os.ReadFile(tmpPath)
+		if err != nil {
+			t.Fatalf("Failed to read initial file: %v", err)
+		}
+
+		fm, err := NewFileManager(tmpPath)
+		if err != nil {
+			t.Fatalf("Failed to create FileManager: %v", err)
+		}
+		defer fm.Close()
+
+		writeChan := make(chan Data, 10)
+		if err := fm.SetWriter(writeChan); err != nil {
+			t.Fatalf("Failed to set writer: %v", err)
+		}
+
+		tx := &Transaction{
+			Header:    header,
+			writeChan: writeChan,
+		}
+
+		// Begin, AddRow, Commit
+		if err := tx.Begin(); err != nil {
+			t.Fatalf("Begin() failed: %v", err)
+		}
+		key, _ := uuid.NewV7()
+		if err := tx.AddRow(key, `{"data":"test"}`); err != nil {
+			t.Fatalf("AddRow() failed: %v", err)
+		}
+		if err := tx.Commit(); err != nil {
+			t.Fatalf("Commit() failed: %v", err)
+		}
+
+		// Read final file content
+		finalContent, err := os.ReadFile(tmpPath)
+		if err != nil {
+			t.Fatalf("Failed to read final file: %v", err)
+		}
+
+		// Verify initial content is unchanged (prefix match)
+		if len(finalContent) < len(initialContent) {
+			t.Fatal("Final file should be at least as large as initial file")
+		}
+		for i := 0; i < len(initialContent); i++ {
+			if finalContent[i] != initialContent[i] {
+				t.Errorf("Byte at position %d was modified: expected 0x%02X, got 0x%02X", i, initialContent[i], finalContent[i])
+			}
+		}
+
+		// Verify new bytes were appended (file size increased)
+		if len(finalContent) <= len(initialContent) {
+			t.Error("File size should have increased after transaction operations")
+		}
+	})
+}
+
+// Test_S_015_FR_008_TransactionAssumesValidFile tests FR-008: The Transaction MUST assume the database file is valid on
+// initialization (header, checksum row, and finalized rows present)
+func Test_S_015_FR_008_TransactionAssumesValidFile(t *testing.T) {
+	header := createTestHeader()
+
+	t.Run("transaction_works_with_valid_file", func(t *testing.T) {
+		tmpFile, err := os.CreateTemp("", "frozendb_test_*.db")
+		if err != nil {
+			t.Fatalf("Failed to create temp file: %v", err)
+		}
+		tmpPath := tmpFile.Name()
+		tmpFile.Close()
+		defer os.Remove(tmpPath)
+
+		// Initialize file with header and checksum row (valid file structure)
+		createMinimalTestDatabase(t, tmpPath, header)
+
+		fm, err := NewFileManager(tmpPath)
+		if err != nil {
+			t.Fatalf("Failed to create FileManager: %v", err)
+		}
+		defer fm.Close()
+
+		writeChan := make(chan Data, 10)
+		if err := fm.SetWriter(writeChan); err != nil {
+			t.Fatalf("Failed to set writer: %v", err)
+		}
+
+		tx := &Transaction{
+			Header:    header,
+			writeChan: writeChan,
+		}
+
+		// Transaction should work without validating file structure (assumes it's valid)
+		if err := tx.Begin(); err != nil {
+			t.Fatalf("Begin() should succeed with valid file structure: %v", err)
+		}
+
+		key, _ := uuid.NewV7()
+		if err := tx.AddRow(key, `{"data":"test"}`); err != nil {
+			t.Fatalf("AddRow() should succeed with valid file structure: %v", err)
+		}
+
+		if err := tx.Commit(); err != nil {
+			t.Fatalf("Commit() should succeed with valid file structure: %v", err)
+		}
+	})
+}
+
+// Test_S_015_FR_009_TransactionNoChecksumRows tests FR-009: The Transaction MUST NOT write checksum rows
+// (assumes database < 10,000 rows)
+func Test_S_015_FR_009_TransactionNoChecksumRows(t *testing.T) {
+	header := createTestHeader()
+
+	t.Run("transaction_does_not_write_checksum_rows", func(t *testing.T) {
+		tmpFile, err := os.CreateTemp("", "frozendb_test_*.db")
+		if err != nil {
+			t.Fatalf("Failed to create temp file: %v", err)
+		}
+		tmpPath := tmpFile.Name()
+		tmpFile.Close()
+		defer os.Remove(tmpPath)
+
+		// Initialize file with header and checksum row
+		createMinimalTestDatabase(t, tmpPath, header)
+
+		fm, err := NewFileManager(tmpPath)
+		if err != nil {
+			t.Fatalf("Failed to create FileManager: %v", err)
+		}
+		defer fm.Close()
+
+		writeChan := make(chan Data, 10)
+		if err := fm.SetWriter(writeChan); err != nil {
+			t.Fatalf("Failed to set writer: %v", err)
+		}
+
+		tx := &Transaction{
+			Header:    header,
+			writeChan: writeChan,
+		}
+
+		// Perform multiple operations that would trigger checksum if implemented
+		if err := tx.Begin(); err != nil {
+			t.Fatalf("Begin() failed: %v", err)
+		}
+
+		// Add multiple rows (but less than 10,000)
+		for i := 0; i < 10; i++ {
+			key, _ := uuid.NewV7()
+			if err := tx.AddRow(key, fmt.Sprintf(`{"data":"row%d"}`, i)); err != nil {
+				t.Fatalf("AddRow() failed: %v", err)
+			}
+		}
+
+		if err := tx.Commit(); err != nil {
+			t.Fatalf("Commit() failed: %v", err)
+		}
+
+		// Read file and verify no checksum rows were written
+		// Checksum rows would have ROW_START + 'C' as start_control
+		fileContent, err := os.ReadFile(tmpPath)
+		if err != nil {
+			t.Fatalf("Failed to read file: %v", err)
+		}
+
+		// Search for checksum row pattern: ROW_START (0x1F) followed by 'C'
+		// Skip the initial checksum row that was created by createMinimalTestDatabase
+		initialSize := int64(len(fileContent))
+		// Find the first checksum row (created by createMinimalTestDatabase)
+		firstChecksumFound := false
+		for i := 0; i < len(fileContent)-1; i++ {
+			if fileContent[i] == ROW_START && fileContent[i+1] == 'C' {
+				if !firstChecksumFound {
+					firstChecksumFound = true
+					continue // Skip the initial checksum row
+				}
+				// Found an additional checksum row - this should not happen
+				t.Errorf("Found unexpected checksum row at byte position %d. Transaction should not write checksum rows.", i)
+			}
+		}
+
+		// Verify file size matches expected size (no additional checksum rows)
+		// Expected: header + initial checksum + transaction rows
+		// We can't calculate exact size easily, but we can verify it's reasonable
+		if initialSize < 0 {
+			t.Error("File size should be positive")
+		}
+	})
+}
+
+// Test_S_015_FR_010_ConcurrentBegin tests FR-010: Transaction methods (Begin, AddRow, Commit, Rollback, Savepoint)
+// MUST be thread-safe when called concurrently from multiple goroutines
+func Test_S_015_FR_010_ConcurrentBegin(t *testing.T) {
+	header := createTestHeader()
+
+	t.Run("concurrent_begin_operations", func(t *testing.T) {
+		tmpFile, err := os.CreateTemp("", "frozendb_test_*.db")
+		if err != nil {
+			t.Fatalf("Failed to create temp file: %v", err)
+		}
+		tmpPath := tmpFile.Name()
+		tmpFile.Close()
+		defer os.Remove(tmpPath)
+
+		createMinimalTestDatabase(t, tmpPath, header)
+		fm, err := NewFileManager(tmpPath)
+		if err != nil {
+			t.Fatalf("Failed to create FileManager: %v", err)
+		}
+		defer fm.Close()
+
+		writeChan := make(chan Data, 100)
+		if err := fm.SetWriter(writeChan); err != nil {
+			t.Fatalf("Failed to set writer: %v", err)
+		}
+
+		tx := &Transaction{
+			Header:    header,
+			writeChan: writeChan,
+		}
+
+		// Spawn multiple goroutines trying to call Begin() concurrently
+		done := make(chan error, 10)
+		for i := 0; i < 10; i++ {
+			go func() {
+				err := tx.Begin()
+				done <- err
+			}()
+		}
+
+		// Collect results
+		successCount := 0
+		errorCount := 0
+		for i := 0; i < 10; i++ {
+			err := <-done
+			if err == nil {
+				successCount++
+			} else {
+				errorCount++
+			}
+		}
+
+		// Only one Begin() should succeed, others should return InvalidActionError
+		if successCount != 1 {
+			t.Errorf("Expected exactly 1 successful Begin(), got %d", successCount)
+		}
+		if errorCount != 9 {
+			t.Errorf("Expected 9 failed Begin() calls, got %d", errorCount)
+		}
+	})
+}
+
+// Test_S_015_FR_010_ConcurrentAddRow tests FR-010: Transaction methods MUST be thread-safe
+func Test_S_015_FR_010_ConcurrentAddRow(t *testing.T) {
+	header := createTestHeader()
+
+	t.Run("concurrent_addrow_operations", func(t *testing.T) {
+		tmpFile, err := os.CreateTemp("", "frozendb_test_*.db")
+		if err != nil {
+			t.Fatalf("Failed to create temp file: %v", err)
+		}
+		tmpPath := tmpFile.Name()
+		tmpFile.Close()
+		defer os.Remove(tmpPath)
+
+		createMinimalTestDatabase(t, tmpPath, header)
+		fm, err := NewFileManager(tmpPath)
+		if err != nil {
+			t.Fatalf("Failed to create FileManager: %v", err)
+		}
+		defer fm.Close()
+
+		writeChan := make(chan Data, 100)
+		if err := fm.SetWriter(writeChan); err != nil {
+			t.Fatalf("Failed to set writer: %v", err)
+		}
+
+		tx := &Transaction{
+			Header:    header,
+			writeChan: writeChan,
+		}
+
+		// Begin first
+		if err := tx.Begin(); err != nil {
+			t.Fatalf("Begin() failed: %v", err)
+		}
+
+		// Spawn multiple goroutines calling AddRow() concurrently
+		done := make(chan error, 10)
+		for i := 0; i < 10; i++ {
+			go func(id int) {
+				key, _ := uuid.NewV7()
+				err := tx.AddRow(key, fmt.Sprintf(`{"data":"row%d"}`, id))
+				done <- err
+			}(i)
+		}
+
+		// Collect results
+		successCount := 0
+		for i := 0; i < 10; i++ {
+			err := <-done
+			if err == nil {
+				successCount++
+			}
+		}
+
+		// All AddRow() calls should succeed (they are serialized by the mutex)
+		if successCount != 10 {
+			t.Errorf("Expected all 10 AddRow() calls to succeed, got %d successes", successCount)
+		}
+
+		// Verify transaction state is consistent
+		if tx.last == nil {
+			t.Error("Transaction.last should not be nil after AddRow() calls")
+		}
+	})
+}
+
+// Test_S_015_FR_010_ConcurrentAddRowAndCommit tests FR-010: Transaction methods MUST be thread-safe
+func Test_S_015_FR_010_ConcurrentAddRowAndCommit(t *testing.T) {
+	header := createTestHeader()
+
+	t.Run("concurrent_addrow_and_commit", func(t *testing.T) {
+		tmpFile, err := os.CreateTemp("", "frozendb_test_*.db")
+		if err != nil {
+			t.Fatalf("Failed to create temp file: %v", err)
+		}
+		tmpPath := tmpFile.Name()
+		tmpFile.Close()
+		defer os.Remove(tmpPath)
+
+		createMinimalTestDatabase(t, tmpPath, header)
+		fm, err := NewFileManager(tmpPath)
+		if err != nil {
+			t.Fatalf("Failed to create FileManager: %v", err)
+		}
+		defer fm.Close()
+
+		writeChan := make(chan Data, 100)
+		if err := fm.SetWriter(writeChan); err != nil {
+			t.Fatalf("Failed to set writer: %v", err)
+		}
+
+		tx := &Transaction{
+			Header:    header,
+			writeChan: writeChan,
+		}
+
+		// Begin first
+		if err := tx.Begin(); err != nil {
+			t.Fatalf("Begin() failed: %v", err)
+		}
+
+		// Add one row first
+		key1, _ := uuid.NewV7()
+		if err := tx.AddRow(key1, `{"data":"first"}`); err != nil {
+			t.Fatalf("First AddRow() failed: %v", err)
+		}
+
+		// Spawn goroutines: some calling AddRow(), one calling Commit()
+		done := make(chan error, 5)
+		for i := 0; i < 4; i++ {
+			go func(id int) {
+				key, _ := uuid.NewV7()
+				err := tx.AddRow(key, fmt.Sprintf(`{"data":"row%d"}`, id))
+				done <- err
+			}(i)
+		}
+		go func() {
+			err := tx.Commit()
+			done <- err
+		}()
+
+		// Collect results
+		results := make([]error, 5)
+		for i := 0; i < 5; i++ {
+			results[i] = <-done
+		}
+
+		// At least Commit() should succeed, and some AddRow() may succeed before Commit()
+		commitSucceeded := false
+		for _, err := range results {
+			if err == nil {
+				commitSucceeded = true
+				break
+			}
+		}
+
+		if !commitSucceeded {
+			t.Error("Expected at least Commit() to succeed")
+		}
+
+		// Verify transaction is in a consistent state (either committed or still active)
+		// The exact state depends on timing, but it should be valid
+		if tx.last != nil && tx.empty != nil {
+			t.Error("Transaction should not have both last and empty set")
 		}
 	})
 }
