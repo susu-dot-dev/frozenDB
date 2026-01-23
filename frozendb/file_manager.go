@@ -4,7 +4,9 @@ import (
 	"errors"
 	"math"
 	"os"
+	"strings"
 	"sync/atomic"
+	"syscall"
 )
 
 type Data struct {
@@ -20,17 +22,20 @@ type Data struct {
 //   - Size: Returns current file size in bytes
 //   - Close: Closes the file
 //   - SetWriter: Sets write channel for appending data
+//   - GetMode: Returns the access mode ("read" or "write")
 type DBFile interface {
 	Read(start int64, size int32) ([]byte, error)
 	Size() int64
 	Close() error
 	SetWriter(dataChan <-chan Data) error
+	GetMode() string
 }
 
 type FileManager struct {
 	file         atomic.Value // stores *os.File (nil after Close())
 	writeChannel atomic.Value // stores <-chan Data (nil when no writer)
 	currentSize  atomic.Uint64
+	mode         string // Access mode: "read" or "write"
 }
 
 func NewFileManager(filePath string) (*FileManager, error) {
@@ -53,6 +58,75 @@ func NewFileManager(filePath string) (*FileManager, error) {
 	fm.file.Store(file)
 	fm.writeChannel.Store((<-chan Data)(nil))
 	fm.currentSize.Store(uint64(fileInfo.Size()))
+
+	return fm, nil
+}
+
+// NewDBFile creates a new DBFile instance with specified access mode.
+// Parameters:
+//   - path: Filesystem path to frozenDB database file
+//   - mode: Access mode - MODE_READ for read-only, MODE_WRITE for read-write
+//
+// Returns:
+//   - DBFile: Interface implementation configured with mode-specific behavior
+//   - error: InvalidInputError, PathError, or WriteError
+func NewDBFile(path string, mode string) (DBFile, error) {
+	// Validate mode
+	if mode != MODE_READ && mode != MODE_WRITE {
+		return nil, NewInvalidInputError("mode must be 'read' or 'write'", nil)
+	}
+
+	// Validate path extension
+	if !strings.HasSuffix(path, FILE_EXTENSION) || len(path) <= len(FILE_EXTENSION) {
+		return nil, NewInvalidInputError("path must have .fdb extension", nil)
+	}
+
+	var flags int
+	if mode == MODE_READ {
+		flags = os.O_RDONLY
+	} else {
+		flags = os.O_RDWR | os.O_APPEND
+	}
+
+	// Open file
+	file, err := os.OpenFile(path, flags, 0)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, NewPathError("database file does not exist", err)
+		}
+		if os.IsPermission(err) {
+			return nil, NewPathError("permission denied to access database file", err)
+		}
+		return nil, NewPathError("failed to open database file", err)
+	}
+
+	// Get file info for size
+	fileInfo, err := file.Stat()
+	if err != nil {
+		_ = file.Close()
+		return nil, NewPathError("failed to stat file", err)
+	}
+
+	// Create FileManager
+	fm := &FileManager{
+		mode: mode,
+	}
+	fm.file.Store(file)
+	fm.writeChannel.Store((<-chan Data)(nil))
+	fm.currentSize.Store(uint64(fileInfo.Size()))
+
+	// Acquire lock if write mode
+	if mode == MODE_WRITE {
+		lockMode := syscall.LOCK_EX | syscall.LOCK_NB
+		err = syscall.Flock(int(file.Fd()), lockMode)
+		if err != nil {
+			_ = file.Close()
+			if err == syscall.EWOULDBLOCK {
+				return nil, NewWriteError("another process has the database locked", err)
+			}
+			return nil, NewWriteError("failed to acquire file lock", err)
+		}
+	}
 
 	return fm, nil
 }
@@ -91,9 +165,17 @@ func (fm *FileManager) Size() int64 {
 	return int64(fm.currentSize.Load())
 }
 
+func (fm *FileManager) GetMode() string {
+	return fm.mode
+}
+
 func (fm *FileManager) Close() error {
 	file := fm.file.Load().(*os.File)
 	if file != nil && fm.file.CompareAndSwap(file, (*os.File)(nil)) {
+		// Release lock if in write mode
+		if fm.mode == MODE_WRITE {
+			_ = syscall.Flock(int(file.Fd()), syscall.LOCK_UN)
+		}
 		// First time Close() was called, and also we won any race calling Close() multiple times
 		_ = file.Close()
 	}
@@ -101,6 +183,11 @@ func (fm *FileManager) Close() error {
 }
 
 func (fm *FileManager) SetWriter(dataChan <-chan Data) error {
+	// Check if in read mode
+	if fm.mode == MODE_READ {
+		return NewInvalidActionError("cannot set writer on read-mode DBFile", nil)
+	}
+
 	// The writer channel is allowed to be set when the FileManager is closed
 	// In that case, any writes will fail
 	if !fm.writeChannel.CompareAndSwap((<-chan Data)(nil), dataChan) {

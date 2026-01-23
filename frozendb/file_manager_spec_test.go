@@ -1,9 +1,13 @@
 package frozendb
 
 import (
+	"fmt"
 	"os"
+	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 func Test_S_014_FR_001_ReadMethodReturnsRawBytes(t *testing.T) {
@@ -643,4 +647,399 @@ func Test_S_014_FR_013_NoArtificialReadSizeLimits(t *testing.T) {
 			t.Errorf("Read returned wrong size for size %d: got %d, want %d", size, len(data), size)
 		}
 	}
+}
+
+// Test_S_017_FR_001_NewDBFileConstructor tests FR-001: A new constructor function NewDBFile(path string, mode string)
+// MUST be added to create DBFile instances with appropriate mode configuration for read-only access with no file locking
+func Test_S_017_FR_001_NewDBFileConstructor(t *testing.T) {
+
+	// Create a test database file
+	testPath := filepath.Join(t.TempDir(), "test.fdb")
+	createTestDatabase(t, testPath)
+
+	// Test: NewDBFile with read mode should succeed
+	t.Run("read_mode_succeeds", func(t *testing.T) {
+		dbFile, err := NewDBFile(testPath, MODE_READ)
+		if err != nil {
+			t.Fatalf("NewDBFile with read mode failed: %v", err)
+		}
+		defer dbFile.Close()
+
+		// Verify GetMode() returns "read"
+		if dbFile.GetMode() != MODE_READ {
+			t.Errorf("GetMode() = %q, want %q", dbFile.GetMode(), MODE_READ)
+		}
+
+		// Verify read operations work
+		data, err := dbFile.Read(0, 64)
+		if err != nil {
+			t.Errorf("Read() failed: %v", err)
+		}
+		if len(data) != 64 {
+			t.Errorf("Read() returned %d bytes, want 64", len(data))
+		}
+	})
+
+	// Test: NewDBFile with write mode should succeed
+	t.Run("write_mode_succeeds", func(t *testing.T) {
+		dbFile, err := NewDBFile(testPath, MODE_WRITE)
+		if err != nil {
+			t.Fatalf("NewDBFile with write mode failed: %v", err)
+		}
+		defer dbFile.Close()
+
+		// Verify GetMode() returns "write"
+		if dbFile.GetMode() != MODE_WRITE {
+			t.Errorf("GetMode() = %q, want %q", dbFile.GetMode(), MODE_WRITE)
+		}
+
+		// Verify read operations work
+		data, err := dbFile.Read(0, 64)
+		if err != nil {
+			t.Errorf("Read() failed: %v", err)
+		}
+		if len(data) != 64 {
+			t.Errorf("Read() returned %d bytes, want 64", len(data))
+		}
+	})
+
+	// Test: Invalid mode should return error
+	t.Run("invalid_mode_fails", func(t *testing.T) {
+		_, err := NewDBFile(testPath, "invalid")
+		if err == nil {
+			t.Error("NewDBFile with invalid mode should have failed")
+		}
+		if _, ok := err.(*InvalidInputError); !ok {
+			t.Errorf("Expected InvalidInputError, got %T", err)
+		}
+	})
+}
+
+// Test_S_017_FR_004_ConcurrentReadersAllowed tests FR-004: Multiple concurrent readers MUST be allowed
+// to access the same file simultaneously
+func Test_S_017_FR_004_ConcurrentReadersAllowed(t *testing.T) {
+
+	// Create a test database file
+	testPath := filepath.Join(t.TempDir(), "test.fdb")
+	createTestDatabase(t, testPath)
+
+	const numReaders = 50
+	const readsPerReader = 10
+	var wg sync.WaitGroup
+	errorChan := make(chan error, numReaders*readsPerReader)
+
+	// Open multiple readers concurrently
+	for i := 0; i < numReaders; i++ {
+		wg.Add(1)
+		go func(readerID int) {
+			defer wg.Done()
+
+			dbFile, err := NewDBFile(testPath, MODE_READ)
+			if err != nil {
+				errorChan <- fmt.Errorf("reader %d: NewDBFile failed: %w", readerID, err)
+				return
+			}
+			defer dbFile.Close()
+
+			// Verify mode
+			if dbFile.GetMode() != MODE_READ {
+				errorChan <- fmt.Errorf("reader %d: GetMode() = %q, want %q", readerID, dbFile.GetMode(), MODE_READ)
+				return
+			}
+
+			// Perform multiple reads
+			for j := 0; j < readsPerReader; j++ {
+				_, err := dbFile.Read(0, 64)
+				if err != nil {
+					errorChan <- fmt.Errorf("reader %d, read %d: Read() failed: %w", readerID, j, err)
+					return
+				}
+			}
+		}(i)
+	}
+
+	wg.Wait()
+	close(errorChan)
+
+	// Check for errors
+	for err := range errorChan {
+		t.Errorf("Concurrent read failed: %v", err)
+	}
+}
+
+// Test_S_017_FR_009_NonExistentFileReadMode tests FR-009: Read mode attempts on non-existent files
+// MUST follow existing error handling patterns in open.go (return PathError for non-existent files)
+func Test_S_017_FR_009_NonExistentFileReadMode(t *testing.T) {
+
+	nonExistentPath := filepath.Join(t.TempDir(), "nonexistent.fdb")
+
+	_, err := NewDBFile(nonExistentPath, MODE_READ)
+	if err == nil {
+		t.Fatal("NewDBFile with non-existent file should have failed")
+	}
+
+	// Verify it returns PathError
+	if _, ok := err.(*PathError); !ok {
+		t.Errorf("Expected PathError for non-existent file, got %T: %v", err, err)
+	}
+
+	// Verify error message indicates file doesn't exist
+	if !strings.Contains(err.Error(), "does not exist") && !strings.Contains(err.Error(), "no such file") {
+		t.Errorf("Error message should indicate file doesn't exist, got: %v", err)
+	}
+}
+
+// Test_S_017_FR_002_NewDBFileWriteMode tests FR-002: The NewDBFile(path string, mode string) constructor
+// MUST support read-write mode with exclusive file locking when mode parameter indicates write access
+func Test_S_017_FR_002_NewDBFileWriteMode(t *testing.T) {
+	// Create a test database file
+	testPath := filepath.Join(t.TempDir(), "test.fdb")
+	createTestDatabase(t, testPath)
+
+	// Test: NewDBFile with write mode should succeed and acquire lock
+	dbFile, err := NewDBFile(testPath, MODE_WRITE)
+	if err != nil {
+		t.Fatalf("NewDBFile with write mode failed: %v", err)
+	}
+	defer dbFile.Close()
+
+	// Verify GetMode() returns "write"
+	if dbFile.GetMode() != MODE_WRITE {
+		t.Errorf("GetMode() = %q, want %q", dbFile.GetMode(), MODE_WRITE)
+	}
+
+	// Verify read operations work
+	data, err := dbFile.Read(0, 64)
+	if err != nil {
+		t.Errorf("Read() failed: %v", err)
+	}
+	if len(data) != 64 {
+		t.Errorf("Read() returned %d bytes, want 64", len(data))
+	}
+
+	// Verify write operations work (SetWriter should succeed)
+	dataChan := make(chan Data, 1)
+	err = dbFile.SetWriter(dataChan)
+	if err != nil {
+		t.Errorf("SetWriter() failed: %v", err)
+	}
+	close(dataChan)
+}
+
+// Test_S_017_FR_003_OSLevelFileLocking tests FR-003: File locking MUST use OS-level flocks
+// to ensure cross-process coordination
+func Test_S_017_FR_003_OSLevelFileLocking(t *testing.T) {
+	// Create a test database file
+	testPath := filepath.Join(t.TempDir(), "test.fdb")
+	createTestDatabase(t, testPath)
+
+	// Open first writer - should succeed
+	dbFile1, err := NewDBFile(testPath, MODE_WRITE)
+	if err != nil {
+		t.Fatalf("First NewDBFile with write mode failed: %v", err)
+	}
+
+	// Attempt to open second writer in same process - should fail with lock error
+	_, err = NewDBFile(testPath, MODE_WRITE)
+	if err == nil {
+		t.Error("Second NewDBFile with write mode should have failed due to lock")
+		dbFile1.Close()
+		return
+	}
+
+	// Verify it returns WriteError
+	if _, ok := err.(*WriteError); !ok {
+		t.Errorf("Expected WriteError for locked file, got %T: %v", err, err)
+	}
+
+	dbFile1.Close()
+}
+
+// Test_S_017_FR_005_SingleWriterOnly tests FR-005: Only one writer MUST be allowed
+// to access a file at any given time
+func Test_S_017_FR_005_SingleWriterOnly(t *testing.T) {
+	// Create a test database file
+	testPath := filepath.Join(t.TempDir(), "test.fdb")
+	createTestDatabase(t, testPath)
+
+	// Open first writer
+	dbFile1, err := NewDBFile(testPath, MODE_WRITE)
+	if err != nil {
+		t.Fatalf("First NewDBFile with write mode failed: %v", err)
+	}
+	defer dbFile1.Close()
+
+	// Verify first writer can set writer channel
+	dataChan1 := make(chan Data, 1)
+	err = dbFile1.SetWriter(dataChan1)
+	if err != nil {
+		t.Fatalf("First SetWriter failed: %v", err)
+	}
+
+	// Attempt to open second writer - should fail
+	_, err = NewDBFile(testPath, MODE_WRITE)
+	if err == nil {
+		t.Error("Second NewDBFile with write mode should have failed")
+		return
+	}
+
+	// Verify it returns WriteError
+	if _, ok := err.(*WriteError); !ok {
+		t.Errorf("Expected WriteError, got %T: %v", err, err)
+	}
+
+	close(dataChan1)
+}
+
+// Test_S_017_FR_008_LockReleaseOnClose tests FR-008: File locks MUST be properly released
+// when DBFile is closed
+func Test_S_017_FR_008_LockReleaseOnClose(t *testing.T) {
+	// Create a test database file
+	testPath := filepath.Join(t.TempDir(), "test.fdb")
+	createTestDatabase(t, testPath)
+
+	// Open first writer
+	dbFile1, err := NewDBFile(testPath, MODE_WRITE)
+	if err != nil {
+		t.Fatalf("First NewDBFile with write mode failed: %v", err)
+	}
+
+	// Verify second writer fails while first is open
+	_, err = NewDBFile(testPath, MODE_WRITE)
+	if err == nil {
+		t.Error("Second NewDBFile should have failed while first is open")
+		dbFile1.Close()
+		return
+	}
+
+	// Close first writer
+	err = dbFile1.Close()
+	if err != nil {
+		t.Fatalf("Close() failed: %v", err)
+	}
+
+	// Now second writer should succeed (lock released)
+	dbFile2, err := NewDBFile(testPath, MODE_WRITE)
+	if err != nil {
+		t.Errorf("Second NewDBFile should succeed after first closed, got: %v", err)
+		return
+	}
+	defer dbFile2.Close()
+}
+
+// Test_S_017_FR_010_NonBlockingLockAcquisition tests FR-010: Write mode MUST use only
+// non-blocking lock acquisition to fail fast if another process has the file locked
+func Test_S_017_FR_010_NonBlockingLockAcquisition(t *testing.T) {
+	// Create a test database file
+	testPath := filepath.Join(t.TempDir(), "test.fdb")
+	createTestDatabase(t, testPath)
+
+	// Open first writer
+	dbFile1, err := NewDBFile(testPath, MODE_WRITE)
+	if err != nil {
+		t.Fatalf("First NewDBFile with write mode failed: %v", err)
+	}
+	defer dbFile1.Close()
+
+	// Attempt to open second writer - should fail immediately (non-blocking)
+	start := time.Now()
+	_, err = NewDBFile(testPath, MODE_WRITE)
+	elapsed := time.Since(start)
+
+	if err == nil {
+		t.Error("Second NewDBFile should have failed")
+		return
+	}
+
+	// Verify it returns WriteError
+	if _, ok := err.(*WriteError); !ok {
+		t.Errorf("Expected WriteError, got %T: %v", err, err)
+	}
+
+	// Verify it failed fast (non-blocking) - should be < 50ms per SC-004
+	if elapsed > 50*time.Millisecond {
+		t.Errorf("Lock acquisition should be non-blocking and fast (<50ms), took %v", elapsed)
+	}
+}
+
+// Test_S_017_FR_006_RefactorOpenFunctions tests FR-006: open.go functions MUST be refactored
+// to use DBFile interface instead of direct os.File operations
+func Test_S_017_FR_006_RefactorOpenFunctions(t *testing.T) {
+	// Create a test database file
+	testPath := filepath.Join(t.TempDir(), "test.fdb")
+	createTestDatabase(t, testPath)
+
+	// Test: NewDBFile should return DBFile interface
+	t.Run("NewDBFile_returns_DBFile", func(t *testing.T) {
+		dbFile, err := NewDBFile(testPath, MODE_READ)
+		if err != nil {
+			t.Fatalf("NewDBFile failed: %v", err)
+		}
+		defer dbFile.Close()
+
+		// Verify it implements DBFile interface
+		if dbFile == nil {
+			t.Fatal("NewDBFile returned nil")
+		}
+
+		// Verify GetMode() works (DBFile interface method)
+		mode := dbFile.GetMode()
+		if mode != MODE_READ {
+			t.Errorf("GetMode() = %q, want %q", mode, MODE_READ)
+		}
+
+		// Verify Read() works (DBFile interface method)
+		data, err := dbFile.Read(0, 64)
+		if err != nil {
+			t.Errorf("Read() failed: %v", err)
+		}
+		if len(data) != 64 {
+			t.Errorf("Read() returned %d bytes, want 64", len(data))
+		}
+	})
+
+	// Test: validateDatabaseFile should accept DBFile interface
+	t.Run("validateDatabaseFile_accepts_DBFile", func(t *testing.T) {
+		dbFile, err := NewDBFile(testPath, MODE_READ)
+		if err != nil {
+			t.Fatalf("NewDBFile failed: %v", err)
+		}
+		defer dbFile.Close()
+
+		// validateDatabaseFile should work with DBFile
+		header, err := validateDatabaseFile(dbFile)
+		if err != nil {
+			t.Fatalf("validateDatabaseFile failed: %v", err)
+		}
+
+		if header == nil {
+			t.Fatal("validateDatabaseFile returned nil header")
+		}
+
+		// Verify header is valid
+		if err := header.Validate(); err != nil {
+			t.Errorf("Header validation failed: %v", err)
+		}
+	})
+
+	// Test: NewFrozenDB should use DBFile internally (indirect test via behavior)
+	t.Run("NewFrozenDB_uses_DBFile", func(t *testing.T) {
+		// Open in read mode
+		db, err := NewFrozenDB(testPath, MODE_READ)
+		if err != nil {
+			t.Fatalf("NewFrozenDB failed: %v", err)
+		}
+		defer db.Close()
+
+		// Verify it works correctly (if it uses DBFile, it should work)
+		if db.file == nil {
+			t.Fatal("FrozenDB.file is nil")
+		}
+
+		// Verify file implements DBFile interface by calling GetMode()
+		mode := db.file.GetMode()
+		if mode != MODE_READ {
+			t.Errorf("file.GetMode() = %q, want %q", mode, MODE_READ)
+		}
+	})
 }

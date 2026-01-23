@@ -19,7 +19,9 @@ func createTestHeader() *Header {
 }
 
 // mockDBFile is a minimal mock implementation of DBFile for tests
-type mockDBFile struct{}
+type mockDBFile struct {
+	mode string
+}
 
 func (m *mockDBFile) Read(start int64, size int32) ([]byte, error) {
 	return nil, NewPathError("mock DBFile: Read not implemented", nil)
@@ -35,6 +37,13 @@ func (m *mockDBFile) Close() error {
 
 func (m *mockDBFile) SetWriter(dataChan <-chan Data) error {
 	return nil
+}
+
+func (m *mockDBFile) GetMode() string {
+	if m.mode == "" {
+		return MODE_WRITE // Default to write mode for backward compatibility
+	}
+	return m.mode
 }
 
 // Helper function to create a transaction with mock write channel for spec tests

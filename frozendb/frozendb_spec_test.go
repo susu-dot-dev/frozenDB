@@ -1177,9 +1177,7 @@ func Test_S_004_FR_008_ValidatesNilPointers(t *testing.T) {
 	// Test FrozenDB.Validate() checks nil file pointer
 	db := &FrozenDB{
 		file:   nil,
-		mode:   MODE_READ,
 		header: nil,
-		closed: false,
 	}
 	err := db.Validate()
 	if err == nil {
@@ -1192,17 +1190,15 @@ func Test_S_004_FR_008_ValidatesNilPointers(t *testing.T) {
 	// Test FrozenDB.Validate() checks nil header pointer
 	testPath := filepath.Join(t.TempDir(), "test.fdb")
 	createTestDatabase(t, testPath)
-	file, err := os.Open(testPath)
+	dbFile, err := NewDBFile(testPath, MODE_READ)
 	if err != nil {
-		t.Fatalf("Failed to open file: %v", err)
+		t.Fatalf("Failed to open DBFile: %v", err)
 	}
-	defer file.Close()
+	defer dbFile.Close()
 
 	db = &FrozenDB{
-		file:   file,
-		mode:   MODE_READ,
+		file:   dbFile,
 		header: nil,
-		closed: false,
 	}
 	err = db.Validate()
 	if err == nil {
