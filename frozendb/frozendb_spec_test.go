@@ -10,6 +10,8 @@ import (
 	"strings"
 	"sync"
 	"testing"
+
+	"github.com/google/uuid"
 )
 
 // Helper to create a valid test database file with header + checksum row
@@ -2324,4 +2326,1020 @@ func Test_S_007_FR_004_rowSizeSecurityValidation(t *testing.T) {
 			}
 		})
 	}
+}
+
+// Test_S_018_FR_001_ScanLastRowForTransactionState tests FR-001: When loading a frozenDB file,
+// the system MUST scan the last row first to determine if a transaction is currently in progress,
+// then scan backwards up to 100 rows if needed to find transaction start
+func Test_S_018_FR_001_ScanLastRowForTransactionState(t *testing.T) {
+	header := createTestHeader()
+
+	t.Run("scan_last_row_for_closed_transaction", func(t *testing.T) {
+		// Create database with committed transaction (TC end control)
+		tmpFile, err := os.CreateTemp("", "frozendb_test_*.fdb")
+		if err != nil {
+			t.Fatalf("Failed to create temp file: %v", err)
+		}
+		tmpPath := tmpFile.Name()
+		tmpFile.Close()
+		defer os.Remove(tmpPath)
+
+		createMinimalTestDatabase(t, tmpPath, header)
+
+		// Add a committed transaction
+		db, err := NewFrozenDB(tmpPath, MODE_WRITE)
+		if err != nil {
+			t.Fatalf("Failed to open database: %v", err)
+		}
+		defer db.Close()
+
+		tx, err := NewTransaction(db.file, db.header)
+		if err != nil {
+			t.Fatalf("Failed to create transaction: %v", err)
+		}
+
+		key, _ := uuid.NewV7()
+		if err := tx.Begin(); err != nil {
+			t.Fatalf("Begin() failed: %v", err)
+		}
+		if err := tx.AddRow(key, `{"data":"test"}`); err != nil {
+			t.Fatalf("AddRow() failed: %v", err)
+		}
+		if err := tx.Commit(); err != nil {
+			t.Fatalf("Commit() failed: %v", err)
+		}
+
+		// Close and reopen to test recovery
+		db.Close()
+
+		// Reopen database - should detect closed transaction
+		db2, err := NewFrozenDB(tmpPath, MODE_READ)
+		if err != nil {
+			t.Fatalf("Failed to reopen database: %v", err)
+		}
+		defer db2.Close()
+
+		// GetActiveTx should return nil for closed transaction
+		activeTx := db2.GetActiveTx()
+		if activeTx != nil {
+			t.Errorf("Expected nil for closed transaction, got non-nil")
+		}
+	})
+
+	t.Run("scan_last_row_for_open_transaction", func(t *testing.T) {
+		// Create database with open transaction (RE end control)
+		tmpFile, err := os.CreateTemp("", "frozendb_test_*.fdb")
+		if err != nil {
+			t.Fatalf("Failed to create temp file: %v", err)
+		}
+		tmpPath := tmpFile.Name()
+		tmpFile.Close()
+		defer os.Remove(tmpPath)
+
+		createMinimalTestDatabase(t, tmpPath, header)
+
+		// Add an open transaction (Begin + AddRow but no Commit)
+		db, err := NewFrozenDB(tmpPath, MODE_WRITE)
+		if err != nil {
+			t.Fatalf("Failed to open database: %v", err)
+		}
+		defer db.Close()
+
+		tx, err := NewTransaction(db.file, db.header)
+		if err != nil {
+			t.Fatalf("Failed to create transaction: %v", err)
+		}
+
+		key, _ := uuid.NewV7()
+		if err := tx.Begin(); err != nil {
+			t.Fatalf("Begin() failed: %v", err)
+		}
+		if err := tx.AddRow(key, `{"data":"test"}`); err != nil {
+			t.Fatalf("AddRow() failed: %v", err)
+		}
+		// Don't commit - leave transaction open
+
+		// Close and reopen to test recovery
+		db.Close()
+
+		// Reopen database - should detect open transaction
+		db2, err := NewFrozenDB(tmpPath, MODE_READ)
+		if err != nil {
+			t.Fatalf("Failed to reopen database: %v", err)
+		}
+		defer db2.Close()
+
+		// GetActiveTx should return non-nil for open transaction
+		activeTx := db2.GetActiveTx()
+		if activeTx == nil {
+			t.Errorf("Expected non-nil for open transaction, got nil")
+		}
+	})
+}
+
+// Test_S_018_FR_002_CreateTransactionForInProgressState tests FR-002: If an in-progress transaction
+// is detected, the system MUST create and initialize a Transaction object representing the current state
+func Test_S_018_FR_002_CreateTransactionForInProgressState(t *testing.T) {
+	header := createTestHeader()
+
+	t.Run("create_transaction_for_open_state", func(t *testing.T) {
+		tmpFile, err := os.CreateTemp("", "frozendb_test_*.fdb")
+		if err != nil {
+			t.Fatalf("Failed to create temp file: %v", err)
+		}
+		tmpPath := tmpFile.Name()
+		tmpFile.Close()
+		defer os.Remove(tmpPath)
+
+		createMinimalTestDatabase(t, tmpPath, header)
+
+		// Create open transaction
+		db, err := NewFrozenDB(tmpPath, MODE_WRITE)
+		if err != nil {
+			t.Fatalf("Failed to open database: %v", err)
+		}
+		defer db.Close()
+
+		tx, err := NewTransaction(db.file, db.header)
+		if err != nil {
+			t.Fatalf("Failed to create transaction: %v", err)
+		}
+
+		key1, _ := uuid.NewV7()
+		key2, _ := uuid.NewV7()
+		if err := tx.Begin(); err != nil {
+			t.Fatalf("Begin() failed: %v", err)
+		}
+		if err := tx.AddRow(key1, `{"data":"row1"}`); err != nil {
+			t.Fatalf("AddRow() failed: %v", err)
+		}
+		if err := tx.AddRow(key2, `{"data":"row2"}`); err != nil {
+			t.Fatalf("AddRow() failed: %v", err)
+		}
+		// Leave transaction open
+
+		db.Close()
+
+		// Reopen and verify transaction is recovered
+		db2, err := NewFrozenDB(tmpPath, MODE_READ)
+		if err != nil {
+			t.Fatalf("Failed to reopen database: %v", err)
+		}
+		defer db2.Close()
+
+		activeTx := db2.GetActiveTx()
+		if activeTx == nil {
+			t.Fatalf("Expected recovered transaction, got nil")
+		}
+
+		// Verify transaction has correct rows
+		rows := activeTx.GetRows()
+		if len(rows) != 1 {
+			t.Errorf("Expected 1 finalized row, got %d", len(rows))
+		}
+
+		// Verify the row data
+		if rows[0].RowPayload.Key != key1 {
+			t.Errorf("Expected first row key %v, got %v", key1, rows[0].RowPayload.Key)
+		}
+		if rows[0].RowPayload.Value != `{"data":"row1"}` {
+			t.Errorf("Expected first row value %q, got %q", `{"data":"row1"}`, rows[0].RowPayload.Value)
+		}
+
+		// Verify last partial row exists (second row not yet finalized)
+		if activeTx.GetEmptyRow() != nil {
+			t.Error("Expected nil empty row for open transaction")
+		}
+	})
+}
+
+// Test_S_018_FR_008_DetectTransactionByEndControlCharacter tests FR-008: The system MUST detect
+// transaction state by examining the end control character of the last data row
+func Test_S_018_FR_008_DetectTransactionByEndControlCharacter(t *testing.T) {
+	header := createTestHeader()
+
+	testCases := []struct {
+		name         string
+		endControl   EndControl
+		expectActive bool
+		description  string
+	}{
+		{"RE_open", ROW_END_CONTROL, true, "RE indicates open transaction"},
+		{"SE_open", SAVEPOINT_CONTINUE, true, "SE indicates open transaction"},
+		{"TC_closed", TRANSACTION_COMMIT, false, "TC indicates closed transaction"},
+		{"SC_closed", SAVEPOINT_COMMIT, false, "SC indicates closed transaction"},
+		{"R0_closed", FULL_ROLLBACK, false, "R0 indicates closed transaction"},
+		{"R1_closed", EndControl{'R', '1'}, false, "R1 indicates closed transaction"},
+		{"S0_closed", EndControl{'S', '0'}, false, "S0 indicates closed transaction"},
+		{"S1_closed", EndControl{'S', '1'}, false, "S1 indicates closed transaction"},
+		{"NR_closed", NULL_ROW_CONTROL, false, "NR indicates closed transaction"},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			tmpFile, err := os.CreateTemp("", "frozendb_test_*.fdb")
+			if err != nil {
+				t.Fatalf("Failed to create temp file: %v", err)
+			}
+			tmpPath := tmpFile.Name()
+			tmpFile.Close()
+			defer os.Remove(tmpPath)
+
+			createMinimalTestDatabase(t, tmpPath, header)
+
+			// Create a transaction with the specified end control
+			db, err := NewFrozenDB(tmpPath, MODE_WRITE)
+			if err != nil {
+				t.Fatalf("Failed to open database: %v", err)
+			}
+			defer db.Close()
+
+			tx, err := NewTransaction(db.file, db.header)
+			if err != nil {
+				t.Fatalf("Failed to create transaction: %v", err)
+			}
+
+			key, _ := uuid.NewV7()
+			if err := tx.Begin(); err != nil {
+				t.Fatalf("Begin() failed: %v", err)
+			}
+			if err := tx.AddRow(key, `{"data":"test"}`); err != nil {
+				t.Fatalf("AddRow() failed: %v", err)
+			}
+
+			// Finalize with the specified end control
+			if tc.endControl == TRANSACTION_COMMIT {
+				if err := tx.Commit(); err != nil {
+					t.Fatalf("Commit() failed: %v", err)
+				}
+			} else if tc.endControl == SAVEPOINT_COMMIT {
+				if err := tx.Savepoint(); err != nil {
+					t.Fatalf("Savepoint() failed: %v", err)
+				}
+				if err := tx.Commit(); err != nil {
+					t.Fatalf("Commit() failed: %v", err)
+				}
+			} else if tc.endControl == ROW_END_CONTROL {
+				// Leave open (RE) - don't commit
+			} else if tc.endControl == SAVEPOINT_CONTINUE {
+				if err := tx.Savepoint(); err != nil {
+					t.Fatalf("Savepoint() failed: %v", err)
+				}
+				// Leave open (SE) - don't commit
+			} else if tc.endControl == FULL_ROLLBACK {
+				if err := tx.Rollback(0); err != nil {
+					t.Fatalf("Rollback(0) failed: %v", err)
+				}
+			} else if tc.endControl[0] == 'R' && tc.endControl[1] >= '1' && tc.endControl[1] <= '9' {
+				// For R1-R9, we need to create the savepoint on a previous row
+				// So: AddRow (creates row 1), Savepoint (marks it), AddRow (finalizes row 1 with SE, creating savepoint 1), Rollback(1)
+				if err := tx.Savepoint(); err != nil {
+					t.Fatalf("Savepoint() failed: %v", err)
+				}
+				// Add another row to finalize the previous row with savepoint
+				key2, _ := uuid.NewV7()
+				if err := tx.AddRow(key2, `{"data":"test2"}`); err != nil {
+					t.Fatalf("AddRow() failed: %v", err)
+				}
+				savepointId := int(tc.endControl[1] - '0')
+				if err := tx.Rollback(savepointId); err != nil {
+					t.Fatalf("Rollback(%d) failed: %v", savepointId, err)
+				}
+			} else if tc.endControl[0] == 'S' && tc.endControl[1] >= '0' && tc.endControl[1] <= '9' {
+				// For S0-S9, savepoint is created on the same row as rollback
+				// For S0: Savepoint then Rollback(0) creates S0
+				// For S1+: Need previous savepoint, so: AddRow, Savepoint, AddRow (creates savepoint 1), Savepoint, Rollback(1) creates S1
+				savepointId := int(tc.endControl[1] - '0')
+				if savepointId == 0 {
+					// S0: Savepoint on current row, then rollback to 0
+					if err := tx.Savepoint(); err != nil {
+						t.Fatalf("Savepoint() failed: %v", err)
+					}
+					if err := tx.Rollback(0); err != nil {
+						t.Fatalf("Rollback(0) failed: %v", err)
+					}
+				} else {
+					// S1-S9: Need previous savepoint
+					if err := tx.Savepoint(); err != nil {
+						t.Fatalf("Savepoint() failed: %v", err)
+					}
+					// Add another row to finalize the previous row with savepoint
+					key2, _ := uuid.NewV7()
+					if err := tx.AddRow(key2, `{"data":"test2"}`); err != nil {
+						t.Fatalf("AddRow() failed: %v", err)
+					}
+					// Create savepoint on current row, then rollback to previous savepoint
+					if err := tx.Savepoint(); err != nil {
+						t.Fatalf("Savepoint() failed: %v", err)
+					}
+					if err := tx.Rollback(savepointId); err != nil {
+						t.Fatalf("Rollback(%d) failed: %v", savepointId, err)
+					}
+				}
+			} else if tc.endControl == NULL_ROW_CONTROL {
+				// Empty transaction commit creates NullRow
+				if err := tx.Commit(); err != nil {
+					t.Fatalf("Commit() failed: %v", err)
+				}
+			}
+
+			db.Close()
+
+			// Reopen and check transaction state
+			db2, err := NewFrozenDB(tmpPath, MODE_READ)
+			if err != nil {
+				t.Fatalf("Failed to reopen database: %v", err)
+			}
+			defer db2.Close()
+
+			activeTx := db2.GetActiveTx()
+			if tc.expectActive {
+				if activeTx == nil {
+					t.Errorf("Expected active transaction for %s, got nil", tc.description)
+				}
+			} else {
+				if activeTx != nil {
+					t.Errorf("Expected nil for %s, got non-nil transaction", tc.description)
+				}
+			}
+		})
+	}
+}
+
+// Test_S_018_FR_009_HandlePartialDataRowDuringRecovery tests FR-009: The system MUST handle
+// PartialDataRow states correctly during transaction recovery
+func Test_S_018_FR_009_HandlePartialDataRowDuringRecovery(t *testing.T) {
+	header := createTestHeader()
+
+	t.Run("recover_partial_data_row_state1", func(t *testing.T) {
+		// State 1: ROW_START + START_Control bytes only
+		tmpFile, err := os.CreateTemp("", "frozendb_test_*.fdb")
+		if err != nil {
+			t.Fatalf("Failed to create temp file: %v", err)
+		}
+		tmpPath := tmpFile.Name()
+		tmpFile.Close()
+		defer os.Remove(tmpPath)
+
+		createMinimalTestDatabase(t, tmpPath, header)
+
+		// Create transaction and begin (writes state 1 PartialDataRow)
+		db, err := NewFrozenDB(tmpPath, MODE_WRITE)
+		if err != nil {
+			t.Fatalf("Failed to open database: %v", err)
+		}
+		defer db.Close()
+
+		tx, err := NewTransaction(db.file, db.header)
+		if err != nil {
+			t.Fatalf("Failed to create transaction: %v", err)
+		}
+
+		if err := tx.Begin(); err != nil {
+			t.Fatalf("Begin() failed: %v", err)
+		}
+		// Don't add row - leave in state 1
+
+		db.Close()
+
+		// Reopen and verify recovery
+		db2, err := NewFrozenDB(tmpPath, MODE_READ)
+		if err != nil {
+			t.Fatalf("Failed to reopen database: %v", err)
+		}
+		defer db2.Close()
+
+		activeTx := db2.GetActiveTx()
+		if activeTx == nil {
+			t.Fatalf("Expected recovered transaction for PartialDataRow state 1, got nil")
+		}
+	})
+
+	t.Run("recover_partial_data_row_state2", func(t *testing.T) {
+		// State 2: State 1 + key UUID + value JSON
+		tmpFile, err := os.CreateTemp("", "frozendb_test_*.fdb")
+		if err != nil {
+			t.Fatalf("Failed to create temp file: %v", err)
+		}
+		tmpPath := tmpFile.Name()
+		tmpFile.Close()
+		defer os.Remove(tmpPath)
+
+		createMinimalTestDatabase(t, tmpPath, header)
+
+		// Create transaction, begin, and add row (writes state 2 PartialDataRow)
+		db, err := NewFrozenDB(tmpPath, MODE_WRITE)
+		if err != nil {
+			t.Fatalf("Failed to open database: %v", err)
+		}
+		defer db.Close()
+
+		tx, err := NewTransaction(db.file, db.header)
+		if err != nil {
+			t.Fatalf("Failed to create transaction: %v", err)
+		}
+
+		key, _ := uuid.NewV7()
+		if err := tx.Begin(); err != nil {
+			t.Fatalf("Begin() failed: %v", err)
+		}
+		if err := tx.AddRow(key, `{"data":"test"}`); err != nil {
+			t.Fatalf("AddRow() failed: %v", err)
+		}
+		// Don't finalize - leave in state 2
+
+		db.Close()
+
+		// Reopen and verify recovery
+		db2, err := NewFrozenDB(tmpPath, MODE_READ)
+		if err != nil {
+			t.Fatalf("Failed to reopen database: %v", err)
+		}
+		defer db2.Close()
+
+		activeTx := db2.GetActiveTx()
+		if activeTx == nil {
+			t.Fatalf("Expected recovered transaction for PartialDataRow state 2, got nil")
+		}
+	})
+
+	t.Run("recover_partial_data_row_state3", func(t *testing.T) {
+		// State 3: State 2 + 'S' first character of END_CONTROL
+		tmpFile, err := os.CreateTemp("", "frozendb_test_*.fdb")
+		if err != nil {
+			t.Fatalf("Failed to create temp file: %v", err)
+		}
+		tmpPath := tmpFile.Name()
+		tmpFile.Close()
+		defer os.Remove(tmpPath)
+
+		createMinimalTestDatabase(t, tmpPath, header)
+
+		// Create transaction, begin, add row, and savepoint (writes state 3 PartialDataRow)
+		db, err := NewFrozenDB(tmpPath, MODE_WRITE)
+		if err != nil {
+			t.Fatalf("Failed to open database: %v", err)
+		}
+		defer db.Close()
+
+		tx, err := NewTransaction(db.file, db.header)
+		if err != nil {
+			t.Fatalf("Failed to create transaction: %v", err)
+		}
+
+		key, _ := uuid.NewV7()
+		if err := tx.Begin(); err != nil {
+			t.Fatalf("Begin() failed: %v", err)
+		}
+		if err := tx.AddRow(key, `{"data":"test"}`); err != nil {
+			t.Fatalf("AddRow() failed: %v", err)
+		}
+		if err := tx.Savepoint(); err != nil {
+			t.Fatalf("Savepoint() failed: %v", err)
+		}
+		// Don't finalize - leave in state 3
+
+		db.Close()
+
+		// Reopen and verify recovery
+		db2, err := NewFrozenDB(tmpPath, MODE_READ)
+		if err != nil {
+			t.Fatalf("Failed to reopen database: %v", err)
+		}
+		defer db2.Close()
+
+		activeTx := db2.GetActiveTx()
+		if activeTx == nil {
+			t.Fatalf("Expected recovered transaction for PartialDataRow state 3, got nil")
+		}
+	})
+}
+
+// Test_S_018_FR_010_DetectAllValidTransactionEndings tests FR-010: Transaction detection MUST work
+// for all valid transaction endings (TC, SC, R0-R9, S0-S9, NR, RE, SE)
+func Test_S_018_FR_010_DetectAllValidTransactionEndings(t *testing.T) {
+	header := createTestHeader()
+
+	// Test all valid transaction endings
+	endControls := []struct {
+		name         string
+		endControl   EndControl
+		expectActive bool
+		setupFunc    func(*Transaction) error
+	}{
+		{"TC", TRANSACTION_COMMIT, false, func(tx *Transaction) error {
+			key, _ := uuid.NewV7()
+			if err := tx.Begin(); err != nil {
+				return err
+			}
+			if err := tx.AddRow(key, `{"data":"test"}`); err != nil {
+				return err
+			}
+			return tx.Commit()
+		}},
+		{"SC", SAVEPOINT_COMMIT, false, func(tx *Transaction) error {
+			key, _ := uuid.NewV7()
+			if err := tx.Begin(); err != nil {
+				return err
+			}
+			if err := tx.AddRow(key, `{"data":"test"}`); err != nil {
+				return err
+			}
+			if err := tx.Savepoint(); err != nil {
+				return err
+			}
+			return tx.Commit()
+		}},
+		{"RE", ROW_END_CONTROL, true, func(tx *Transaction) error {
+			key, _ := uuid.NewV7()
+			if err := tx.Begin(); err != nil {
+				return err
+			}
+			return tx.AddRow(key, `{"data":"test"}`)
+		}},
+		{"SE", SAVEPOINT_CONTINUE, true, func(tx *Transaction) error {
+			key, _ := uuid.NewV7()
+			if err := tx.Begin(); err != nil {
+				return err
+			}
+			if err := tx.AddRow(key, `{"data":"test"}`); err != nil {
+				return err
+			}
+			return tx.Savepoint()
+		}},
+		{"R0", FULL_ROLLBACK, false, func(tx *Transaction) error {
+			key, _ := uuid.NewV7()
+			if err := tx.Begin(); err != nil {
+				return err
+			}
+			if err := tx.AddRow(key, `{"data":"test"}`); err != nil {
+				return err
+			}
+			return tx.Rollback(0)
+		}},
+		{"R1", EndControl{'R', '1'}, false, func(tx *Transaction) error {
+			key, _ := uuid.NewV7()
+			if err := tx.Begin(); err != nil {
+				return err
+			}
+			if err := tx.AddRow(key, `{"data":"test"}`); err != nil {
+				return err
+			}
+			if err := tx.Savepoint(); err != nil {
+				return err
+			}
+			// Add another row to finalize the previous row with savepoint
+			key2, _ := uuid.NewV7()
+			if err := tx.AddRow(key2, `{"data":"test2"}`); err != nil {
+				return err
+			}
+			return tx.Rollback(1)
+		}},
+		{"S0", EndControl{'S', '0'}, false, func(tx *Transaction) error {
+			key, _ := uuid.NewV7()
+			if err := tx.Begin(); err != nil {
+				return err
+			}
+			if err := tx.AddRow(key, `{"data":"test"}`); err != nil {
+				return err
+			}
+			if err := tx.Savepoint(); err != nil {
+				return err
+			}
+			return tx.Rollback(0)
+		}},
+		{"S1", EndControl{'S', '1'}, false, func(tx *Transaction) error {
+			key, _ := uuid.NewV7()
+			if err := tx.Begin(); err != nil {
+				return err
+			}
+			if err := tx.AddRow(key, `{"data":"test"}`); err != nil {
+				return err
+			}
+			if err := tx.Savepoint(); err != nil {
+				return err
+			}
+			key2, _ := uuid.NewV7()
+			if err := tx.AddRow(key2, `{"data":"test2"}`); err != nil {
+				return err
+			}
+			if err := tx.Savepoint(); err != nil {
+				return err
+			}
+			return tx.Rollback(1)
+		}},
+		{"NR", NULL_ROW_CONTROL, false, func(tx *Transaction) error {
+			if err := tx.Begin(); err != nil {
+				return err
+			}
+			return tx.Commit() // Empty transaction creates NullRow
+		}},
+	}
+
+	for _, tc := range endControls {
+		t.Run(tc.name, func(t *testing.T) {
+			tmpFile, err := os.CreateTemp("", "frozendb_test_*.fdb")
+			if err != nil {
+				t.Fatalf("Failed to create temp file: %v", err)
+			}
+			tmpPath := tmpFile.Name()
+			tmpFile.Close()
+			defer os.Remove(tmpPath)
+
+			createMinimalTestDatabase(t, tmpPath, header)
+
+			db, err := NewFrozenDB(tmpPath, MODE_WRITE)
+			if err != nil {
+				t.Fatalf("Failed to open database: %v", err)
+			}
+			defer db.Close()
+
+			tx, err := NewTransaction(db.file, db.header)
+			if err != nil {
+				t.Fatalf("Failed to create transaction: %v", err)
+			}
+
+			if err := tc.setupFunc(tx); err != nil {
+				t.Fatalf("Setup failed: %v", err)
+			}
+
+			db.Close()
+
+			// Reopen and verify detection
+			db2, err := NewFrozenDB(tmpPath, MODE_READ)
+			if err != nil {
+				t.Fatalf("Failed to reopen database: %v", err)
+			}
+			defer db2.Close()
+
+			activeTx := db2.GetActiveTx()
+			if tc.expectActive {
+				if activeTx == nil {
+					t.Errorf("Expected active transaction for %s, got nil", tc.name)
+				}
+			} else {
+				if activeTx != nil {
+					t.Errorf("Expected nil for %s, got non-nil transaction", tc.name)
+				}
+			}
+		})
+	}
+}
+
+// Test_S_018_FR_003_GetActiveTxReturnsCurrentTransaction tests FR-003: FrozenDB.GetActiveTx() MUST return
+// the current active Transaction or nil if no transaction is active
+func Test_S_018_FR_003_GetActiveTxReturnsCurrentTransaction(t *testing.T) {
+	header := createTestHeader()
+
+	t.Run("returns_active_transaction", func(t *testing.T) {
+		tmpFile, err := os.CreateTemp("", "frozendb_test_*.fdb")
+		if err != nil {
+			t.Fatalf("Failed to create temp file: %v", err)
+		}
+		tmpPath := tmpFile.Name()
+		tmpFile.Close()
+		defer os.Remove(tmpPath)
+
+		createMinimalTestDatabase(t, tmpPath, header)
+
+		// Create open transaction
+		db, err := NewFrozenDB(tmpPath, MODE_WRITE)
+		if err != nil {
+			t.Fatalf("Failed to open database: %v", err)
+		}
+		defer db.Close()
+
+		tx, err := NewTransaction(db.file, db.header)
+		if err != nil {
+			t.Fatalf("Failed to create transaction: %v", err)
+		}
+
+		key, _ := uuid.NewV7()
+		if err := tx.Begin(); err != nil {
+			t.Fatalf("Begin() failed: %v", err)
+		}
+		if err := tx.AddRow(key, `{"data":"test"}`); err != nil {
+			t.Fatalf("AddRow() failed: %v", err)
+		}
+		// Leave transaction open
+
+		db.Close()
+
+		// Reopen and verify GetActiveTx returns the transaction
+		db2, err := NewFrozenDB(tmpPath, MODE_READ)
+		if err != nil {
+			t.Fatalf("Failed to reopen database: %v", err)
+		}
+		defer db2.Close()
+
+		activeTx := db2.GetActiveTx()
+		if activeTx == nil {
+			t.Fatalf("Expected active transaction, got nil")
+		}
+
+		// Verify it's an active transaction
+		// For a transaction with only a PartialDataRow (not yet finalized), GetRows() returns empty
+		// but the transaction is still active (has a PartialDataRow)
+		if activeTx.IsCommitted() {
+			t.Error("Expected active transaction, but IsCommitted() returned true")
+		}
+	})
+
+	t.Run("returns_nil_when_no_transaction", func(t *testing.T) {
+		tmpFile, err := os.CreateTemp("", "frozendb_test_*.fdb")
+		if err != nil {
+			t.Fatalf("Failed to create temp file: %v", err)
+		}
+		tmpPath := tmpFile.Name()
+		tmpFile.Close()
+		defer os.Remove(tmpPath)
+
+		createMinimalTestDatabase(t, tmpPath, header)
+
+		// Open database with no transaction
+		db, err := NewFrozenDB(tmpPath, MODE_READ)
+		if err != nil {
+			t.Fatalf("Failed to open database: %v", err)
+		}
+		defer db.Close()
+
+		activeTx := db.GetActiveTx()
+		if activeTx != nil {
+			t.Errorf("Expected nil for database with no transaction, got non-nil")
+		}
+	})
+}
+
+// Test_S_018_FR_004_GetActiveTxReturnsNilForCommittedTransaction tests FR-004: FrozenDB.GetActiveTx() MUST
+// return nil for committed transactions (they are no longer active)
+func Test_S_018_FR_004_GetActiveTxReturnsNilForCommittedTransaction(t *testing.T) {
+	header := createTestHeader()
+
+	t.Run("returns_nil_after_commit", func(t *testing.T) {
+		tmpFile, err := os.CreateTemp("", "frozendb_test_*.fdb")
+		if err != nil {
+			t.Fatalf("Failed to create temp file: %v", err)
+		}
+		tmpPath := tmpFile.Name()
+		tmpFile.Close()
+		defer os.Remove(tmpPath)
+
+		createMinimalTestDatabase(t, tmpPath, header)
+
+		// Create and commit transaction
+		db, err := NewFrozenDB(tmpPath, MODE_WRITE)
+		if err != nil {
+			t.Fatalf("Failed to open database: %v", err)
+		}
+		defer db.Close()
+
+		tx, err := NewTransaction(db.file, db.header)
+		if err != nil {
+			t.Fatalf("Failed to create transaction: %v", err)
+		}
+
+		key, _ := uuid.NewV7()
+		if err := tx.Begin(); err != nil {
+			t.Fatalf("Begin() failed: %v", err)
+		}
+		if err := tx.AddRow(key, `{"data":"test"}`); err != nil {
+			t.Fatalf("AddRow() failed: %v", err)
+		}
+		if err := tx.Commit(); err != nil {
+			t.Fatalf("Commit() failed: %v", err)
+		}
+
+		db.Close()
+
+		// Reopen and verify GetActiveTx returns nil for committed transaction
+		db2, err := NewFrozenDB(tmpPath, MODE_READ)
+		if err != nil {
+			t.Fatalf("Failed to reopen database: %v", err)
+		}
+		defer db2.Close()
+
+		activeTx := db2.GetActiveTx()
+		if activeTx != nil {
+			t.Errorf("Expected nil for committed transaction, got non-nil")
+		}
+	})
+}
+
+// Test_S_018_FR_005_GetActiveTxReturnsNilForRolledBackTransaction tests FR-005: FrozenDB.GetActiveTx() MUST
+// return nil for rolled back transactions (they are no longer active)
+func Test_S_018_FR_005_GetActiveTxReturnsNilForRolledBackTransaction(t *testing.T) {
+	header := createTestHeader()
+
+	t.Run("returns_nil_after_rollback", func(t *testing.T) {
+		tmpFile, err := os.CreateTemp("", "frozendb_test_*.fdb")
+		if err != nil {
+			t.Fatalf("Failed to create temp file: %v", err)
+		}
+		tmpPath := tmpFile.Name()
+		tmpFile.Close()
+		defer os.Remove(tmpPath)
+
+		createMinimalTestDatabase(t, tmpPath, header)
+
+		// Create and rollback transaction
+		db, err := NewFrozenDB(tmpPath, MODE_WRITE)
+		if err != nil {
+			t.Fatalf("Failed to open database: %v", err)
+		}
+		defer db.Close()
+
+		tx, err := NewTransaction(db.file, db.header)
+		if err != nil {
+			t.Fatalf("Failed to create transaction: %v", err)
+		}
+
+		key, _ := uuid.NewV7()
+		if err := tx.Begin(); err != nil {
+			t.Fatalf("Begin() failed: %v", err)
+		}
+		if err := tx.AddRow(key, `{"data":"test"}`); err != nil {
+			t.Fatalf("AddRow() failed: %v", err)
+		}
+		if err := tx.Rollback(0); err != nil {
+			t.Fatalf("Rollback(0) failed: %v", err)
+		}
+
+		db.Close()
+
+		// Reopen and verify GetActiveTx returns nil for rolled back transaction
+		db2, err := NewFrozenDB(tmpPath, MODE_READ)
+		if err != nil {
+			t.Fatalf("Failed to reopen database: %v", err)
+		}
+		defer db2.Close()
+
+		activeTx := db2.GetActiveTx()
+		if activeTx != nil {
+			t.Errorf("Expected nil for rolled back transaction, got non-nil")
+		}
+	})
+}
+
+// Test_S_018_FR_006_BeginTxCreatesNewTransaction tests FR-006: FrozenDB.BeginTx() MUST create and return
+// a new Transaction when no active transaction exists
+func Test_S_018_FR_006_BeginTxCreatesNewTransaction(t *testing.T) {
+	header := createTestHeader()
+
+	t.Run("creates_new_transaction_when_none_exists", func(t *testing.T) {
+		tmpFile, err := os.CreateTemp("", "frozendb_test_*.fdb")
+		if err != nil {
+			t.Fatalf("Failed to create temp file: %v", err)
+		}
+		tmpPath := tmpFile.Name()
+		tmpFile.Close()
+		defer os.Remove(tmpPath)
+
+		createMinimalTestDatabase(t, tmpPath, header)
+
+		db, err := NewFrozenDB(tmpPath, MODE_WRITE)
+		if err != nil {
+			t.Fatalf("Failed to open database: %v", err)
+		}
+		defer db.Close()
+
+		// Verify no active transaction
+		if db.GetActiveTx() != nil {
+			t.Fatalf("Expected no active transaction initially")
+		}
+
+		// Create new transaction
+		tx, err := db.BeginTx()
+		if err != nil {
+			t.Fatalf("BeginTx() failed: %v", err)
+		}
+
+		if tx == nil {
+			t.Fatalf("Expected non-nil transaction, got nil")
+		}
+
+		// Verify transaction is active
+		activeTx := db.GetActiveTx()
+		if activeTx == nil {
+			t.Fatalf("Expected active transaction after BeginTx(), got nil")
+		}
+
+		if activeTx != tx {
+			t.Errorf("GetActiveTx() should return the same transaction as BeginTx()")
+		}
+	})
+}
+
+// Test_S_018_FR_007_BeginTxReturnsErrorForActiveTransaction tests FR-007: FrozenDB.BeginTx() MUST return
+// an error when an active transaction already exists (checked via GetActiveTx() within mutex)
+func Test_S_018_FR_007_BeginTxReturnsErrorForActiveTransaction(t *testing.T) {
+	header := createTestHeader()
+
+	t.Run("returns_error_when_transaction_exists", func(t *testing.T) {
+		tmpFile, err := os.CreateTemp("", "frozendb_test_*.fdb")
+		if err != nil {
+			t.Fatalf("Failed to create temp file: %v", err)
+		}
+		tmpPath := tmpFile.Name()
+		tmpFile.Close()
+		defer os.Remove(tmpPath)
+
+		createMinimalTestDatabase(t, tmpPath, header)
+
+		// Create open transaction
+		db, err := NewFrozenDB(tmpPath, MODE_WRITE)
+		if err != nil {
+			t.Fatalf("Failed to open database: %v", err)
+		}
+		defer db.Close()
+
+		tx, err := NewTransaction(db.file, db.header)
+		if err != nil {
+			t.Fatalf("Failed to create transaction: %v", err)
+		}
+
+		key, _ := uuid.NewV7()
+		if err := tx.Begin(); err != nil {
+			t.Fatalf("Begin() failed: %v", err)
+		}
+		if err := tx.AddRow(key, `{"data":"test"}`); err != nil {
+			t.Fatalf("AddRow() failed: %v", err)
+		}
+		// Leave transaction open
+
+		// Manually set active transaction (simulating recovery)
+		db.txMu.Lock()
+		db.activeTx = tx
+		db.txMu.Unlock()
+
+		// Try to begin new transaction - should fail
+		_, err = db.BeginTx()
+		if err == nil {
+			t.Fatalf("Expected error when active transaction exists, got nil")
+		}
+
+		// Verify error type
+		var invalidActionErr *InvalidActionError
+		if !errors.As(err, &invalidActionErr) {
+			t.Errorf("Expected InvalidActionError, got %T", err)
+		}
+	})
+
+	t.Run("returns_error_for_recovered_transaction", func(t *testing.T) {
+		tmpFile, err := os.CreateTemp("", "frozendb_test_*.fdb")
+		if err != nil {
+			t.Fatalf("Failed to create temp file: %v", err)
+		}
+		tmpPath := tmpFile.Name()
+		tmpFile.Close()
+		defer os.Remove(tmpPath)
+
+		createMinimalTestDatabase(t, tmpPath, header)
+
+		// Create open transaction
+		db, err := NewFrozenDB(tmpPath, MODE_WRITE)
+		if err != nil {
+			t.Fatalf("Failed to open database: %v", err)
+		}
+		defer db.Close()
+
+		tx, err := NewTransaction(db.file, db.header)
+		if err != nil {
+			t.Fatalf("Failed to create transaction: %v", err)
+		}
+
+		key, _ := uuid.NewV7()
+		if err := tx.Begin(); err != nil {
+			t.Fatalf("Begin() failed: %v", err)
+		}
+		if err := tx.AddRow(key, `{"data":"test"}`); err != nil {
+			t.Fatalf("AddRow() failed: %v", err)
+		}
+		// Leave transaction open
+
+		db.Close()
+
+		// Reopen - transaction should be recovered
+		db2, err := NewFrozenDB(tmpPath, MODE_WRITE)
+		if err != nil {
+			t.Fatalf("Failed to reopen database: %v", err)
+		}
+		defer db2.Close()
+
+		// Verify transaction was recovered
+		if db2.GetActiveTx() == nil {
+			t.Fatalf("Expected recovered transaction, got nil")
+		}
+
+		// Try to begin new transaction - should fail
+		_, err = db2.BeginTx()
+		if err == nil {
+			t.Fatalf("Expected error when recovered transaction exists, got nil")
+		}
+
+		// Verify error type
+		var invalidActionErr *InvalidActionError
+		if !errors.As(err, &invalidActionErr) {
+			t.Errorf("Expected InvalidActionError, got %T", err)
+		}
+	})
 }
