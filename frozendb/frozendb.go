@@ -1,11 +1,5 @@
 package frozendb
 
-import (
-	"os"
-	"sync"
-	"syscall"
-)
-
 // Access mode constants for opening frozenDB database files
 const (
 	// MODE_READ opens the database in read-only mode with no lock
@@ -22,15 +16,10 @@ const (
 // Close() is thread-safe and can be called concurrently from multiple goroutines
 type FrozenDB struct {
 	// Core file resources
-	file *os.File // Open file descriptor
-	mode string   // Access mode (read or write)
+	file DBFile // DBFile interface for file operations
 
 	// Database metadata from header
 	header *Header // Parsed header information
-
-	// State management for thread-safe cleanup
-	mu     sync.Mutex // Protects closed flag
-	closed bool       // Tracks if Close() has been called
 }
 
 // NewFrozenDB opens an existing frozenDB database file with specified access mode
@@ -45,12 +34,8 @@ type FrozenDB struct {
 // Thread Safety: Safe for concurrent calls on different files
 func NewFrozenDB(path string, mode string) (*FrozenDB, error) {
 	// Validate input parameters
-	if err := validateOpenInputs(path, mode); err != nil {
-		return nil, err
-	}
-
-	// Open file descriptor
-	file, err := openDatabaseFile(path, mode)
+	// Open database file using DBFile interface
+	dbFile, err := NewDBFile(path, mode)
 	if err != nil {
 		return nil, err
 	}
@@ -59,31 +44,20 @@ func NewFrozenDB(path string, mode string) (*FrozenDB, error) {
 	var cleanupErr error
 	defer func() {
 		if cleanupErr != nil {
-			_ = file.Close()
+			_ = dbFile.Close()
 		}
 	}()
 
-	header, err := validateDatabaseFile(file)
+	header, err := validateDatabaseFile(dbFile)
 	if err != nil {
 		cleanupErr = err
 		return nil, err
 	}
 
-	// Acquire lock if write mode (readers need no locks)
-	if mode == MODE_WRITE {
-		err = acquireFileLock(file, syscall.LOCK_EX, false)
-		if err != nil {
-			cleanupErr = err
-			return nil, err
-		}
-	}
-
 	// Create FrozenDB instance
 	db := &FrozenDB{
-		file:   file,
-		mode:   mode,
+		file:   dbFile,
 		header: header,
-		closed: false,
 	}
 
 	// Validate the FrozenDB instance (ensures internal consistency)
@@ -114,8 +88,9 @@ func (db *FrozenDB) Validate() error {
 		return NewCorruptDatabaseError("FrozenDB header validation failed", err)
 	}
 
-	// Validate mode is valid
-	if db.mode != MODE_READ && db.mode != MODE_WRITE {
+	// Validate mode is valid (get from DBFile)
+	mode := db.file.GetMode()
+	if mode != MODE_READ && mode != MODE_WRITE {
 		return NewInvalidInputError("FrozenDB mode must be 'read' or 'write'", nil)
 	}
 
@@ -126,29 +101,11 @@ func (db *FrozenDB) Validate() error {
 // This method is thread-safe and idempotent - multiple concurrent calls are safe
 // Returns nil if already closed or cleanup successful
 func (db *FrozenDB) Close() error {
-	db.mu.Lock()
-	defer db.mu.Unlock()
-
-	// Check if already closed
-	if db.closed {
+	if db.file == nil {
 		return nil
 	}
-
-	// Mark as closed first to prevent multiple cleanup attempts
-	db.closed = true
-
-	// Release file lock if in write mode
-	if db.mode == MODE_WRITE && db.file != nil {
-		// Ignore lock release errors during cleanup
-		_ = releaseFileLock(db.file)
+	if err := db.file.Close(); err != nil {
+		return NewWriteError("failed to close file descriptor", err)
 	}
-
-	// Close file descriptor
-	if db.file != nil {
-		if err := db.file.Close(); err != nil {
-			return NewWriteError("failed to close file descriptor", err)
-		}
-	}
-
 	return nil
 }

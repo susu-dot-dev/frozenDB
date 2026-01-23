@@ -4,58 +4,26 @@ import (
 	"fmt"
 	"hash/crc32"
 	"io"
-	"os"
-	"strings"
-	"syscall"
 )
 
-func acquireFileLock(file *os.File, mode int, blocking bool) error {
-	lockMode := mode
-	if !blocking {
-		lockMode |= syscall.LOCK_NB
-	}
+func validateDatabaseFile(dbFile DBFile) (*Header, error) {
+	fileSize := dbFile.Size()
 
-	err := syscall.Flock(int(file.Fd()), lockMode)
-	if err != nil {
-		if err == syscall.EWOULDBLOCK {
-			return NewWriteError("another process has the database locked", err)
-		}
-		return NewWriteError("failed to acquire file lock", err)
-	}
-
-	return nil
-}
-
-func releaseFileLock(file *os.File) error {
-	err := syscall.Flock(int(file.Fd()), syscall.LOCK_UN)
-	if err != nil {
-		return NewWriteError("failed to release file lock", err)
-	}
-	return nil
-}
-
-func validateDatabaseFile(file *os.File) (*Header, error) {
-	info, err := file.Stat()
-	if err != nil {
-		return nil, NewCorruptDatabaseError("failed to stat file", err)
-	}
-
-	if info.Size() < int64(HEADER_SIZE) {
+	if fileSize < int64(HEADER_SIZE) {
 		return nil, NewCorruptDatabaseError(
 			fmt.Sprintf("file too small for header: expected at least %d bytes, got %d",
-				HEADER_SIZE, info.Size()),
+				HEADER_SIZE, fileSize),
 			nil,
 		)
 	}
 
-	headerBytes := make([]byte, HEADER_SIZE)
-	n, err := file.Read(headerBytes)
+	headerBytes, err := dbFile.Read(0, HEADER_SIZE)
 	if err != nil {
 		return nil, NewCorruptDatabaseError("failed to read header", err)
 	}
-	if n != HEADER_SIZE {
+	if len(headerBytes) != HEADER_SIZE {
 		return nil, NewCorruptDatabaseError(
-			fmt.Sprintf("incomplete header read: expected %d bytes, got %d", HEADER_SIZE, n),
+			fmt.Sprintf("incomplete header read: expected %d bytes, got %d", HEADER_SIZE, len(headerBytes)),
 			nil,
 		)
 	}
@@ -67,18 +35,24 @@ func validateDatabaseFile(file *os.File) (*Header, error) {
 
 	rowSize := header.GetRowSize()
 	expectedMinSize := int64(HEADER_SIZE + rowSize)
-	if info.Size() < expectedMinSize {
+	if fileSize < expectedMinSize {
 		return nil, NewCorruptDatabaseError(
 			fmt.Sprintf("file too small: expected at least %d bytes (header + checksum row), got %d",
-				expectedMinSize, info.Size()),
+				expectedMinSize, fileSize),
 			nil,
 		)
 	}
 
-	checksumRowBytes := make([]byte, rowSize)
-	_, err = file.ReadAt(checksumRowBytes, int64(HEADER_SIZE))
+	checksumRowBytes, err := dbFile.Read(int64(HEADER_SIZE), int32(rowSize))
 	if err != nil && err != io.EOF {
 		return nil, NewCorruptDatabaseError("failed to read checksum row", err)
+	}
+
+	if len(checksumRowBytes) < rowSize {
+		return nil, NewCorruptDatabaseError(
+			fmt.Sprintf("incomplete checksum row read: expected %d bytes, got %d", rowSize, len(checksumRowBytes)),
+			nil,
+		)
 	}
 
 	if checksumRowBytes[0] != ROW_START {
@@ -116,10 +90,16 @@ func validateDatabaseFile(file *os.File) (*Header, error) {
 	expectedCRC := crc32.ChecksumIEEE(headerBytes)
 
 	checksumPayloadPos := int64(HEADER_SIZE) + 2
-	checksumBytes := make([]byte, 8)
-	_, err = file.ReadAt(checksumBytes, checksumPayloadPos)
+	checksumBytes, err := dbFile.Read(checksumPayloadPos, 8)
 	if err != nil && err != io.EOF {
 		return nil, NewCorruptDatabaseError("failed to read checksum value", err)
+	}
+
+	if len(checksumBytes) < 8 {
+		return nil, NewCorruptDatabaseError(
+			fmt.Sprintf("incomplete checksum read: expected 8 bytes, got %d", len(checksumBytes)),
+			nil,
+		)
 	}
 
 	var storedCRC Checksum
@@ -136,42 +116,4 @@ func validateDatabaseFile(file *os.File) (*Header, error) {
 	}
 
 	return header, nil
-}
-
-func validateOpenInputs(path string, mode string) error {
-	if path == "" {
-		return NewInvalidInputError("path cannot be empty", nil)
-	}
-
-	if !strings.HasSuffix(path, FILE_EXTENSION) || len(path) <= len(FILE_EXTENSION) {
-		return NewInvalidInputError("path must have .fdb extension", nil)
-	}
-
-	if mode != MODE_READ && mode != MODE_WRITE {
-		return NewInvalidInputError("mode must be 'read' or 'write'", nil)
-	}
-
-	return nil
-}
-
-func openDatabaseFile(path string, mode string) (*os.File, error) {
-	var flags int
-	if mode == MODE_READ {
-		flags = os.O_RDONLY
-	} else {
-		flags = os.O_RDWR
-	}
-
-	file, err := fsInterface.Open(path, flags, 0)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, NewPathError("database file does not exist", err)
-		}
-		if os.IsPermission(err) {
-			return nil, NewPathError("permission denied to access database file", err)
-		}
-		return nil, NewPathError("failed to open database file", err)
-	}
-
-	return file, nil
 }
