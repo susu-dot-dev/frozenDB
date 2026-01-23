@@ -1158,19 +1158,8 @@ func Test_S_004_FR_006_ParentAssumesChildValid(t *testing.T) {
 	}
 
 	// Test ChecksumRow.Validate() assumes baseRow is already valid
-	header := &Header{
-		signature: "fDB",
-		version:   1,
-		rowSize:   1024,
-		skewMs:    5000,
-	}
-	// Validate header first (child validation)
-	if err := header.Validate(); err != nil {
-		t.Fatalf("Header validation failed: %v", err)
-	}
-
 	// Create ChecksumRow (baseRow is validated during construction)
-	cr, err := NewChecksumRow(header, []byte("test data"))
+	cr, err := NewChecksumRow(1024, []byte("test data"))
 	if err != nil {
 		t.Fatalf("Failed to create ChecksumRow: %v", err)
 	}

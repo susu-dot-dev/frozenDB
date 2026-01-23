@@ -7,14 +7,13 @@ import (
 )
 
 func TestPartialDataRow_InvalidStartControl(t *testing.T) {
-	header := getTestHeader()
 
 	t.Run("CHECKSUM_ROW_StartControl_ShouldFail", func(t *testing.T) {
 		pdr := &PartialDataRow{
 			state: PartialDataRowWithStartControl,
 			d: DataRow{
 				baseRow: baseRow[*DataRowPayload]{
-					Header:       header,
+					RowSize:      512,
 					StartControl: CHECKSUM_ROW,
 				},
 			},
@@ -31,7 +30,7 @@ func TestPartialDataRow_InvalidStartControl(t *testing.T) {
 			state: PartialDataRowWithStartControl,
 			d: DataRow{
 				baseRow: baseRow[*DataRowPayload]{
-					Header:       header,
+					RowSize:      512,
 					StartControl: StartControl('X'),
 				},
 			},
@@ -44,79 +43,83 @@ func TestPartialDataRow_InvalidStartControl(t *testing.T) {
 	})
 }
 
-func TestPartialDataRow_ValidationWithNilHeader(t *testing.T) {
-	t.Run("State1_NilHeader_ShouldFail", func(t *testing.T) {
+func TestPartialDataRow_ValidationWithNilRowSize(t *testing.T) {
+	t.Run("State1_UnsetRowSize_MarshalTextFails", func(t *testing.T) {
 		pdr := &PartialDataRow{
 			state: PartialDataRowWithStartControl,
 			d: DataRow{
 				baseRow: baseRow[*DataRowPayload]{
-					Header:       nil,
+					RowSize:      -1,
 					StartControl: START_TRANSACTION,
 				},
 			},
 		}
 
-		err := pdr.Validate()
+		// MarshalText should fail when RowSize is -1 (unset)
+		_, err := pdr.MarshalText()
 		if err == nil {
-			t.Error("PartialDataRow with nil Header should fail validation")
+			t.Error("MarshalText should fail when RowSize is -1 (unset)")
+		}
+		if !isInvalidActionError(err) {
+			t.Errorf("Expected InvalidActionError, got: %T", err)
 		}
 	})
 
-	t.Run("State2_NilHeader_ShouldFail", func(t *testing.T) {
+	t.Run("State2_UnsetRowSize_ShouldFail", func(t *testing.T) {
+		key := generateValidUUIDv7()
 		pdr := &PartialDataRow{
 			state: PartialDataRowWithPayload,
 			d: DataRow{
 				baseRow: baseRow[*DataRowPayload]{
-					Header:       nil,
+					RowSize:      -1,
 					StartControl: START_TRANSACTION,
+					RowPayload: &DataRowPayload{
+						Key:   key,
+						Value: `{"name":"test"}`,
+					},
 				},
 			},
 		}
 
-		err := pdr.Validate()
+		// Operations should fail when RowSize is -1
+		_, err := pdr.MarshalText()
 		if err == nil {
-			t.Error("PartialDataRow with nil Header should fail validation")
+			t.Error("MarshalText should fail when RowSize is -1 (unset)")
+		}
+		if !isInvalidActionError(err) {
+			t.Errorf("Expected InvalidActionError, got: %T", err)
 		}
 	})
 }
 
 func TestPartialDataRow_State2ValidationRequiresPayload(t *testing.T) {
-	header := getTestHeader()
 
 	t.Run("State2_WithNilPayload_ShouldFail", func(t *testing.T) {
-		pdr := &PartialDataRow{
-			state: PartialDataRowWithPayload,
-			d: DataRow{
-				baseRow: baseRow[*DataRowPayload]{
-					Header:       header,
-					StartControl: START_TRANSACTION,
-					RowPayload:   nil,
-				},
-			},
+		pdr, err := NewPartialDataRow(512, START_TRANSACTION)
+		if err != nil {
+			t.Fatalf("NewPartialDataRow failed: %v", err)
 		}
+		pdr.state = PartialDataRowWithPayload
+		pdr.d.RowPayload = nil
 
-		err := pdr.Validate()
+		err = pdr.Validate()
 		if err == nil {
 			t.Error("PartialDataRow in State2 with nil payload should fail validation")
 		}
 	})
 
 	t.Run("State2_WithInvalidPayload_ShouldFail", func(t *testing.T) {
-		pdr := &PartialDataRow{
-			state: PartialDataRowWithPayload,
-			d: DataRow{
-				baseRow: baseRow[*DataRowPayload]{
-					Header:       header,
-					StartControl: START_TRANSACTION,
-					RowPayload: &DataRowPayload{
-						Key:   uuid.Nil,
-						Value: "test",
-					},
-				},
-			},
+		pdr, err := NewPartialDataRow(512, START_TRANSACTION)
+		if err != nil {
+			t.Fatalf("NewPartialDataRow failed: %v", err)
+		}
+		pdr.state = PartialDataRowWithPayload
+		pdr.d.RowPayload = &DataRowPayload{
+			Key:   uuid.Nil,
+			Value: "test",
 		}
 
-		err := pdr.Validate()
+		err = pdr.Validate()
 		if err == nil {
 			t.Error("PartialDataRow in State2 with invalid payload (zero UUID) should fail validation")
 		}
@@ -124,21 +127,17 @@ func TestPartialDataRow_State2ValidationRequiresPayload(t *testing.T) {
 
 	t.Run("State2_WithEmptyJSON_ShouldFail", func(t *testing.T) {
 		key := generateValidUUIDv7()
-		pdr := &PartialDataRow{
-			state: PartialDataRowWithPayload,
-			d: DataRow{
-				baseRow: baseRow[*DataRowPayload]{
-					Header:       header,
-					StartControl: START_TRANSACTION,
-					RowPayload: &DataRowPayload{
-						Key:   key,
-						Value: "",
-					},
-				},
-			},
+		pdr, err := NewPartialDataRow(512, START_TRANSACTION)
+		if err != nil {
+			t.Fatalf("NewPartialDataRow failed: %v", err)
+		}
+		pdr.state = PartialDataRowWithPayload
+		pdr.d.RowPayload = &DataRowPayload{
+			Key:   key,
+			Value: "",
 		}
 
-		err := pdr.Validate()
+		err = pdr.Validate()
 		if err == nil {
 			t.Error("PartialDataRow in State2 with empty JSON should fail validation")
 		}
@@ -146,11 +145,9 @@ func TestPartialDataRow_State2ValidationRequiresPayload(t *testing.T) {
 }
 
 func TestPartialDataRow_UnmarshalTextValidation(t *testing.T) {
-	header := getTestHeader()
 
 	t.Run("InvalidROWSTART_ShouldFail", func(t *testing.T) {
 		var pdr PartialDataRow
-		pdr.d.Header = header
 		invalidBytes := []byte{0x00, 'T'}
 
 		err := pdr.UnmarshalText(invalidBytes)
@@ -161,7 +158,6 @@ func TestPartialDataRow_UnmarshalTextValidation(t *testing.T) {
 
 	t.Run("TruncatedBytes_ShouldFail", func(t *testing.T) {
 		var pdr PartialDataRow
-		pdr.d.Header = header
 
 		err := pdr.UnmarshalText([]byte{ROW_START})
 		if err == nil {
@@ -171,20 +167,14 @@ func TestPartialDataRow_UnmarshalTextValidation(t *testing.T) {
 }
 
 func TestPartialDataRow_CommitFromInvalidStates(t *testing.T) {
-	header := getTestHeader()
 
 	t.Run("CommitFromState1_ShouldFail", func(t *testing.T) {
-		pdr := &PartialDataRow{
-			state: PartialDataRowWithStartControl,
-			d: DataRow{
-				baseRow: baseRow[*DataRowPayload]{
-					Header:       header,
-					StartControl: START_TRANSACTION,
-				},
-			},
+		pdr, err := NewPartialDataRow(512, START_TRANSACTION)
+		if err != nil {
+			t.Fatalf("NewPartialDataRow failed: %v", err)
 		}
 
-		_, err := pdr.Commit()
+		_, err = pdr.Commit()
 		if err == nil {
 			t.Error("Commit from State1 should fail")
 		}
@@ -195,18 +185,12 @@ func TestPartialDataRow_CommitFromInvalidStates(t *testing.T) {
 
 	t.Run("CommitFromState2_ValidPayload_ShouldSucceed", func(t *testing.T) {
 		key := generateValidUUIDv7()
-		pdr := &PartialDataRow{
-			state: PartialDataRowWithPayload,
-			d: DataRow{
-				baseRow: baseRow[*DataRowPayload]{
-					Header:       header,
-					StartControl: START_TRANSACTION,
-					RowPayload: &DataRowPayload{
-						Key:   key,
-						Value: `{"name":"test"}`,
-					},
-				},
-			},
+		pdr, err := NewPartialDataRow(512, START_TRANSACTION)
+		if err != nil {
+			t.Fatalf("NewPartialDataRow failed: %v", err)
+		}
+		if err := pdr.AddRow(key, `{"name":"test"}`); err != nil {
+			t.Fatalf("AddRow failed: %v", err)
 		}
 
 		dataRow, err := pdr.Commit()
@@ -220,18 +204,15 @@ func TestPartialDataRow_CommitFromInvalidStates(t *testing.T) {
 
 	t.Run("CommitFromState3_ValidPayload_ShouldSucceed", func(t *testing.T) {
 		key := generateValidUUIDv7()
-		pdr := &PartialDataRow{
-			state: PartialDataRowWithSavepoint,
-			d: DataRow{
-				baseRow: baseRow[*DataRowPayload]{
-					Header:       header,
-					StartControl: START_TRANSACTION,
-					RowPayload: &DataRowPayload{
-						Key:   key,
-						Value: `{"name":"test"}`,
-					},
-				},
-			},
+		pdr, err := NewPartialDataRow(512, START_TRANSACTION)
+		if err != nil {
+			t.Fatalf("NewPartialDataRow failed: %v", err)
+		}
+		if err := pdr.AddRow(key, `{"name":"test"}`); err != nil {
+			t.Fatalf("AddRow failed: %v", err)
+		}
+		if err := pdr.Savepoint(); err != nil {
+			t.Fatalf("Savepoint failed: %v", err)
 		}
 
 		dataRow, err := pdr.Commit()
@@ -247,81 +228,57 @@ func TestPartialDataRow_CommitFromInvalidStates(t *testing.T) {
 }
 
 func TestPartialDataRow_RollbackValidation(t *testing.T) {
-	header := getTestHeader()
 	key := generateValidUUIDv7()
 
 	t.Run("RollbackFromState1_ShouldFail", func(t *testing.T) {
-		pdr := &PartialDataRow{
-			state: PartialDataRowWithStartControl,
-			d: DataRow{
-				baseRow: baseRow[*DataRowPayload]{
-					Header:       header,
-					StartControl: START_TRANSACTION,
-				},
-			},
+		pdr, err := NewPartialDataRow(512, START_TRANSACTION)
+		if err != nil {
+			t.Fatalf("NewPartialDataRow failed: %v", err)
 		}
 
-		_, err := pdr.Rollback(0)
+		_, err = pdr.Rollback(0)
 		if err == nil {
 			t.Error("Rollback from State1 should fail")
 		}
 	})
 
 	t.Run("RollbackWithInvalidId_TooHigh", func(t *testing.T) {
-		pdr := &PartialDataRow{
-			state: PartialDataRowWithPayload,
-			d: DataRow{
-				baseRow: baseRow[*DataRowPayload]{
-					Header:       header,
-					StartControl: START_TRANSACTION,
-					RowPayload: &DataRowPayload{
-						Key:   key,
-						Value: `{"name":"test"}`,
-					},
-				},
-			},
+		pdr, err := NewPartialDataRow(512, START_TRANSACTION)
+		if err != nil {
+			t.Fatalf("NewPartialDataRow failed: %v", err)
+		}
+		if err := pdr.AddRow(key, `{"name":"test"}`); err != nil {
+			t.Fatalf("AddRow failed: %v", err)
 		}
 
-		_, err := pdr.Rollback(10)
+		_, err = pdr.Rollback(10)
 		if err == nil {
 			t.Error("Rollback with savepointId 10 should fail")
 		}
 	})
 
 	t.Run("RollbackWithInvalidId_Negative", func(t *testing.T) {
-		pdr := &PartialDataRow{
-			state: PartialDataRowWithPayload,
-			d: DataRow{
-				baseRow: baseRow[*DataRowPayload]{
-					Header:       header,
-					StartControl: START_TRANSACTION,
-					RowPayload: &DataRowPayload{
-						Key:   key,
-						Value: `{"name":"test"}`,
-					},
-				},
-			},
+		pdr, err := NewPartialDataRow(512, START_TRANSACTION)
+		if err != nil {
+			t.Fatalf("NewPartialDataRow failed: %v", err)
+		}
+		if err := pdr.AddRow(key, `{"name":"test"}`); err != nil {
+			t.Fatalf("AddRow failed: %v", err)
 		}
 
-		_, err := pdr.Rollback(-1)
+		_, err = pdr.Rollback(-1)
 		if err == nil {
 			t.Error("Rollback with negative savepointId should fail")
 		}
 	})
 
 	t.Run("RollbackFromState2_WithValidPayload_ShouldSucceed", func(t *testing.T) {
-		pdr := &PartialDataRow{
-			state: PartialDataRowWithPayload,
-			d: DataRow{
-				baseRow: baseRow[*DataRowPayload]{
-					Header:       header,
-					StartControl: START_TRANSACTION,
-					RowPayload: &DataRowPayload{
-						Key:   key,
-						Value: `{"name":"test"}`,
-					},
-				},
-			},
+		pdr, err := NewPartialDataRow(512, START_TRANSACTION)
+		if err != nil {
+			t.Fatalf("NewPartialDataRow failed: %v", err)
+		}
+		if err := pdr.AddRow(key, `{"name":"test"}`); err != nil {
+			t.Fatalf("AddRow failed: %v", err)
 		}
 
 		dataRow, err := pdr.Rollback(0)
@@ -340,39 +297,27 @@ func TestPartialDataRow_RollbackValidation(t *testing.T) {
 }
 
 func TestPartialDataRow_EndRowValidation(t *testing.T) {
-	header := getTestHeader()
 	key := generateValidUUIDv7()
 
 	t.Run("EndRowFromState1_ShouldFail", func(t *testing.T) {
-		pdr := &PartialDataRow{
-			state: PartialDataRowWithStartControl,
-			d: DataRow{
-				baseRow: baseRow[*DataRowPayload]{
-					Header:       header,
-					StartControl: START_TRANSACTION,
-				},
-			},
+		pdr, err := NewPartialDataRow(512, START_TRANSACTION)
+		if err != nil {
+			t.Fatalf("NewPartialDataRow failed: %v", err)
 		}
 
-		_, err := pdr.EndRow()
+		_, err = pdr.EndRow()
 		if err == nil {
 			t.Error("EndRow from State1 should fail")
 		}
 	})
 
 	t.Run("EndRowFromState2_WithValidPayload_ShouldSucceed", func(t *testing.T) {
-		pdr := &PartialDataRow{
-			state: PartialDataRowWithPayload,
-			d: DataRow{
-				baseRow: baseRow[*DataRowPayload]{
-					Header:       header,
-					StartControl: START_TRANSACTION,
-					RowPayload: &DataRowPayload{
-						Key:   key,
-						Value: `{"name":"test"}`,
-					},
-				},
-			},
+		pdr, err := NewPartialDataRow(512, START_TRANSACTION)
+		if err != nil {
+			t.Fatalf("NewPartialDataRow failed: %v", err)
+		}
+		if err := pdr.AddRow(key, `{"name":"test"}`); err != nil {
+			t.Fatalf("AddRow failed: %v", err)
 		}
 
 		dataRow, err := pdr.EndRow()
@@ -388,16 +333,9 @@ func TestPartialDataRow_EndRowValidation(t *testing.T) {
 }
 
 func TestPartialDataRow_GetState(t *testing.T) {
-	header := getTestHeader()
-
-	pdr := &PartialDataRow{
-		state: PartialDataRowWithStartControl,
-		d: DataRow{
-			baseRow: baseRow[*DataRowPayload]{
-				Header:       header,
-				StartControl: START_TRANSACTION,
-			},
-		},
+	pdr, err := NewPartialDataRow(512, START_TRANSACTION)
+	if err != nil {
+		t.Fatalf("NewPartialDataRow failed: %v", err)
 	}
 
 	if pdr.GetState() != PartialDataRowWithStartControl {
@@ -423,19 +361,13 @@ func TestPartialDataRow_GetState(t *testing.T) {
 }
 
 func TestPartialDataRow_SavepointFromState1_ShouldFail(t *testing.T) {
-	header := getTestHeader()
 
-	pdr := &PartialDataRow{
-		state: PartialDataRowWithStartControl,
-		d: DataRow{
-			baseRow: baseRow[*DataRowPayload]{
-				Header:       header,
-				StartControl: START_TRANSACTION,
-			},
-		},
+	pdr, err := NewPartialDataRow(512, START_TRANSACTION)
+	if err != nil {
+		t.Fatalf("NewPartialDataRow failed: %v", err)
 	}
 
-	err := pdr.Savepoint()
+	err = pdr.Savepoint()
 	if err == nil {
 		t.Error("Savepoint from State1 should fail")
 	}
@@ -445,25 +377,18 @@ func TestPartialDataRow_SavepointFromState1_ShouldFail(t *testing.T) {
 }
 
 func TestPartialDataRow_AddRowFromState2_ShouldFail(t *testing.T) {
-	header := getTestHeader()
 	key := generateValidUUIDv7()
 
-	pdr := &PartialDataRow{
-		state: PartialDataRowWithPayload,
-		d: DataRow{
-			baseRow: baseRow[*DataRowPayload]{
-				Header:       header,
-				StartControl: START_TRANSACTION,
-				RowPayload: &DataRowPayload{
-					Key:   key,
-					Value: `{"name":"test"}`,
-				},
-			},
-		},
+	pdr, err := NewPartialDataRow(512, START_TRANSACTION)
+	if err != nil {
+		t.Fatalf("NewPartialDataRow failed: %v", err)
+	}
+	if err := pdr.AddRow(key, `{"name":"test"}`); err != nil {
+		t.Fatalf("AddRow failed: %v", err)
 	}
 
 	key2 := generateValidUUIDv7()
-	err := pdr.AddRow(key2, `{"name":"test2"}`)
+	err = pdr.AddRow(key2, `{"name":"test2"}`)
 	if err == nil {
 		t.Error("AddRow from State2 should fail")
 	}
@@ -473,25 +398,21 @@ func TestPartialDataRow_AddRowFromState2_ShouldFail(t *testing.T) {
 }
 
 func TestPartialDataRow_AddRowFromState3_ShouldFail(t *testing.T) {
-	header := getTestHeader()
 	key := generateValidUUIDv7()
 
-	pdr := &PartialDataRow{
-		state: PartialDataRowWithSavepoint,
-		d: DataRow{
-			baseRow: baseRow[*DataRowPayload]{
-				Header:       header,
-				StartControl: START_TRANSACTION,
-				RowPayload: &DataRowPayload{
-					Key:   key,
-					Value: `{"name":"test"}`,
-				},
-			},
-		},
+	pdr, err := NewPartialDataRow(512, START_TRANSACTION)
+	if err != nil {
+		t.Fatalf("NewPartialDataRow failed: %v", err)
+	}
+	if err := pdr.AddRow(key, `{"name":"test"}`); err != nil {
+		t.Fatalf("AddRow failed: %v", err)
+	}
+	if err := pdr.Savepoint(); err != nil {
+		t.Fatalf("Savepoint failed: %v", err)
 	}
 
 	key2 := generateValidUUIDv7()
-	err := pdr.AddRow(key2, `{"name":"test2"}`)
+	err = pdr.AddRow(key2, `{"name":"test2"}`)
 	if err == nil {
 		t.Error("AddRow from State3 should fail")
 	}
@@ -501,24 +422,20 @@ func TestPartialDataRow_AddRowFromState3_ShouldFail(t *testing.T) {
 }
 
 func TestPartialDataRow_SavepointFromState3_ShouldFail(t *testing.T) {
-	header := getTestHeader()
 	key := generateValidUUIDv7()
 
-	pdr := &PartialDataRow{
-		state: PartialDataRowWithSavepoint,
-		d: DataRow{
-			baseRow: baseRow[*DataRowPayload]{
-				Header:       header,
-				StartControl: START_TRANSACTION,
-				RowPayload: &DataRowPayload{
-					Key:   key,
-					Value: `{"name":"test"}`,
-				},
-			},
-		},
+	pdr, err := NewPartialDataRow(512, START_TRANSACTION)
+	if err != nil {
+		t.Fatalf("NewPartialDataRow failed: %v", err)
+	}
+	if err := pdr.AddRow(key, `{"name":"test"}`); err != nil {
+		t.Fatalf("AddRow failed: %v", err)
+	}
+	if err := pdr.Savepoint(); err != nil {
+		t.Fatalf("Savepoint failed: %v", err)
 	}
 
-	err := pdr.Savepoint()
+	err = pdr.Savepoint()
 	if err == nil {
 		t.Error("Savepoint from State3 should fail")
 	}
@@ -528,16 +445,10 @@ func TestPartialDataRow_SavepointFromState3_ShouldFail(t *testing.T) {
 }
 
 func TestPartialDataRow_AddRowWithInvalidUUID(t *testing.T) {
-	header := getTestHeader()
 
-	pdr := &PartialDataRow{
-		state: PartialDataRowWithStartControl,
-		d: DataRow{
-			baseRow: baseRow[*DataRowPayload]{
-				Header:       header,
-				StartControl: START_TRANSACTION,
-			},
-		},
+	pdr, err := NewPartialDataRow(512, START_TRANSACTION)
+	if err != nil {
+		t.Fatalf("NewPartialDataRow failed: %v", err)
 	}
 
 	t.Run("WithUUIDv4_ShouldFail", func(t *testing.T) {
@@ -574,17 +485,11 @@ func TestPartialDataRow_AddRowWithInvalidUUID(t *testing.T) {
 }
 
 func TestPartialDataRow_MarshalText(t *testing.T) {
-	header := getTestHeader()
 
 	t.Run("State1_ShouldMarshalTo2Bytes", func(t *testing.T) {
-		pdr := &PartialDataRow{
-			state: PartialDataRowWithStartControl,
-			d: DataRow{
-				baseRow: baseRow[*DataRowPayload]{
-					Header:       header,
-					StartControl: START_TRANSACTION,
-				},
-			},
+		pdr, err := NewPartialDataRow(512, START_TRANSACTION)
+		if err != nil {
+			t.Fatalf("NewPartialDataRow failed: %v", err)
 		}
 
 		bytes, err := pdr.MarshalText()
@@ -606,14 +511,9 @@ func TestPartialDataRow_MarshalText(t *testing.T) {
 
 	t.Run("State2_ShouldIncludeUUIDAndJSON", func(t *testing.T) {
 		key := generateValidUUIDv7()
-		pdr := &PartialDataRow{
-			state: PartialDataRowWithStartControl,
-			d: DataRow{
-				baseRow: baseRow[*DataRowPayload]{
-					Header:       header,
-					StartControl: START_TRANSACTION,
-				},
-			},
+		pdr, err := NewPartialDataRow(512, START_TRANSACTION)
+		if err != nil {
+			t.Fatalf("NewPartialDataRow failed: %v", err)
 		}
 
 		if err := pdr.AddRow(key, `{"name":"test"}`); err != nil {
@@ -636,14 +536,9 @@ func TestPartialDataRow_MarshalText(t *testing.T) {
 
 	t.Run("State3_ShouldIncludeSCharacter", func(t *testing.T) {
 		key := generateValidUUIDv7()
-		pdr := &PartialDataRow{
-			state: PartialDataRowWithStartControl,
-			d: DataRow{
-				baseRow: baseRow[*DataRowPayload]{
-					Header:       header,
-					StartControl: START_TRANSACTION,
-				},
-			},
+		pdr, err := NewPartialDataRow(512, START_TRANSACTION)
+		if err != nil {
+			t.Fatalf("NewPartialDataRow failed: %v", err)
 		}
 
 		if err := pdr.AddRow(key, `{"name":"test"}`); err != nil {
@@ -672,17 +567,11 @@ func TestPartialDataRow_MarshalText(t *testing.T) {
 }
 
 func TestPartialDataRow_RoundTrip(t *testing.T) {
-	header := getTestHeader()
 
 	t.Run("State1_RoundTrip", func(t *testing.T) {
-		pdr := &PartialDataRow{
-			state: PartialDataRowWithStartControl,
-			d: DataRow{
-				baseRow: baseRow[*DataRowPayload]{
-					Header:       header,
-					StartControl: START_TRANSACTION,
-				},
-			},
+		pdr, err := NewPartialDataRow(512, START_TRANSACTION)
+		if err != nil {
+			t.Fatalf("NewPartialDataRow failed: %v", err)
 		}
 
 		bytes, err := pdr.MarshalText()
@@ -691,10 +580,10 @@ func TestPartialDataRow_RoundTrip(t *testing.T) {
 		}
 
 		var pdr2 PartialDataRow
-		pdr2.d.Header = header
 		if err := pdr2.UnmarshalText(bytes); err != nil {
 			t.Fatalf("UnmarshalText failed: %v", err)
 		}
+		pdr2.d.RowSize = 512
 
 		if pdr2.GetState() != PartialDataRowWithStartControl {
 			t.Errorf("Expected state PartialDataRowWithStartControl, got %v", pdr2.GetState())
@@ -703,14 +592,9 @@ func TestPartialDataRow_RoundTrip(t *testing.T) {
 
 	t.Run("State2_RoundTrip", func(t *testing.T) {
 		key := generateValidUUIDv7()
-		pdr := &PartialDataRow{
-			state: PartialDataRowWithStartControl,
-			d: DataRow{
-				baseRow: baseRow[*DataRowPayload]{
-					Header:       header,
-					StartControl: START_TRANSACTION,
-				},
-			},
+		pdr, err := NewPartialDataRow(512, START_TRANSACTION)
+		if err != nil {
+			t.Fatalf("NewPartialDataRow failed: %v", err)
 		}
 
 		if err := pdr.AddRow(key, `{"name":"test"}`); err != nil {
@@ -723,10 +607,10 @@ func TestPartialDataRow_RoundTrip(t *testing.T) {
 		}
 
 		var pdr2 PartialDataRow
-		pdr2.d.Header = header
 		if err := pdr2.UnmarshalText(bytes); err != nil {
 			t.Fatalf("UnmarshalText failed: %v", err)
 		}
+		pdr2.d.RowSize = 512
 
 		if pdr2.GetState() != PartialDataRowWithPayload {
 			t.Errorf("Expected state PartialDataRowWithPayload, got %v", pdr2.GetState())
@@ -735,14 +619,9 @@ func TestPartialDataRow_RoundTrip(t *testing.T) {
 
 	t.Run("State3_RoundTrip", func(t *testing.T) {
 		key := generateValidUUIDv7()
-		pdr := &PartialDataRow{
-			state: PartialDataRowWithStartControl,
-			d: DataRow{
-				baseRow: baseRow[*DataRowPayload]{
-					Header:       header,
-					StartControl: START_TRANSACTION,
-				},
-			},
+		pdr, err := NewPartialDataRow(512, START_TRANSACTION)
+		if err != nil {
+			t.Fatalf("NewPartialDataRow failed: %v", err)
 		}
 
 		if err := pdr.AddRow(key, `{"name":"test"}`); err != nil {
@@ -758,13 +637,202 @@ func TestPartialDataRow_RoundTrip(t *testing.T) {
 		}
 
 		var pdr2 PartialDataRow
-		pdr2.d.Header = header
 		if err := pdr2.UnmarshalText(bytes); err != nil {
 			t.Fatalf("UnmarshalText failed: %v", err)
 		}
+		pdr2.d.RowSize = 512
 
 		if pdr2.GetState() != PartialDataRowWithSavepoint {
 			t.Errorf("Expected state PartialDataRowWithSavepoint, got %v", pdr2.GetState())
+		}
+	})
+}
+
+func TestPartialDataRow_UnmarshalTextWithoutRowSize(t *testing.T) {
+	t.Run("MarshalText_FailsWithoutRowSize", func(t *testing.T) {
+		key := generateValidUUIDv7()
+		pdr, err := NewPartialDataRow(512, START_TRANSACTION)
+		if err != nil {
+			t.Fatalf("NewPartialDataRow failed: %v", err)
+		}
+
+		if err := pdr.AddRow(key, `{"name":"test"}`); err != nil {
+			t.Fatalf("AddRow failed: %v", err)
+		}
+
+		bytes, err := pdr.MarshalText()
+		if err != nil {
+			t.Fatalf("MarshalText failed: %v", err)
+		}
+
+		var pdr2 PartialDataRow
+		if err := pdr2.UnmarshalText(bytes); err != nil {
+			t.Fatalf("UnmarshalText failed: %v", err)
+		}
+		// Intentionally NOT setting RowSize (UnmarshalText sets it to -1 for states with payload)
+
+		_, err = pdr2.MarshalText()
+		if err == nil {
+			t.Error("MarshalText should fail when RowSize is not set after UnmarshalText")
+		}
+		if !isInvalidActionError(err) {
+			t.Errorf("Expected InvalidActionError, got: %T", err)
+		}
+	})
+
+	t.Run("AddRow_FailsWithoutRowSize", func(t *testing.T) {
+		key := generateValidUUIDv7()
+		pdr, err := NewPartialDataRow(512, START_TRANSACTION)
+		if err != nil {
+			t.Fatalf("NewPartialDataRow failed: %v", err)
+		}
+
+		if err := pdr.AddRow(key, `{"name":"test"}`); err != nil {
+			t.Fatalf("AddRow failed: %v", err)
+		}
+
+		bytes, err := pdr.MarshalText()
+		if err != nil {
+			t.Fatalf("MarshalText failed: %v", err)
+		}
+
+		var pdr2 PartialDataRow
+		if err := pdr2.UnmarshalText(bytes); err != nil {
+			t.Fatalf("UnmarshalText failed: %v", err)
+		}
+		// Intentionally NOT setting RowSize
+
+		key2 := generateValidUUIDv7()
+		err = pdr2.AddRow(key2, `{"name":"test2"}`)
+		if err == nil {
+			t.Error("AddRow should fail when RowSize is not set after UnmarshalText")
+		}
+		if !isInvalidActionError(err) {
+			t.Errorf("Expected InvalidActionError, got: %T", err)
+		}
+	})
+
+	t.Run("Savepoint_FailsWithoutRowSize", func(t *testing.T) {
+		key := generateValidUUIDv7()
+		pdr, err := NewPartialDataRow(512, START_TRANSACTION)
+		if err != nil {
+			t.Fatalf("NewPartialDataRow failed: %v", err)
+		}
+
+		if err := pdr.AddRow(key, `{"name":"test"}`); err != nil {
+			t.Fatalf("AddRow failed: %v", err)
+		}
+
+		bytes, err := pdr.MarshalText()
+		if err != nil {
+			t.Fatalf("MarshalText failed: %v", err)
+		}
+
+		var pdr2 PartialDataRow
+		if err := pdr2.UnmarshalText(bytes); err != nil {
+			t.Fatalf("UnmarshalText failed: %v", err)
+		}
+		// Intentionally NOT setting RowSize
+
+		err = pdr2.Savepoint()
+		if err == nil {
+			t.Error("Savepoint should fail when RowSize is not set after UnmarshalText")
+		}
+		if !isInvalidActionError(err) {
+			t.Errorf("Expected InvalidActionError, got: %T", err)
+		}
+	})
+
+	t.Run("Commit_FailsWithoutRowSize", func(t *testing.T) {
+		key := generateValidUUIDv7()
+		pdr, err := NewPartialDataRow(512, START_TRANSACTION)
+		if err != nil {
+			t.Fatalf("NewPartialDataRow failed: %v", err)
+		}
+
+		if err := pdr.AddRow(key, `{"name":"test"}`); err != nil {
+			t.Fatalf("AddRow failed: %v", err)
+		}
+
+		bytes, err := pdr.MarshalText()
+		if err != nil {
+			t.Fatalf("MarshalText failed: %v", err)
+		}
+
+		var pdr2 PartialDataRow
+		if err := pdr2.UnmarshalText(bytes); err != nil {
+			t.Fatalf("UnmarshalText failed: %v", err)
+		}
+		// Intentionally NOT setting RowSize
+
+		_, err = pdr2.Commit()
+		if err == nil {
+			t.Error("Commit should fail when RowSize is not set after UnmarshalText")
+		}
+		if !isInvalidActionError(err) {
+			t.Errorf("Expected InvalidActionError, got: %T", err)
+		}
+	})
+
+	t.Run("Rollback_FailsWithoutRowSize", func(t *testing.T) {
+		key := generateValidUUIDv7()
+		pdr, err := NewPartialDataRow(512, START_TRANSACTION)
+		if err != nil {
+			t.Fatalf("NewPartialDataRow failed: %v", err)
+		}
+
+		if err := pdr.AddRow(key, `{"name":"test"}`); err != nil {
+			t.Fatalf("AddRow failed: %v", err)
+		}
+
+		bytes, err := pdr.MarshalText()
+		if err != nil {
+			t.Fatalf("MarshalText failed: %v", err)
+		}
+
+		var pdr2 PartialDataRow
+		if err := pdr2.UnmarshalText(bytes); err != nil {
+			t.Fatalf("UnmarshalText failed: %v", err)
+		}
+		// Intentionally NOT setting RowSize
+
+		_, err = pdr2.Rollback(0)
+		if err == nil {
+			t.Error("Rollback should fail when RowSize is not set after UnmarshalText")
+		}
+		if !isInvalidActionError(err) {
+			t.Errorf("Expected InvalidActionError, got: %T", err)
+		}
+	})
+
+	t.Run("EndRow_FailsWithoutRowSize", func(t *testing.T) {
+		key := generateValidUUIDv7()
+		pdr, err := NewPartialDataRow(512, START_TRANSACTION)
+		if err != nil {
+			t.Fatalf("NewPartialDataRow failed: %v", err)
+		}
+
+		if err := pdr.AddRow(key, `{"name":"test"}`); err != nil {
+			t.Fatalf("AddRow failed: %v", err)
+		}
+
+		bytes, err := pdr.MarshalText()
+		if err != nil {
+			t.Fatalf("MarshalText failed: %v", err)
+		}
+
+		var pdr2 PartialDataRow
+		if err := pdr2.UnmarshalText(bytes); err != nil {
+			t.Fatalf("UnmarshalText failed: %v", err)
+		}
+		// Intentionally NOT setting RowSize
+
+		_, err = pdr2.EndRow()
+		if err == nil {
+			t.Error("EndRow should fail when RowSize is not set after UnmarshalText")
+		}
+		if !isInvalidActionError(err) {
+			t.Errorf("Expected InvalidActionError, got: %T", err)
 		}
 	})
 }

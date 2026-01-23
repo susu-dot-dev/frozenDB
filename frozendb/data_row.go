@@ -143,7 +143,6 @@ func (dr *DataRow) MarshalText() ([]byte, error) {
 // payload structure. The Header must be set before calling this method.
 // Returns an error if deserialization or validation fails.
 func (dr *DataRow) UnmarshalText(text []byte) error {
-	// Unmarshal using baseRow (Header must be set - programmer error if nil)
 	// This will parse StartControl and EndControl from the text
 	// baseRow.UnmarshalText() will call baseRow.Validate() internally
 	if err := dr.baseRow.UnmarshalText(text); err != nil {
@@ -168,7 +167,7 @@ func (dr *DataRow) Validate() error {
 		return err
 	}
 
-	if err := validatePayloadSize(dr.Header, dr.RowPayload); err != nil {
+	if err := validatePayloadSize(dr.RowPayload, dr.RowSize); err != nil {
 		return err
 	}
 
@@ -182,12 +181,8 @@ func validateStartControlForDataRow(startControl StartControl) error {
 	return nil
 }
 
-func validatePayloadSize(header *Header, payload *DataRowPayload) error {
-	if header == nil || payload == nil {
-		return nil
-	}
+func validatePayloadSize(payload *DataRowPayload, rowSize int) error {
 	payloadSize := 24 + len(payload.Value)
-	rowSize := header.GetRowSize()
 	requiredSize := payloadSize + 7
 	if requiredSize > rowSize {
 		return NewInvalidInputError(fmt.Sprintf("payload size (%d bytes) exceeds ROW_SIZE (%d bytes); maximum payload size is %d bytes", payloadSize, rowSize, rowSize-7), nil)
@@ -210,25 +205,19 @@ func validateEndControlForDataRow(endControl EndControl) error {
 	}
 }
 
-func validateHeaderAndStartControl(header *Header, startControl StartControl) error {
-	if header == nil {
-		return NewInvalidInputError("Header is required", nil)
-	}
+func validateStartControl(startControl StartControl) error {
 	if err := startControl.Validate(); err != nil {
 		return NewInvalidInputError("invalid start_control", err)
 	}
 	return validateStartControlForDataRow(startControl)
 }
 
-func validateHeaderAndPayload(header *Header, payload *DataRowPayload) error {
-	if header == nil {
-		return NewInvalidInputError("Header is required", nil)
-	}
+func validatePayload(payload *DataRowPayload, rowSize int) error {
 	if payload == nil {
 		return NewInvalidInputError("RowPayload is required", nil)
 	}
 	if err := payload.Validate(); err != nil {
 		return err
 	}
-	return validatePayloadSize(header, payload)
+	return validatePayloadSize(payload, rowSize)
 }

@@ -441,7 +441,7 @@ func TestBaseRow_PaddingLength(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			br := &baseRow[*Checksum]{
-				Header: tt.header,
+				RowSize: tt.header.GetRowSize(),
 			}
 			// Create a zero Checksum and marshal it to get payload bytes
 			zeroChecksum := Checksum(0)
@@ -467,10 +467,9 @@ func TestBaseRow_GetParity(t *testing.T) {
 		{
 			name: "valid checksum row",
 			setup: func() *baseRow[*Checksum] {
-				header := &Header{signature: "fDB", version: 1, rowSize: 1024, skewMs: 5000}
 				checksum := Checksum(0x12345678)
 				return &baseRow[*Checksum]{
-					Header:       header,
+					RowSize:      1024,
 					StartControl: CHECKSUM_ROW,
 					EndControl:   CHECKSUM_ROW_CONTROL,
 					RowPayload:   &checksum,
@@ -495,10 +494,9 @@ func TestBaseRow_GetParity(t *testing.T) {
 		{
 			name: "row size too small",
 			setup: func() *baseRow[*Checksum] {
-				header := &Header{signature: "fDB", version: 1, rowSize: 10, skewMs: 5000}
 				checksum := Checksum(0x12345678)
 				return &baseRow[*Checksum]{
-					Header:       header,
+					RowSize:      10,
 					StartControl: CHECKSUM_ROW,
 					EndControl:   CHECKSUM_ROW_CONTROL,
 					RowPayload:   &checksum,
@@ -545,10 +543,9 @@ func TestBaseRow_validate(t *testing.T) {
 		{
 			name: "valid baseRow",
 			setup: func() *baseRow[*Checksum] {
-				header := &Header{signature: "fDB", version: 1, rowSize: 1024, skewMs: 5000}
 				checksum := Checksum(0x12345678)
 				return &baseRow[*Checksum]{
-					Header:       header,
+					RowSize:      1024,
 					StartControl: CHECKSUM_ROW,
 					EndControl:   CHECKSUM_ROW_CONTROL,
 					RowPayload:   &checksum,
@@ -566,9 +563,8 @@ func TestBaseRow_validate(t *testing.T) {
 		{
 			name: "invalid row size too small",
 			setup: func() *baseRow[*Checksum] {
-				header := &Header{signature: "fDB", version: 1, rowSize: 127, skewMs: 5000}
 				return &baseRow[*Checksum]{
-					Header: header,
+					RowSize: 127,
 				}
 			},
 			wantErr: true,
@@ -576,9 +572,8 @@ func TestBaseRow_validate(t *testing.T) {
 		{
 			name: "invalid row size too large",
 			setup: func() *baseRow[*Checksum] {
-				header := &Header{signature: "fDB", version: 1, rowSize: 65537, skewMs: 5000}
 				return &baseRow[*Checksum]{
-					Header: header,
+					RowSize: 65537,
 				}
 			},
 			wantErr: true,
@@ -586,9 +581,8 @@ func TestBaseRow_validate(t *testing.T) {
 		{
 			name: "invalid StartControl",
 			setup: func() *baseRow[*Checksum] {
-				header := &Header{signature: "fDB", version: 1, rowSize: 1024, skewMs: 5000}
 				return &baseRow[*Checksum]{
-					Header:       header,
+					RowSize:      1024,
 					StartControl: StartControl('X'),
 				}
 			},

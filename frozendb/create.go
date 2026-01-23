@@ -297,7 +297,7 @@ func Create(config CreateConfig) error {
 	}
 
 	// Calculate CRC32 for header bytes [0..63] (entire header)
-	checksumRow, err := NewChecksumRow(header, headerBytes)
+	checksumRow, err := NewChecksumRow(header.GetRowSize(), headerBytes)
 	if err != nil {
 		return NewWriteError("failed to create checksum row", err)
 	}

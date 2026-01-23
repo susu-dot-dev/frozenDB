@@ -10,7 +10,7 @@ import (
 type PartialRowState int
 
 const (
-	PartialDataRowWithStartControl PartialRowState = iota
+	PartialDataRowWithStartControl PartialRowState = iota + 1
 	PartialDataRowWithPayload
 	PartialDataRowWithSavepoint
 )
@@ -33,11 +33,31 @@ type PartialDataRow struct {
 	d     DataRow
 }
 
+func NewPartialDataRow(rowSize int, startControl StartControl) (*PartialDataRow, error) {
+	pd := &PartialDataRow{
+		state: PartialDataRowWithStartControl,
+		d: DataRow{
+			baseRow[*DataRowPayload]{
+				RowSize:      rowSize,
+				StartControl: startControl,
+			},
+		},
+	}
+	if err := pd.Validate(); err != nil {
+		return nil, err
+	}
+	return pd, nil
+}
+
 func (pdr *PartialDataRow) GetState() PartialRowState {
 	return pdr.state
 }
 
 func (pdr *PartialDataRow) AddRow(key uuid.UUID, json string) error {
+	if pdr.d.RowSize == -1 {
+		return NewInvalidActionError("RowSize is not set", nil)
+	}
+
 	if pdr.state != PartialDataRowWithStartControl {
 		return NewInvalidActionError("AddRow() can only be called from PartialDataRowWithStartControl", nil)
 	}
@@ -61,6 +81,9 @@ func (pdr *PartialDataRow) AddRow(key uuid.UUID, json string) error {
 }
 
 func (pdr *PartialDataRow) Savepoint() error {
+	if pdr.d.RowSize == -1 {
+		return NewInvalidActionError("RowSize is not set", nil)
+	}
 	if pdr.state != PartialDataRowWithPayload {
 		return NewInvalidActionError("Savepoint() can only be called from PartialDataRowWithPayload", nil)
 	}
@@ -71,28 +94,28 @@ func (pdr *PartialDataRow) Savepoint() error {
 }
 
 func (pdr *PartialDataRow) Validate() error {
-	switch pdr.state {
-	case PartialDataRowWithStartControl:
-		return validateHeaderAndStartControl(pdr.d.Header, pdr.d.StartControl)
-
-	case PartialDataRowWithPayload:
-		if err := validateHeaderAndStartControl(pdr.d.Header, pdr.d.StartControl); err != nil {
-			return err
-		}
-		return validateHeaderAndPayload(pdr.d.Header, pdr.d.RowPayload)
-
-	case PartialDataRowWithSavepoint:
-		if err := validateHeaderAndStartControl(pdr.d.Header, pdr.d.StartControl); err != nil {
-			return err
-		}
-		return validateHeaderAndPayload(pdr.d.Header, pdr.d.RowPayload)
-
-	default:
-		return NewInvalidInputError(fmt.Sprintf("unknown PartialDataRow state: %d", pdr.state), nil)
+	if pdr.state == 0 {
+		return NewInvalidInputError("PartialDataRow state is required", nil)
 	}
+	if err := validateStartControl(pdr.d.StartControl); err != nil {
+		return err
+	}
+	if pdr.state == PartialDataRowWithStartControl {
+		return nil
+	}
+	if pdr.d.RowSize != -1 {
+		err := validatePayload(pdr.d.RowPayload, pdr.d.RowSize)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (pdr *PartialDataRow) MarshalText() ([]byte, error) {
+	if pdr.d.RowSize == -1 {
+		return nil, NewInvalidActionError("RowSize is not set", nil)
+	}
 	switch pdr.state {
 	case PartialDataRowWithStartControl:
 		return pdr.d.BuildRowStartAndControl()
@@ -163,6 +186,7 @@ func (pdr *PartialDataRow) UnmarshalText(text []byte) error {
 		return NewCorruptDatabaseError("failed to unmarshal payload", err)
 	}
 
+	pdr.d.RowSize = -1 // We don't know what the row size is from UnmarshalText, it needs to be set by the caller
 	if err := pdr.Validate(); err != nil {
 		return NewCorruptDatabaseError("validation failed", err)
 	}
@@ -171,6 +195,9 @@ func (pdr *PartialDataRow) UnmarshalText(text []byte) error {
 }
 
 func (pdr *PartialDataRow) Commit() (*DataRow, error) {
+	if pdr.d.RowSize == -1 {
+		return nil, NewInvalidActionError("RowSize is not set", nil)
+	}
 	if pdr.state == PartialDataRowWithStartControl {
 		return nil, NewInvalidActionError("Commit() cannot be called from PartialDataRowWithStartControl", nil)
 	}
@@ -186,6 +213,9 @@ func (pdr *PartialDataRow) Commit() (*DataRow, error) {
 }
 
 func (pdr *PartialDataRow) Rollback(savepointId int) (*DataRow, error) {
+	if pdr.d.RowSize == -1 {
+		return nil, NewInvalidActionError("RowSize is not set", nil)
+	}
 	if pdr.state == PartialDataRowWithStartControl {
 		return nil, NewInvalidActionError("Rollback() cannot be called from PartialDataRowWithStartControl", nil)
 	}
@@ -205,6 +235,9 @@ func (pdr *PartialDataRow) Rollback(savepointId int) (*DataRow, error) {
 }
 
 func (pdr *PartialDataRow) EndRow() (*DataRow, error) {
+	if pdr.d.RowSize == -1 {
+		return nil, NewInvalidActionError("RowSize is not set", nil)
+	}
 	if pdr.state == PartialDataRowWithStartControl {
 		return nil, NewInvalidActionError("EndRow() cannot be called from PartialDataRowWithStartControl", nil)
 	}
@@ -219,6 +252,14 @@ func (pdr *PartialDataRow) EndRow() (*DataRow, error) {
 	return pdr.complete(endControl)
 }
 
+func (pdr *PartialDataRow) String() string {
+	bytes, err := pdr.MarshalText()
+	if err == nil {
+		return string(bytes)
+	}
+	return err.Error()
+}
+
 func (pdr *PartialDataRow) complete(endControl EndControl) (*DataRow, error) {
 	if pdr.d.RowPayload == nil {
 		return nil, NewInvalidInputError("cannot complete PartialDataRow without payload", nil)
@@ -226,7 +267,7 @@ func (pdr *PartialDataRow) complete(endControl EndControl) (*DataRow, error) {
 
 	dataRow := &DataRow{
 		baseRow[*DataRowPayload]{
-			Header:       pdr.d.Header,
+			RowSize:      pdr.d.RowSize,
 			StartControl: pdr.d.StartControl,
 			EndControl:   endControl,
 			RowPayload:   pdr.d.RowPayload,

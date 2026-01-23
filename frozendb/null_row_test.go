@@ -121,17 +121,10 @@ func TestNullRow_RoundTrip(t *testing.T) {
 
 	for _, rowSize := range rowSizes {
 		t.Run(fmt.Sprintf("rowSize_%d", rowSize), func(t *testing.T) {
-			header := &Header{
-				signature: "fDB",
-				version:   1,
-				rowSize:   rowSize,
-				skewMs:    5000,
-			}
-
 			// Create original NullRow
 			original := &NullRow{
 				baseRow: baseRow[*NullRowPayload]{
-					Header:       header,
+					RowSize:      rowSize,
 					StartControl: START_TRANSACTION,
 					EndControl:   NULL_ROW_CONTROL,
 					RowPayload:   &NullRowPayload{Key: uuid.Nil},
@@ -152,7 +145,7 @@ func TestNullRow_RoundTrip(t *testing.T) {
 			// Unmarshal into new NullRow
 			restored := &NullRow{
 				baseRow: baseRow[*NullRowPayload]{
-					Header: header,
+					RowSize: 512,
 				},
 			}
 
@@ -196,16 +189,9 @@ func TestNullRow_RoundTrip(t *testing.T) {
 
 // TestNullRow_GetKey tests the GetKey accessor method
 func TestNullRow_GetKey(t *testing.T) {
-	header := &Header{
-		signature: "fDB",
-		version:   1,
-		rowSize:   512,
-		skewMs:    5000,
-	}
-
 	nullRow := &NullRow{
 		baseRow: baseRow[*NullRowPayload]{
-			Header:       header,
+			RowSize:      512,
 			StartControl: START_TRANSACTION,
 			EndControl:   NULL_ROW_CONTROL,
 			RowPayload:   &NullRowPayload{Key: uuid.Nil},
