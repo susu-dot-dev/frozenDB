@@ -843,9 +843,26 @@ func (tx *Transaction) Rollback(savepointId int) error {
 			return NewInvalidActionError("created NullRow failed validation", err)
 		}
 
-		// Update transaction state
+		// Write NullRow to disk (similar to Commit())
+		nullRowBytes, err := nullRow.MarshalText()
+		if err != nil {
+			return NewInvalidActionError("failed to marshal NullRow", err)
+		}
+
+		if err := tx.writeBytes(nullRowBytes); err != nil {
+			// Transaction is tombstoned by writeBytes on error
+			return err
+		}
+
+		// Update transaction state only after successful write
 		tx.empty = nullRow
 		tx.last = nil
+		tx.rowBytesWritten = 0
+
+		// Check and insert checksum row if needed (after NullRow write)
+		if err := tx.checkAndInsertChecksum(); err != nil {
+			return err
+		}
 
 		return nil
 	}
@@ -855,9 +872,23 @@ func (tx *Transaction) Rollback(savepointId int) error {
 	if err != nil {
 		return NewInvalidActionError("failed to finalize last row for rollback", err)
 	}
-	tx.rows = append(tx.rows, *dataRow)
 
+	// Write final data row to disk (similar to Commit())
+	completeRowBytes, err := dataRow.MarshalText()
+	if err != nil {
+		return NewInvalidActionError("failed to marshal finalized DataRow", err)
+	}
+
+	// Write remaining bytes (synchronous)
+	if err := tx.writeBytes(completeRowBytes); err != nil {
+		// Transaction is tombstoned by writeBytes on error
+		return err
+	}
+
+	// Update transaction state only after successful write
+	tx.rows = append(tx.rows, *dataRow)
 	tx.last = nil
+	tx.rowBytesWritten = 0
 
 	// Check and insert checksum row if needed (after rollback DataRow write)
 	if err := tx.checkAndInsertChecksum(); err != nil {
