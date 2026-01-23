@@ -136,7 +136,24 @@ func NewTombstonedError(message string, err error) *TombstonedError {
 	}
 }
 
+// NewReadError creates a new ReadError.
+func NewReadError(message string, err error) *ReadError {
+	return &ReadError{
+		FrozenDBError: FrozenDBError{
+			Code:    "read_error",
+			Message: message,
+			Err:     err,
+		},
+	}
+}
+
 // TombstonedError is returned when operations are attempted on a tombstoned FileManager.
 type TombstonedError struct {
+	FrozenDBError
+}
+
+// ReadError is returned for disk read operation failures.
+// Used for: file I/O errors, read permission issues, hardware read failures.
+type ReadError struct {
 	FrozenDBError
 }
