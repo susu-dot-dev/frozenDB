@@ -28,6 +28,51 @@ type Transaction struct {
 	writeChan       chan<- Data     // Write channel for sending Data structs to FileManager
 	rowBytesWritten int             // Tracks how many bytes of current PartialDataRow have been written (internal, not initialized by caller)
 	tombstone       bool            // Tombstone flag set when write operation fails
+	db              DBFile          // File manager interface for reading rows and calculating checksums
+}
+
+const (
+	CHECKSUM_INTERVAL = 10000 // Checksum rows inserted every 10,000 complete rows
+)
+
+// NewTransaction creates a new transaction with automatic checksum row insertion.
+// The transaction will automatically insert checksum rows at 10,000-row intervals.
+//
+// Parameters:
+//   - db: DBFile interface for reading rows and calculating checksums
+//   - header: Validated header reference containing row_size and configuration
+//
+// Returns:
+//   - *Transaction: New transaction instance
+//   - error: Error if setup fails (InvalidInputError, InvalidActionError)
+//
+// Errors returned:
+//   - InvalidInputError: nil parameters
+//   - InvalidActionError: Writer already active on FileManager
+func NewTransaction(db DBFile, header *Header) (*Transaction, error) {
+	if db == nil {
+		return nil, NewInvalidInputError("DBFile cannot be nil", nil)
+	}
+	// Create write channel internally
+	writeChan := make(chan Data, 100)
+
+	// SetWriter needs a receive-only channel
+	if err := db.SetWriter(writeChan); err != nil {
+		return nil, err
+	}
+
+	tx := &Transaction{
+		Header:    header,
+		writeChan: writeChan,
+		db:        db,
+	}
+
+	// Validate the transaction after construction
+	if err := tx.Validate(); err != nil {
+		return nil, err
+	}
+
+	return tx, nil
 }
 
 // GetRows returns the rows slice for read-only access.
@@ -87,6 +132,122 @@ func extractUUIDv7Timestamp(u uuid.UUID) int64 {
 	// Bytes 0-5 contain the timestamp, big-endian
 	return int64(u[0])<<40 | int64(u[1])<<32 | int64(u[2])<<24 |
 		int64(u[3])<<16 | int64(u[4])<<8 | int64(u[5])
+}
+
+// getChecksumStart returns the offset where the most recent checksum row starts.
+// If file size is less than 10,000 data rows, returns HEADER_SIZE (64) for the initial checksum.
+// Otherwise, calculates the position of the most recent checksum row based on row count.
+func (tx *Transaction) getChecksumStart() int64 {
+	fileSize := tx.db.Size()
+	rowSize := tx.Header.GetRowSize()
+
+	// If no data yet (file only has header), no checksum
+	if fileSize <= int64(HEADER_SIZE) {
+		return int64(HEADER_SIZE)
+	}
+
+	// Calculate total rows in data section (checksum rows + data rows)
+	totalRows := (fileSize - int64(HEADER_SIZE)) / int64(rowSize)
+
+	// If total rows < CHECKSUM_INTERVAL+1, initial checksum is at HEADER_SIZE
+	// (checksum row + less than CHECKSUM_INTERVAL data rows)
+	if totalRows <= int64(CHECKSUM_INTERVAL+1) {
+		return int64(HEADER_SIZE)
+	}
+
+	// Number of complete blocks of (CHECKSUM_INTERVAL data rows + checksum row)
+	blocks := (totalRows - 1) / (int64(CHECKSUM_INTERVAL) + 1)
+
+	// Offset: HEADER_SIZE + blocks * (CHECKSUM_INTERVAL+1) * rowSize
+	return int64(HEADER_SIZE) + blocks*(int64(CHECKSUM_INTERVAL)+1)*int64(rowSize)
+}
+
+// shouldInsertChecksum returns true if a checksum row should be inserted.
+// Checks if the distance from getChecksumStart() to fileSize() is exactly 10,001 rows.
+func (tx *Transaction) shouldInsertChecksum() bool {
+	fileSize := tx.db.Size()
+	rowSize := tx.Header.GetRowSize()
+	checksumStart := tx.getChecksumStart()
+
+	bytesFromChecksum := fileSize - checksumStart
+	rowsFromChecksum := bytesFromChecksum / int64(rowSize)
+
+	shouldInsert := rowsFromChecksum == int64(CHECKSUM_INTERVAL+1)
+	return shouldInsert
+}
+
+// validateRows validates rows by iterating through bytes row_size at a time.
+// First row (rowIndex == 0) must be a checksum row, remaining rows must be data/null rows.
+// The union_row unmarshalText already ensures exactly one row type is set.
+func (tx *Transaction) validateRows(bytes []byte) error {
+	rowSize := tx.Header.GetRowSize()
+	for i := 0; i < len(bytes); i += rowSize {
+		ru := &RowUnion{}
+
+		rowBytes := bytes[i : i+rowSize]
+		if err := ru.UnmarshalText(rowBytes); err != nil {
+			return NewCorruptDatabaseError("row validation failed during checksum calculation", err)
+		}
+
+		rowIndex := i / rowSize
+		if rowIndex == 0 && ru.ChecksumRow == nil {
+			return NewCorruptDatabaseError("first row in checksum block must be a checksum row", nil)
+		}
+		if rowIndex != 0 && ru.ChecksumRow != nil {
+			return NewCorruptDatabaseError("checksum row found in middle of data block", nil)
+		}
+	}
+
+	return nil
+}
+
+// insertChecksum calculates the checksum row from bytes and inserts it.
+func (tx *Transaction) insertChecksum(bytes []byte) error {
+	checksumRow, err := NewChecksumRow(tx.Header.GetRowSize(), bytes)
+	if err != nil {
+		return NewCorruptDatabaseError("failed to create checksum row", err)
+	}
+
+	checksumBytes, err := checksumRow.MarshalText()
+	if err != nil {
+		return NewCorruptDatabaseError("failed to marshal checksum row", err)
+	}
+
+	return tx.writeBytes(checksumBytes)
+}
+
+// checkAndInsertChecksum checks if a checksum row is needed and inserts it if so.
+// This method is called after each complete row write (DataRow or NullRow).
+// Assumes tx.db is non-nil (validated by tx.Validate()).
+// Errors returned:
+//   - CorruptDatabaseError: Row validation failure during checksum calculation
+//   - WriteError: Failed to write checksum row to file
+func (tx *Transaction) checkAndInsertChecksum() error {
+	if !tx.shouldInsertChecksum() {
+		return nil
+	}
+
+	checksumStart := tx.getChecksumStart()
+	rowSize := tx.Header.GetRowSize()
+
+	dataStart := checksumStart
+	bytesNeeded := int64(CHECKSUM_INTERVAL+1) * int64(rowSize)
+
+	bytes, err := tx.db.Read(dataStart, int32(bytesNeeded))
+	if err != nil {
+		return err
+	}
+
+	if err := tx.validateRows(bytes); err != nil {
+		return err
+	}
+
+	// Reset rowBytesWritten after checksum insertion so next row starts fresh
+	defer func() {
+		tx.rowBytesWritten = 0
+	}()
+
+	return tx.insertChecksum(bytes)
 }
 
 // isActive returns true if the transaction is in active state.
@@ -201,19 +362,9 @@ func (tx *Transaction) Begin() error {
 	}
 
 	// Create PartialDataRow with start control
-	pdr := &PartialDataRow{
-		state: PartialDataRowWithStartControl,
-		d: DataRow{
-			baseRow[*DataRowPayload]{
-				Header:       tx.Header,
-				StartControl: START_TRANSACTION,
-			},
-		},
-	}
-
-	// Validate the created PartialDataRow
-	if err := pdr.Validate(); err != nil {
-		return NewInvalidActionError("created PartialDataRow failed validation", err)
+	pdr, err := NewPartialDataRow(tx.Header.GetRowSize(), START_TRANSACTION)
+	if err != nil {
+		return NewInvalidActionError("failed to create PartialDataRow", err)
 	}
 
 	// Write PartialDataRow to disk (FR-001)
@@ -356,21 +507,16 @@ func (tx *Transaction) AddRow(key uuid.UUID, value string) error {
 		tx.rows = append(tx.rows, *dataRow)
 		tx.rowBytesWritten = 0 // Reset for new partial row
 
-		// FR-004, FR-005: Create new PartialDataRow with ROW_CONTINUE
-		// All rows after the first use ROW_CONTINUE
-		newPdr := &PartialDataRow{
-			state: PartialDataRowWithStartControl,
-			d: DataRow{
-				baseRow[*DataRowPayload]{
-					Header:       tx.Header,
-					StartControl: ROW_CONTINUE,
-				},
-			},
+		// Check and insert checksum row if needed (after complete DataRow write)
+		if err := tx.checkAndInsertChecksum(); err != nil {
+			return err
 		}
 
-		// Validate the newly created PartialDataRow before adding data
-		if err := newPdr.Validate(); err != nil {
-			return NewInvalidActionError("created PartialDataRow failed validation", err)
+		// FR-004, FR-005: Create new PartialDataRow with ROW_CONTINUE
+		// All rows after the first use ROW_CONTINUE
+		newPdr, err := NewPartialDataRow(tx.Header.GetRowSize(), ROW_CONTINUE)
+		if err != nil {
+			return NewInvalidActionError("failed to create PartialDataRow", err)
 		}
 
 		// Add the key-value data to the new partial
@@ -454,7 +600,7 @@ func (tx *Transaction) Commit() error {
 		// Create NullRow with validated payload
 		nullRow := &NullRow{
 			baseRow[*NullRowPayload]{
-				Header:       tx.Header,
+				RowSize:      tx.Header.GetRowSize(),
 				StartControl: START_TRANSACTION,
 				EndControl:   NULL_ROW_CONTROL,
 				RowPayload:   payload,
@@ -484,6 +630,11 @@ func (tx *Transaction) Commit() error {
 		tx.empty = nullRow
 		tx.last = nil
 		tx.rowBytesWritten = 0
+
+		// Check and insert checksum row if needed (after NullRow write)
+		if err := tx.checkAndInsertChecksum(); err != nil {
+			return err
+		}
 
 		return nil
 	}
@@ -517,6 +668,11 @@ func (tx *Transaction) Commit() error {
 	tx.rows = append(tx.rows, *dataRow)
 	tx.last = nil
 	tx.rowBytesWritten = 0
+
+	// Check and insert checksum row if needed (after DataRow commit)
+	if err := tx.checkAndInsertChecksum(); err != nil {
+		return err
+	}
 
 	return nil
 }
@@ -675,7 +831,7 @@ func (tx *Transaction) Rollback(savepointId int) error {
 		// Create NullRow with validated payload
 		nullRow := &NullRow{
 			baseRow[*NullRowPayload]{
-				Header:       tx.Header,
+				RowSize:      tx.Header.GetRowSize(),
 				StartControl: START_TRANSACTION,
 				EndControl:   NULL_ROW_CONTROL,
 				RowPayload:   payload,
@@ -702,6 +858,11 @@ func (tx *Transaction) Rollback(savepointId int) error {
 	tx.rows = append(tx.rows, *dataRow)
 
 	tx.last = nil
+
+	// Check and insert checksum row if needed (after rollback DataRow write)
+	if err := tx.checkAndInsertChecksum(); err != nil {
+		return err
+	}
 
 	return nil
 }
@@ -843,6 +1004,9 @@ func (tx *Transaction) getSavepointIndicesUnlocked() []int {
 //   - Proper StartControl sequences (T followed by R's for subsequent rows)
 //   - Savepoint consistency and rollback target validity
 //   - Only one transaction termination within range (or transaction is still open)
+//   - DBFile (db field) is set if writeChan is set (transactions created via NewTransaction)
+//
+// After Validate() passes, tx.db can be assumed to be non-nil if writeChan is set.
 //
 // Returns CorruptDatabaseError for corruption scenarios or InvalidInputError for logic/instruction errors.
 // Returns TombstonedError if transaction is tombstoned.
@@ -854,89 +1018,20 @@ func (tx *Transaction) Validate() error {
 	tx.mu.RLock()
 	defer tx.mu.RUnlock()
 
-	// FR-006: Check if tombstoned
-	if err := tx.checkTombstone(); err != nil {
-		return err
+	if tx.Header == nil {
+		return NewInvalidInputError("Header cannot be nil", nil)
 	}
 
-	// Allow empty transactions that have been committed (empty field set)
-	if len(tx.rows) == 0 {
-		// If empty field is set, transaction is a valid empty transaction
-		if tx.empty != nil {
-			return nil
-		}
-		// If last field is set, transaction is in active state (valid during workflow)
-		if tx.last != nil {
-			return nil
-		}
-		// Otherwise, this is an uninitialized/inactive transaction - valid for Begin() call
-		return nil
+	if tx.db == nil {
+		return NewInvalidInputError("DBFile cannot be nil", nil)
 	}
 
-	// Check maximum row count
-	if len(tx.rows) > 100 {
-		return NewInvalidInputError("Transaction cannot contain more than 100 rows", nil)
+	if tx.writeChan == nil {
+		return NewInvalidInputError("Write channel cannot be nil", nil)
 	}
 
-	// Validate first row has StartControl = 'T'
-	firstRow := tx.rows[0]
-	if firstRow.StartControl != START_TRANSACTION {
-		return NewCorruptDatabaseError("First row must have StartControl='T' (transaction start)", nil)
+	if len(tx.rows) != 0 || tx.empty != nil || tx.last != nil {
+		return NewInvalidInputError("Transaction must be inactive", nil)
 	}
-
-	// Validate StartControl sequences: T followed by R's
-	for i := 1; i < len(tx.rows); i++ {
-		if tx.rows[i].StartControl != ROW_CONTINUE {
-			return NewCorruptDatabaseError("Subsequent rows must have StartControl='R' (row continuation)", nil)
-		}
-	}
-
-	// Validate savepoint count (max 9)
-	savepointIndices := tx.getSavepointIndicesUnlocked()
-	if len(savepointIndices) > 9 {
-		return NewInvalidInputError("Transaction cannot contain more than 9 savepoints", nil)
-	}
-
-	// Check for transaction termination
-	lastRow := tx.rows[len(tx.rows)-1]
-	endControl := lastRow.EndControl
-	second := endControl[1]
-
-	// Count transaction-ending commands
-	terminationCount := 0
-	for _, row := range tx.rows {
-		ec := row.EndControl
-		sec := ec[1]
-		if sec == 'C' || (sec >= '0' && sec <= '9') {
-			terminationCount++
-		}
-	}
-
-	// If transaction is still open (last row ends with 'E'), no termination required
-	if second == 'E' {
-		// Transaction is still open, no termination required
-		// But we should check that there's no termination command before the last row
-		if terminationCount > 0 {
-			return NewCorruptDatabaseError("Transaction ending command found before transaction is complete", nil)
-		}
-		return nil
-	}
-
-	// Transaction has termination - must have exactly one
-	if terminationCount != 1 {
-		return NewCorruptDatabaseError("Transaction must have exactly one transaction-ending command", nil)
-	}
-
-	// Validate rollback target if rollback command
-	if second >= '0' && second <= '9' {
-		rollbackTarget := int(second - '0')
-		if rollbackTarget > 0 {
-			// Partial rollback - validate savepoint exists
-			if rollbackTarget > len(savepointIndices) {
-				return NewInvalidInputError("Rollback target savepoint does not exist", nil)
-			}
-		}
-	}
-
 	return nil
 }

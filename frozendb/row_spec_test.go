@@ -6,14 +6,6 @@ import (
 
 // Test_S_004_FR_004_UnmarshalTextCallsValidate tests FR-004: System MUST call Validate() in all UnmarshalText() methods before returning from unmarshaling
 func Test_S_004_FR_004_UnmarshalTextCallsValidate(t *testing.T) {
-	// Create a valid header for row operations
-	header := &Header{
-		signature: "fDB",
-		version:   1,
-		rowSize:   1024,
-		skewMs:    5000,
-	}
-
 	// Test StartControl UnmarshalText() calls Validate()
 	var sc StartControl
 	validText := []byte{'T'}
@@ -83,7 +75,7 @@ func Test_S_004_FR_004_UnmarshalTextCallsValidate(t *testing.T) {
 
 	// Test ChecksumRow UnmarshalText() calls Validate()
 	// First create a valid checksum row to marshal
-	cr, err := NewChecksumRow(header, []byte("test data"))
+	cr, err := NewChecksumRow(1024, []byte("test data"))
 	if err != nil {
 		t.Fatalf("Failed to create ChecksumRow: %v", err)
 	}
@@ -96,7 +88,6 @@ func Test_S_004_FR_004_UnmarshalTextCallsValidate(t *testing.T) {
 
 	// Now unmarshal - should call Validate() internally
 	unmarshaledCr := &ChecksumRow{}
-	unmarshaledCr.Header = header
 	err = unmarshaledCr.UnmarshalText(rowBytes)
 	if err != nil {
 		t.Errorf("ChecksumRow.UnmarshalText() with valid input should succeed: %v", err)
@@ -104,9 +95,8 @@ func Test_S_004_FR_004_UnmarshalTextCallsValidate(t *testing.T) {
 
 	// Test invalid ChecksumRow - UnmarshalText() should call Validate() and fail
 	invalidCr := &ChecksumRow{}
-	invalidCr.Header = header
 	// Create invalid row bytes (wrong start control)
-	invalidRowBytes := make([]byte, header.GetRowSize())
+	invalidRowBytes := make([]byte, 1024)
 	invalidRowBytes[0] = ROW_START
 	invalidRowBytes[1] = 'T' // Wrong: should be 'C' for checksum
 	err = invalidCr.UnmarshalText(invalidRowBytes)
@@ -118,21 +108,10 @@ func Test_S_004_FR_004_UnmarshalTextCallsValidate(t *testing.T) {
 // Test_S_004_FR_013_ChildValidatedDuringConstruction tests FR-013: System MUST call Validate() on child structs during their construction (in NewStruct() or UnmarshalText()) before parent validation
 func Test_S_004_FR_013_ChildValidatedDuringConstruction(t *testing.T) {
 	// Test that NewChecksumRow() calls Validate() on child structs during construction
-	header := &Header{
-		signature: "fDB",
-		version:   1,
-		rowSize:   1024,
-		skewMs:    5000,
-	}
-	// Header should be validated (if UnmarshalText was used, it would validate)
-	// For this test, we validate it manually to ensure it's valid
-	if err := header.Validate(); err != nil {
-		t.Fatalf("Header validation failed: %v", err)
-	}
 
 	// NewChecksumRow creates Checksum (child) during construction
 	// Checksum is universally valid (uint32 is always valid), so no validation needed
-	cr, err := NewChecksumRow(header, []byte("test data"))
+	cr, err := NewChecksumRow(1024, []byte("test data"))
 	if err != nil {
 		t.Fatalf("NewChecksumRow should succeed with valid inputs: %v", err)
 	}
@@ -160,7 +139,6 @@ func Test_S_004_FR_013_ChildValidatedDuringConstruction(t *testing.T) {
 
 	// UnmarshalText() should call Validate() on child structs (StartControl, EndControl, Checksum)
 	unmarshaledCr := &ChecksumRow{}
-	unmarshaledCr.Header = header
 	err = unmarshaledCr.UnmarshalText(rowBytes)
 	if err != nil {
 		t.Errorf("UnmarshalText() should succeed and validate children: %v", err)

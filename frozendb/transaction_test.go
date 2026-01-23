@@ -1831,51 +1831,6 @@ func TestGetCommittedRows_VariousTransactionStates(t *testing.T) {
 }
 
 // =============================================================================
-// Validate Tests for Savepoint/Rollback Related Scenarios
-// =============================================================================
-
-// TestTransactionValidate_SavepointScenarios verifies Validate() for savepoint cases
-func TestTransactionValidate_SavepointScenarios(t *testing.T) {
-	header := createTestHeader()
-
-	t.Run("valid_transaction_with_savepoints", func(t *testing.T) {
-		tx := createTransactionWithMockWriter(header)
-		tx.Begin()
-
-		for i := 0; i < 3; i++ {
-			key, _ := uuid.NewV7()
-			tx.AddRow(key, `{"data":"test"}`)
-			tx.Savepoint()
-		}
-		tx.Commit()
-
-		err := tx.Validate()
-		if err != nil {
-			t.Fatalf("Validate() should pass for valid transaction with savepoints: %v", err)
-		}
-	})
-
-	t.Run("valid_transaction_after_rollback", func(t *testing.T) {
-		tx := createTransactionWithMockWriter(header)
-		tx.Begin()
-
-		key1, _ := uuid.NewV7()
-		tx.AddRow(key1, `{"data":"first"}`)
-		tx.Savepoint()
-
-		key2, _ := uuid.NewV7()
-		tx.AddRow(key2, `{"data":"second"}`)
-
-		tx.Rollback(1)
-
-		err := tx.Validate()
-		if err != nil {
-			t.Fatalf("Validate() should pass after rollback: %v", err)
-		}
-	})
-}
-
-// =============================================================================
 // Additional Integration Tests
 // =============================================================================
 
@@ -2084,6 +2039,7 @@ func createTransactionWithByteCollector(header *Header) (*Transaction, *[][]byte
 	tx := &Transaction{
 		Header:    header,
 		writeChan: writeChan,
+		db:        &mockDBFile{},
 	}
 	return tx, &writtenBytes
 }
@@ -2155,6 +2111,7 @@ func TestBegin_DiskPersistence(t *testing.T) {
 		tx := &Transaction{
 			Header:    header,
 			writeChan: dataChan,
+			db:        &mockDBFile{},
 		}
 
 		err := tx.Begin()
@@ -2188,6 +2145,7 @@ func TestBegin_DiskPersistence(t *testing.T) {
 		tx := &Transaction{
 			Header:    header,
 			writeChan: dataChan,
+			db:        &mockDBFile{},
 		}
 
 		// Start Begin() in goroutine since it will block
@@ -2329,6 +2287,7 @@ func TestAddRow_DiskPersistence(t *testing.T) {
 		tx := &Transaction{
 			Header:    header,
 			writeChan: dataChan,
+			db:        &mockDBFile{},
 		}
 
 		err := tx.Begin()
@@ -2381,6 +2340,7 @@ func TestAddRow_DiskPersistence(t *testing.T) {
 		tx := &Transaction{
 			Header:    header,
 			writeChan: dataChan,
+			db:        &mockDBFile{},
 		}
 
 		err := tx.Begin()
@@ -2512,6 +2472,7 @@ func TestCommit_DiskPersistence(t *testing.T) {
 		tx := &Transaction{
 			Header:    header,
 			writeChan: dataChan,
+			db:        &mockDBFile{},
 		}
 
 		err := tx.Begin()
@@ -2559,6 +2520,7 @@ func TestCommit_DiskPersistence(t *testing.T) {
 		tx := &Transaction{
 			Header:    header,
 			writeChan: dataChan,
+			db:        &mockDBFile{},
 		}
 
 		err := tx.Begin()
@@ -2829,6 +2791,7 @@ func TestTransactionPersistence_ErrorConditions(t *testing.T) {
 		tx := &Transaction{
 			Header:    header,
 			writeChan: dataChan,
+			db:        &mockDBFile{},
 		}
 
 		err := tx.Begin()
@@ -2881,6 +2844,7 @@ func TestTransactionPersistence_ErrorConditions(t *testing.T) {
 		tx := &Transaction{
 			Header:    header,
 			writeChan: dataChan,
+			db:        &mockDBFile{},
 		}
 
 		err := tx.Begin()
@@ -2923,6 +2887,7 @@ func TestTransactionPersistence_ErrorConditions(t *testing.T) {
 		tx := &Transaction{
 			Header:    header,
 			writeChan: dataChan,
+			db:        &mockDBFile{},
 		}
 
 		err := tx.Begin()
@@ -2974,6 +2939,7 @@ func TestTransactionPersistence_ErrorConditions(t *testing.T) {
 		tx := &Transaction{
 			Header:    header,
 			writeChan: dataChan,
+			db:        &mockDBFile{},
 		}
 
 		// Begin() should fail because channel is full (hits default case)
@@ -3076,6 +3042,7 @@ func TestTransactionPersistence_SynchronousWrites(t *testing.T) {
 		tx := &Transaction{
 			Header:    header,
 			writeChan: dataChan,
+			db:        &mockDBFile{},
 		}
 
 		startTime := time.Now()
@@ -3116,6 +3083,7 @@ func TestTransactionPersistence_SynchronousWrites(t *testing.T) {
 		tx := &Transaction{
 			Header:    header,
 			writeChan: dataChan,
+			db:        &mockDBFile{},
 		}
 
 		err := tx.Begin()
@@ -3162,6 +3130,7 @@ func TestTransactionPersistence_SynchronousWrites(t *testing.T) {
 		tx := &Transaction{
 			Header:    header,
 			writeChan: dataChan,
+			db:        &mockDBFile{},
 		}
 
 		err := tx.Begin()

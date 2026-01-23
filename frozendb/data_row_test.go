@@ -207,13 +207,6 @@ func TestDataRow_GetKey(t *testing.T) {
 		t.Fatalf("Failed to generate UUIDv7: %v", err)
 	}
 
-	header := &Header{
-		signature: "fDB",
-		version:   1,
-		rowSize:   512,
-		skewMs:    5000,
-	}
-
 	tests := []struct {
 		name    string
 		dataRow *DataRow
@@ -223,7 +216,7 @@ func TestDataRow_GetKey(t *testing.T) {
 			name: "valid key",
 			dataRow: &DataRow{
 				baseRow[*DataRowPayload]{
-					Header: header,
+					RowSize: 512,
 					RowPayload: &DataRowPayload{
 						Key:   key,
 						Value: `{"test":"value"}`,
@@ -250,13 +243,6 @@ func TestDataRow_GetValue(t *testing.T) {
 		t.Fatalf("Failed to generate UUIDv7: %v", err)
 	}
 
-	header := &Header{
-		signature: "fDB",
-		version:   1,
-		rowSize:   512,
-		skewMs:    5000,
-	}
-
 	value := `{"test":"value"}`
 	tests := []struct {
 		name    string
@@ -267,7 +253,7 @@ func TestDataRow_GetValue(t *testing.T) {
 			name: "valid value",
 			dataRow: &DataRow{
 				baseRow[*DataRowPayload]{
-					Header: header,
+					RowSize: 512,
 					RowPayload: &DataRowPayload{
 						Key:   key,
 						Value: value,
@@ -289,13 +275,6 @@ func TestDataRow_GetValue(t *testing.T) {
 }
 
 func TestDataRow_RoundTripSerialization(t *testing.T) {
-	header := &Header{
-		signature: "fDB",
-		version:   1,
-		rowSize:   512,
-		skewMs:    5000,
-	}
-
 	key, err := uuid.NewV7()
 	if err != nil {
 		t.Fatalf("Failed to generate UUIDv7: %v", err)
@@ -304,7 +283,7 @@ func TestDataRow_RoundTripSerialization(t *testing.T) {
 	value := `{"name":"Test","count":42,"active":true}`
 	originalRow := &DataRow{
 		baseRow[*DataRowPayload]{
-			Header:       header,
+			RowSize:      512,
 			StartControl: START_TRANSACTION,
 			EndControl:   TRANSACTION_COMMIT,
 			RowPayload: &DataRowPayload{
@@ -327,7 +306,7 @@ func TestDataRow_RoundTripSerialization(t *testing.T) {
 	// Deserialize
 	deserializedRow := &DataRow{
 		baseRow[*DataRowPayload]{
-			Header: header,
+			RowSize: 512,
 		},
 	}
 
@@ -346,13 +325,6 @@ func TestDataRow_RoundTripSerialization(t *testing.T) {
 }
 
 func TestDataRow_Validate(t *testing.T) {
-	header := &Header{
-		signature: "fDB",
-		version:   1,
-		rowSize:   512,
-		skewMs:    5000,
-	}
-
 	key, err := uuid.NewV7()
 	if err != nil {
 		t.Fatalf("Failed to generate UUIDv7: %v", err)
@@ -367,7 +339,7 @@ func TestDataRow_Validate(t *testing.T) {
 			name: "valid DataRow with T/TC",
 			dataRow: &DataRow{
 				baseRow[*DataRowPayload]{
-					Header:       header,
+					RowSize:      512,
 					StartControl: START_TRANSACTION,
 					EndControl:   TRANSACTION_COMMIT,
 					RowPayload: &DataRowPayload{
@@ -382,7 +354,7 @@ func TestDataRow_Validate(t *testing.T) {
 			name: "valid DataRow with R/RE",
 			dataRow: &DataRow{
 				baseRow[*DataRowPayload]{
-					Header:       header,
+					RowSize:      512,
 					StartControl: ROW_CONTINUE,
 					EndControl:   ROW_END_CONTROL,
 					RowPayload: &DataRowPayload{
@@ -397,7 +369,7 @@ func TestDataRow_Validate(t *testing.T) {
 			name: "invalid start control (C)",
 			dataRow: &DataRow{
 				baseRow[*DataRowPayload]{
-					Header:       header,
+					RowSize:      512,
 					StartControl: CHECKSUM_ROW,
 					EndControl:   TRANSACTION_COMMIT,
 					RowPayload: &DataRowPayload{
@@ -412,7 +384,7 @@ func TestDataRow_Validate(t *testing.T) {
 			name: "invalid end control (CS)",
 			dataRow: &DataRow{
 				baseRow[*DataRowPayload]{
-					Header:       header,
+					RowSize:      512,
 					StartControl: START_TRANSACTION,
 					EndControl:   CHECKSUM_ROW_CONTROL,
 					RowPayload: &DataRowPayload{
@@ -427,7 +399,7 @@ func TestDataRow_Validate(t *testing.T) {
 			name: "valid rollback R0",
 			dataRow: &DataRow{
 				baseRow[*DataRowPayload]{
-					Header:       header,
+					RowSize:      512,
 					StartControl: START_TRANSACTION,
 					EndControl:   FULL_ROLLBACK,
 					RowPayload: &DataRowPayload{
@@ -442,7 +414,7 @@ func TestDataRow_Validate(t *testing.T) {
 			name: "valid rollback R5",
 			dataRow: &DataRow{
 				baseRow[*DataRowPayload]{
-					Header:       header,
+					RowSize:      512,
 					StartControl: ROW_CONTINUE,
 					EndControl:   EndControl{'R', '5'},
 					RowPayload: &DataRowPayload{

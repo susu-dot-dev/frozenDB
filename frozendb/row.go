@@ -154,7 +154,7 @@ type RowPayload interface {
 // baseRow provides the generic foundation for all frozenDB row types.
 // T must implement RowPayload. The RowPayload field stores T directly.
 type baseRow[T RowPayload] struct {
-	Header       *Header      // Header reference for row_size and configuration
+	RowSize      int          // Row size in bytes
 	StartControl StartControl // Single byte control character (position 1)
 	EndControl   EndControl   // Two-byte end control sequence (positions N-5,N-4)
 	RowPayload   T            // Typed payload data, validated after structural checks
@@ -165,15 +165,11 @@ type baseRow[T RowPayload] struct {
 // Takes the marshaled payload bytes to determine actual payload size
 func (br *baseRow[T]) PaddingLength(payloadBytes []byte) int {
 	payloadSize := len(payloadBytes)
-	return br.Header.GetRowSize() - 7 - payloadSize
+	return br.RowSize - 7 - payloadSize
 }
 
 // BuildRowStartAndControl builds just the ROW_START and start_control bytes (positions [0] and [1])
 func (br *baseRow[T]) BuildRowStartAndControl() ([]byte, error) {
-	if br.Header == nil {
-		return nil, NewInvalidInputError("Header is required", nil)
-	}
-
 	startControlBytes, err := br.StartControl.MarshalText()
 	if err != nil {
 		return nil, NewInvalidInputError("failed to marshal start_control", err)
@@ -194,18 +190,13 @@ func (br *baseRow[T]) BuildRowStartControlAndPayload(payloadBytes []byte) ([]byt
 		return nil, err
 	}
 
-	if br.Header == nil {
-		return nil, NewInvalidInputError("Header is required", nil)
-	}
-
-	rowSize := br.Header.GetRowSize()
 	paddingLen := br.PaddingLength(payloadBytes)
 	if paddingLen < 0 {
 		return nil, NewInvalidInputError("row_size too small for required fields", nil)
 	}
 
 	// Build bytes [0] through [rowSize-6] inclusive = rowSize-5 bytes total
-	result := make([]byte, rowSize-5)
+	result := make([]byte, br.RowSize-5)
 
 	// Copy ROW_START and start_control
 	copy(result, startAndControl)
@@ -216,7 +207,7 @@ func (br *baseRow[T]) BuildRowStartControlAndPayload(payloadBytes []byte) ([]byt
 	copy(result[payloadStart:payloadEnd], payloadBytes)
 
 	// Positions [payloadEnd..N-6]: NULL_BYTE padding
-	for i := payloadEnd; i < rowSize-5; i++ {
+	for i := payloadEnd; i < br.RowSize-5; i++ {
 		result[i] = NULL_BYTE
 	}
 
@@ -240,7 +231,7 @@ func (br *baseRow[T]) buildRowBytesUpToParity() ([]byte, error) {
 	}
 
 	// Build full row up to parity: startControlAndPayload + end_control
-	rowBytes := make([]byte, br.Header.GetRowSize()-3)
+	rowBytes := make([]byte, br.RowSize-3)
 	copy(rowBytes, startControlAndPayload)
 
 	// Positions [N-5..N-4]: end_control
@@ -248,7 +239,7 @@ func (br *baseRow[T]) buildRowBytesUpToParity() ([]byte, error) {
 	if err != nil {
 		return nil, NewInvalidInputError("failed to marshal end_control", err)
 	}
-	copy(rowBytes[br.Header.GetRowSize()-5:br.Header.GetRowSize()-3], endControlBytes)
+	copy(rowBytes[br.RowSize-5:br.RowSize-3], endControlBytes)
 
 	return rowBytes, nil
 }
@@ -280,11 +271,6 @@ func (br *baseRow[T]) GetParity() ([2]byte, error) {
 
 // MarshalText serializes baseRow to exact byte format per v1_file_format.md
 func (br *baseRow[T]) MarshalText() ([]byte, error) {
-	if br.Header == nil {
-		return nil, NewInvalidInputError("Header is required (programmer error: Header must be set)", nil)
-	}
-	rowSize := br.Header.GetRowSize()
-
 	// Build row bytes up to but not including parity
 	rowBytesUpToParity, err := br.buildRowBytesUpToParity()
 	if err != nil {
@@ -292,7 +278,7 @@ func (br *baseRow[T]) MarshalText() ([]byte, error) {
 	}
 
 	// Build full row bytes
-	rowBytes := make([]byte, rowSize)
+	rowBytes := make([]byte, br.RowSize)
 	copy(rowBytes, rowBytesUpToParity)
 
 	// Positions [N-3..N-2]: parity_bytes (calculated after all other bytes are set)
@@ -300,10 +286,10 @@ func (br *baseRow[T]) MarshalText() ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	copy(rowBytes[rowSize-3:rowSize-1], parity[:])
+	copy(rowBytes[br.RowSize-3:br.RowSize-1], parity[:])
 
 	// Position [N-1]: ROW_END
-	rowBytes[rowSize-1] = ROW_END
+	rowBytes[br.RowSize-1] = ROW_END
 
 	return rowBytes, nil
 }
@@ -314,16 +300,9 @@ func (br *baseRow[T]) UnmarshalText(text []byte) error {
 		return NewInvalidInputError("row bytes cannot be empty", nil)
 	}
 
-	// Validate Header is set (programmer error if nil)
-	// Header must already be validated by its creator, we only check it's non-nil
-	if br.Header == nil {
-		return NewInvalidInputError("Header is required (programmer error: Header must be set before UnmarshalText)", nil)
-	}
-
-	rowSize := br.Header.GetRowSize()
-	if len(text) != rowSize {
-		return NewInvalidInputError(fmt.Sprintf("row bytes length mismatch: expected %d, got %d", rowSize, len(text)), nil)
-	}
+	rowSize := len(text)
+	// Set RowSize early so it's available for GetParity() and other methods
+	br.RowSize = rowSize
 
 	// Step 1: Validate ROW_START at position [0]
 	if text[0] != ROW_START {
@@ -408,8 +387,8 @@ func (br *baseRow[T]) UnmarshalText(text []byte) error {
 // Validate performs comprehensive validation of baseRow structure
 // This method is idempotent and can be called multiple times with the same result
 func (br *baseRow[T]) Validate() error {
-	if br.Header == nil {
-		return NewInvalidInputError("Header is required (programmer error: Header must be set before validation)", nil)
+	if br.RowSize == 0 {
+		return NewInvalidInputError("RowSize is required", nil)
 	}
 
 	// Validate start_control (assumes StartControl.Validate() was called during construction)

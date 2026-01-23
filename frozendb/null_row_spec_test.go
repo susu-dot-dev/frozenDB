@@ -12,17 +12,10 @@ const NilUUIDBase64 = "AAAAAAAAAAAAAAAAAAAAAA=="
 
 // Test_S_010_FR_001_NullRowStartControlField tests FR-001: NullRow struct MUST have start_control field always set to 'T' (transaction begin)
 func Test_S_010_FR_001_NullRowStartControlField(t *testing.T) {
-	header := &Header{
-		signature: "fDB",
-		version:   1,
-		rowSize:   512,
-		skewMs:    5000,
-	}
-
 	// Create a valid NullRow
 	nullRow := &NullRow{
 		baseRow: baseRow[*NullRowPayload]{
-			Header:       header,
+			RowSize:      512,
 			StartControl: START_TRANSACTION,
 			EndControl:   NULL_ROW_CONTROL,
 			RowPayload:   &NullRowPayload{Key: uuid.Nil},
@@ -42,17 +35,10 @@ func Test_S_010_FR_001_NullRowStartControlField(t *testing.T) {
 
 // Test_S_010_FR_002_NullRowEndControlField tests FR-002: NullRow struct MUST have end_control field always set to 'NR' (null row)
 func Test_S_010_FR_002_NullRowEndControlField(t *testing.T) {
-	header := &Header{
-		signature: "fDB",
-		version:   1,
-		rowSize:   512,
-		skewMs:    5000,
-	}
-
 	// Create a valid NullRow
 	nullRow := &NullRow{
 		baseRow: baseRow[*NullRowPayload]{
-			Header:       header,
+			RowSize:      512,
 			StartControl: START_TRANSACTION,
 			EndControl:   NULL_ROW_CONTROL,
 			RowPayload:   &NullRowPayload{Key: uuid.Nil},
@@ -98,17 +84,10 @@ func Test_S_010_FR_003_NullRowUUIDNilBase64(t *testing.T) {
 
 // Test_S_010_FR_004_NullRowValidateMethod tests FR-004: NullRow struct MUST have a Validate() method that verifies all required field values
 func Test_S_010_FR_004_NullRowValidateMethod(t *testing.T) {
-	header := &Header{
-		signature: "fDB",
-		version:   1,
-		rowSize:   512,
-		skewMs:    5000,
-	}
-
 	t.Run("valid_nullrow_passes_validation", func(t *testing.T) {
 		nullRow := &NullRow{
 			baseRow: baseRow[*NullRowPayload]{
-				Header:       header,
+				RowSize:      512,
 				StartControl: START_TRANSACTION,
 				EndControl:   NULL_ROW_CONTROL,
 				RowPayload:   &NullRowPayload{Key: uuid.Nil},
@@ -124,7 +103,7 @@ func Test_S_010_FR_004_NullRowValidateMethod(t *testing.T) {
 	t.Run("validate_is_idempotent", func(t *testing.T) {
 		nullRow := &NullRow{
 			baseRow: baseRow[*NullRowPayload]{
-				Header:       header,
+				RowSize:      512,
 				StartControl: START_TRANSACTION,
 				EndControl:   NULL_ROW_CONTROL,
 				RowPayload:   &NullRowPayload{Key: uuid.Nil},
@@ -144,16 +123,9 @@ func Test_S_010_FR_004_NullRowValidateMethod(t *testing.T) {
 
 // Test_S_010_FR_005_NullRowMarshalMethod tests FR-005: NullRow struct MUST have a Marshal() method that produces binary data matching v1 file format
 func Test_S_010_FR_005_NullRowMarshalMethod(t *testing.T) {
-	header := &Header{
-		signature: "fDB",
-		version:   1,
-		rowSize:   512,
-		skewMs:    5000,
-	}
-
 	nullRow := &NullRow{
 		baseRow: baseRow[*NullRowPayload]{
-			Header:       header,
+			RowSize:      512,
 			StartControl: START_TRANSACTION,
 			EndControl:   NULL_ROW_CONTROL,
 			RowPayload:   &NullRowPayload{Key: uuid.Nil},
@@ -166,7 +138,7 @@ func Test_S_010_FR_005_NullRowMarshalMethod(t *testing.T) {
 	}
 
 	// Verify exact byte layout per v1_file_format.md section 8.7
-	rowSize := header.GetRowSize()
+	rowSize := 512
 	if len(rowBytes) != rowSize {
 		t.Errorf("Row size mismatch: expected %d, got %d", rowSize, len(rowBytes))
 	}
@@ -216,17 +188,10 @@ func Test_S_010_FR_005_NullRowMarshalMethod(t *testing.T) {
 
 // Test_S_010_FR_006_NullRowUnmarshalMethod tests FR-006: NullRow struct MUST have an Unmarshal() method that can parse binary data into a NullRow instance
 func Test_S_010_FR_006_NullRowUnmarshalMethod(t *testing.T) {
-	header := &Header{
-		signature: "fDB",
-		version:   1,
-		rowSize:   512,
-		skewMs:    5000,
-	}
-
 	// Create and marshal a valid NullRow
 	originalRow := &NullRow{
 		baseRow: baseRow[*NullRowPayload]{
-			Header:       header,
+			RowSize:      512,
 			StartControl: START_TRANSACTION,
 			EndControl:   NULL_ROW_CONTROL,
 			RowPayload:   &NullRowPayload{Key: uuid.Nil},
@@ -241,7 +206,7 @@ func Test_S_010_FR_006_NullRowUnmarshalMethod(t *testing.T) {
 	// Unmarshal into a new NullRow
 	deserializedRow := &NullRow{
 		baseRow: baseRow[*NullRowPayload]{
-			Header: header,
+			RowSize: 512,
 		},
 	}
 
@@ -286,16 +251,9 @@ func Test_S_010_FR_006_NullRowUnmarshalMethod(t *testing.T) {
 
 // Test_S_010_FR_007_NullRowParityBytesCalculation tests FR-007: NullRow struct MUST calculate correct parity bytes for marshaled data
 func Test_S_010_FR_007_NullRowParityBytesCalculation(t *testing.T) {
-	header := &Header{
-		signature: "fDB",
-		version:   1,
-		rowSize:   512,
-		skewMs:    5000,
-	}
-
 	nullRow := &NullRow{
 		baseRow: baseRow[*NullRowPayload]{
-			Header:       header,
+			RowSize:      512,
 			StartControl: START_TRANSACTION,
 			EndControl:   NULL_ROW_CONTROL,
 			RowPayload:   &NullRowPayload{Key: uuid.Nil},
@@ -307,7 +265,7 @@ func Test_S_010_FR_007_NullRowParityBytesCalculation(t *testing.T) {
 		t.Fatalf("NullRow.MarshalText() failed: %v", err)
 	}
 
-	rowSize := header.GetRowSize()
+	rowSize := 512
 
 	// Calculate expected parity: XOR all bytes from [0] through [rowSize-4] (inclusive)
 	var xor byte = 0
@@ -353,16 +311,9 @@ func Test_S_010_FR_008_NullRowPaddingCorrectness(t *testing.T) {
 
 	for _, rowSize := range rowSizes {
 		t.Run("row_size_"+string(rune('0'+rowSize/100)), func(t *testing.T) {
-			header := &Header{
-				signature: "fDB",
-				version:   1,
-				rowSize:   rowSize,
-				skewMs:    5000,
-			}
-
 			nullRow := &NullRow{
 				baseRow: baseRow[*NullRowPayload]{
-					Header:       header,
+					RowSize:      rowSize,
 					StartControl: START_TRANSACTION,
 					EndControl:   NULL_ROW_CONTROL,
 					RowPayload:   &NullRowPayload{Key: uuid.Nil},
@@ -403,13 +354,6 @@ func Test_S_010_FR_008_NullRowPaddingCorrectness(t *testing.T) {
 
 // Test_S_010_FR_009_ValidateFailsInvalidStartControl tests FR-009: NullRow validation MUST fail if start_control is not 'T'
 func Test_S_010_FR_009_ValidateFailsInvalidStartControl(t *testing.T) {
-	header := &Header{
-		signature: "fDB",
-		version:   1,
-		rowSize:   512,
-		skewMs:    5000,
-	}
-
 	testCases := []struct {
 		name         string
 		startControl StartControl
@@ -424,7 +368,7 @@ func Test_S_010_FR_009_ValidateFailsInvalidStartControl(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			nullRow := &NullRow{
 				baseRow: baseRow[*NullRowPayload]{
-					Header:       header,
+					RowSize:      512,
 					StartControl: tc.startControl,
 					EndControl:   NULL_ROW_CONTROL,
 					RowPayload:   &NullRowPayload{Key: uuid.Nil},
@@ -451,13 +395,6 @@ func Test_S_010_FR_009_ValidateFailsInvalidStartControl(t *testing.T) {
 
 // Test_S_010_FR_010_ValidateFailsInvalidEndControl tests FR-010: NullRow validation MUST fail if end_control is not 'NR'
 func Test_S_010_FR_010_ValidateFailsInvalidEndControl(t *testing.T) {
-	header := &Header{
-		signature: "fDB",
-		version:   1,
-		rowSize:   512,
-		skewMs:    5000,
-	}
-
 	testCases := []struct {
 		name       string
 		endControl EndControl
@@ -476,7 +413,7 @@ func Test_S_010_FR_010_ValidateFailsInvalidEndControl(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			nullRow := &NullRow{
 				baseRow: baseRow[*NullRowPayload]{
-					Header:       header,
+					RowSize:      512,
 					StartControl: START_TRANSACTION,
 					EndControl:   tc.endControl,
 					RowPayload:   &NullRowPayload{Key: uuid.Nil},
@@ -546,13 +483,6 @@ func Test_S_010_FR_011_ValidateFailsInvalidUUID(t *testing.T) {
 
 // Test_S_010_FR_012_MarshalReturnsInvalidInputError tests FR-012: Marshal() method MUST return InvalidInputError if row structure is invalid
 func Test_S_010_FR_012_MarshalReturnsInvalidInputError(t *testing.T) {
-	header := &Header{
-		signature: "fDB",
-		version:   1,
-		rowSize:   512,
-		skewMs:    5000,
-	}
-
 	testCases := []struct {
 		name     string
 		nullRow  *NullRow
@@ -563,7 +493,7 @@ func Test_S_010_FR_012_MarshalReturnsInvalidInputError(t *testing.T) {
 			name: "invalid_start_control",
 			nullRow: &NullRow{
 				baseRow: baseRow[*NullRowPayload]{
-					Header:       header,
+					RowSize:      512,
 					StartControl: ROW_CONTINUE, // Invalid for NullRow
 					EndControl:   NULL_ROW_CONTROL,
 					RowPayload:   &NullRowPayload{Key: uuid.Nil},
@@ -579,7 +509,7 @@ func Test_S_010_FR_012_MarshalReturnsInvalidInputError(t *testing.T) {
 			name: "invalid_end_control",
 			nullRow: &NullRow{
 				baseRow: baseRow[*NullRowPayload]{
-					Header:       header,
+					RowSize:      512,
 					StartControl: START_TRANSACTION,
 					EndControl:   TRANSACTION_COMMIT, // Invalid for NullRow
 					RowPayload:   &NullRowPayload{Key: uuid.Nil},
@@ -596,26 +526,10 @@ func Test_S_010_FR_012_MarshalReturnsInvalidInputError(t *testing.T) {
 		// UUID validation is the responsibility of NullRowPayload.Validate(), which
 		// must be called by the code constructing the payload.
 		{
-			name: "nil_header",
-			nullRow: &NullRow{
-				baseRow: baseRow[*NullRowPayload]{
-					Header:       nil, // Invalid
-					StartControl: START_TRANSACTION,
-					EndControl:   NULL_ROW_CONTROL,
-					RowPayload:   &NullRowPayload{Key: uuid.Nil},
-				},
-			},
-			wantErr: true,
-			errCheck: func(err error) bool {
-				_, ok := err.(*InvalidInputError)
-				return ok
-			},
-		},
-		{
 			name: "nil_payload",
 			nullRow: &NullRow{
 				baseRow: baseRow[*NullRowPayload]{
-					Header:       header,
+					RowSize:      512,
 					StartControl: START_TRANSACTION,
 					EndControl:   NULL_ROW_CONTROL,
 					RowPayload:   nil, // Invalid
@@ -649,17 +563,10 @@ func Test_S_010_FR_012_MarshalReturnsInvalidInputError(t *testing.T) {
 
 // Test_S_010_FR_013_UnmarshalReturnsCorruptDatabaseError tests FR-013: Unmarshal() method MUST return CorruptDatabaseError wrapping validation errors if input data format is invalid
 func Test_S_010_FR_013_UnmarshalReturnsCorruptDatabaseError(t *testing.T) {
-	header := &Header{
-		signature: "fDB",
-		version:   1,
-		rowSize:   512,
-		skewMs:    5000,
-	}
-
 	// Create a valid NullRow and marshal it
 	validRow := &NullRow{
 		baseRow: baseRow[*NullRowPayload]{
-			Header:       header,
+			RowSize:      512,
 			StartControl: START_TRANSACTION,
 			EndControl:   NULL_ROW_CONTROL,
 			RowPayload:   &NullRowPayload{Key: uuid.Nil},
@@ -671,7 +578,7 @@ func Test_S_010_FR_013_UnmarshalReturnsCorruptDatabaseError(t *testing.T) {
 		t.Fatalf("Failed to marshal valid NullRow: %v", err)
 	}
 
-	rowSize := header.GetRowSize()
+	rowSize := 512
 
 	testCases := []struct {
 		name    string
@@ -737,7 +644,7 @@ func Test_S_010_FR_013_UnmarshalReturnsCorruptDatabaseError(t *testing.T) {
 
 			deserializedRow := &NullRow{
 				baseRow: baseRow[*NullRowPayload]{
-					Header: header,
+					RowSize: 512,
 				},
 			}
 

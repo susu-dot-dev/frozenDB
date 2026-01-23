@@ -10,12 +10,6 @@ import (
 
 // Test_S_005_FR_001_DataRowCreation tests FR-001: System MUST allow DataRow creation through manual struct initialization with Header, UUIDv7 key, and JSON string value
 func Test_S_005_FR_001_DataRowCreation(t *testing.T) {
-	header := &Header{
-		signature: "fDB",
-		version:   1,
-		rowSize:   512,
-		skewMs:    5000,
-	}
 
 	// Generate a valid UUIDv7 key
 	key, err := uuid.NewV7()
@@ -29,7 +23,7 @@ func Test_S_005_FR_001_DataRowCreation(t *testing.T) {
 	// Create DataRow with manual struct initialization
 	dataRow := &DataRow{
 		baseRow[*DataRowPayload]{
-			Header:       header,
+			RowSize:      512,
 			StartControl: START_TRANSACTION,
 			EndControl:   TRANSACTION_COMMIT,
 			RowPayload: &DataRowPayload{
@@ -110,12 +104,6 @@ func Test_S_005_FR_002_UUIDv7Validation(t *testing.T) {
 
 // Test_S_005_FR_003_SerializationFormat tests FR-003: System MUST serialize DataRow to exact byte format per v1_file_format.md specification
 func Test_S_005_FR_003_SerializationFormat(t *testing.T) {
-	header := &Header{
-		signature: "fDB",
-		version:   1,
-		rowSize:   512,
-		skewMs:    5000,
-	}
 
 	key, err := uuid.NewV7()
 	if err != nil {
@@ -125,7 +113,7 @@ func Test_S_005_FR_003_SerializationFormat(t *testing.T) {
 	value := `{"name":"Test"}`
 	dataRow := &DataRow{
 		baseRow[*DataRowPayload]{
-			Header:       header,
+			RowSize:      512,
 			StartControl: START_TRANSACTION,
 			EndControl:   TRANSACTION_COMMIT,
 			RowPayload: &DataRowPayload{
@@ -145,7 +133,7 @@ func Test_S_005_FR_003_SerializationFormat(t *testing.T) {
 	}
 
 	// Verify exact byte layout per v1_file_format.md section 8.1
-	rowSize := header.GetRowSize()
+	rowSize := 512
 	if len(rowBytes) != rowSize {
 		t.Errorf("Row size mismatch: expected %d, got %d", rowSize, len(rowBytes))
 	}
@@ -228,13 +216,6 @@ func Test_S_005_FR_003_SerializationFormat(t *testing.T) {
 
 // Test_S_005_FR_004_DeserializationValidation tests FR-004: System MUST deserialize DataRow from byte array with complete validation
 func Test_S_005_FR_004_DeserializationValidation(t *testing.T) {
-	header := &Header{
-		signature: "fDB",
-		version:   1,
-		rowSize:   512,
-		skewMs:    5000,
-	}
-
 	key, err := uuid.NewV7()
 	if err != nil {
 		t.Fatalf("Failed to generate UUIDv7: %v", err)
@@ -243,7 +224,7 @@ func Test_S_005_FR_004_DeserializationValidation(t *testing.T) {
 	value := `{"name":"Deserialize Test","count":42}`
 	originalRow := &DataRow{
 		baseRow[*DataRowPayload]{
-			Header:       header,
+			RowSize:      512,
 			StartControl: START_TRANSACTION,
 			EndControl:   TRANSACTION_COMMIT,
 			RowPayload: &DataRowPayload{
@@ -266,7 +247,7 @@ func Test_S_005_FR_004_DeserializationValidation(t *testing.T) {
 	// Deserialize from bytes
 	deserializedRow := &DataRow{
 		baseRow[*DataRowPayload]{
-			Header: header,
+			RowSize: 512,
 		},
 	}
 
@@ -302,13 +283,6 @@ func Test_S_005_FR_004_DeserializationValidation(t *testing.T) {
 
 // Test_S_005_FR_005_StartControlValidation tests FR-005: System MUST handle proper start control characters (basic validation for single rows)
 func Test_S_005_FR_005_StartControlValidation(t *testing.T) {
-	header := &Header{
-		signature: "fDB",
-		version:   1,
-		rowSize:   512,
-		skewMs:    5000,
-	}
-
 	key, err := uuid.NewV7()
 	if err != nil {
 		t.Fatalf("Failed to generate UUIDv7: %v", err)
@@ -320,7 +294,7 @@ func Test_S_005_FR_005_StartControlValidation(t *testing.T) {
 	t.Run("valid_T", func(t *testing.T) {
 		dataRow := &DataRow{
 			baseRow[*DataRowPayload]{
-				Header:       header,
+				RowSize:      512,
 				StartControl: START_TRANSACTION,
 				EndControl:   TRANSACTION_COMMIT,
 				RowPayload: &DataRowPayload{
@@ -337,7 +311,7 @@ func Test_S_005_FR_005_StartControlValidation(t *testing.T) {
 	t.Run("valid_R", func(t *testing.T) {
 		dataRow := &DataRow{
 			baseRow[*DataRowPayload]{
-				Header:       header,
+				RowSize:      512,
 				StartControl: ROW_CONTINUE,
 				EndControl:   TRANSACTION_COMMIT,
 				RowPayload: &DataRowPayload{
@@ -355,7 +329,7 @@ func Test_S_005_FR_005_StartControlValidation(t *testing.T) {
 	t.Run("invalid_C", func(t *testing.T) {
 		dataRow := &DataRow{
 			baseRow[*DataRowPayload]{
-				Header:       header,
+				RowSize:      512,
 				StartControl: CHECKSUM_ROW,
 				EndControl:   TRANSACTION_COMMIT,
 				RowPayload: &DataRowPayload{
@@ -372,13 +346,6 @@ func Test_S_005_FR_005_StartControlValidation(t *testing.T) {
 
 // Test_S_005_FR_006_EndControlValidation tests FR-006: System MUST handle basic end control character validation for single rows
 func Test_S_005_FR_006_EndControlValidation(t *testing.T) {
-	header := &Header{
-		signature: "fDB",
-		version:   1,
-		rowSize:   512,
-		skewMs:    5000,
-	}
-
 	key, err := uuid.NewV7()
 	if err != nil {
 		t.Fatalf("Failed to generate UUIDv7: %v", err)
@@ -401,7 +368,7 @@ func Test_S_005_FR_006_EndControlValidation(t *testing.T) {
 		t.Run("valid_"+endControl.String(), func(t *testing.T) {
 			dataRow := &DataRow{
 				baseRow[*DataRowPayload]{
-					Header:       header,
+					RowSize:      512,
 					StartControl: START_TRANSACTION,
 					EndControl:   endControl,
 					RowPayload: &DataRowPayload{
@@ -420,7 +387,7 @@ func Test_S_005_FR_006_EndControlValidation(t *testing.T) {
 	t.Run("invalid_CS", func(t *testing.T) {
 		dataRow := &DataRow{
 			baseRow[*DataRowPayload]{
-				Header:       header,
+				RowSize:      512,
 				StartControl: START_TRANSACTION,
 				EndControl:   CHECKSUM_ROW_CONTROL,
 				RowPayload: &DataRowPayload{
@@ -437,13 +404,6 @@ func Test_S_005_FR_006_EndControlValidation(t *testing.T) {
 
 // Test_S_005_FR_007_ParityByteCalculation tests FR-007: System MUST calculate and validate LRC parity bytes for row integrity
 func Test_S_005_FR_007_ParityByteCalculation(t *testing.T) {
-	header := &Header{
-		signature: "fDB",
-		version:   1,
-		rowSize:   512,
-		skewMs:    5000,
-	}
-
 	key, err := uuid.NewV7()
 	if err != nil {
 		t.Fatalf("Failed to generate UUIDv7: %v", err)
@@ -452,7 +412,7 @@ func Test_S_005_FR_007_ParityByteCalculation(t *testing.T) {
 	value := `{"test":"value"}`
 	dataRow := &DataRow{
 		baseRow[*DataRowPayload]{
-			Header:       header,
+			RowSize:      512,
 			StartControl: START_TRANSACTION,
 			EndControl:   TRANSACTION_COMMIT,
 			RowPayload: &DataRowPayload{
@@ -473,7 +433,7 @@ func Test_S_005_FR_007_ParityByteCalculation(t *testing.T) {
 	}
 
 	// Verify parity bytes are present
-	rowSize := header.GetRowSize()
+	rowSize := 512
 	parityBytes := rowBytes[rowSize-3 : rowSize-1]
 	if len(parityBytes) != 2 {
 		t.Errorf("Parity bytes length mismatch: expected 2, got %d", len(parityBytes))
@@ -522,7 +482,7 @@ func Test_S_005_FR_007_ParityByteCalculation(t *testing.T) {
 
 		deserializedRow := &DataRow{
 			baseRow[*DataRowPayload]{
-				Header: header,
+				RowSize: 512,
 			},
 		}
 		if err := deserializedRow.UnmarshalText(corruptedBytes); err == nil {
@@ -533,13 +493,6 @@ func Test_S_005_FR_007_ParityByteCalculation(t *testing.T) {
 
 // Test_S_005_FR_008_NullBytePadding tests FR-008: System MUST pad JSON string value with NULL_BYTE to fill remaining row space
 func Test_S_005_FR_008_NullBytePadding(t *testing.T) {
-	header := &Header{
-		signature: "fDB",
-		version:   1,
-		rowSize:   512,
-		skewMs:    5000,
-	}
-
 	key, err := uuid.NewV7()
 	if err != nil {
 		t.Fatalf("Failed to generate UUIDv7: %v", err)
@@ -549,7 +502,7 @@ func Test_S_005_FR_008_NullBytePadding(t *testing.T) {
 	value := `{"test":"value"}`
 	dataRow := &DataRow{
 		baseRow[*DataRowPayload]{
-			Header:       header,
+			RowSize:      512,
 			StartControl: START_TRANSACTION,
 			EndControl:   TRANSACTION_COMMIT,
 			RowPayload: &DataRowPayload{
@@ -568,7 +521,7 @@ func Test_S_005_FR_008_NullBytePadding(t *testing.T) {
 		t.Fatalf("MarshalText failed: %v", err)
 	}
 
-	rowSize := header.GetRowSize()
+	rowSize := 512
 	// Find first null byte starting from position 26 (after UUID)
 	payloadStart := 26
 	payloadEnd := payloadStart
@@ -595,13 +548,6 @@ func Test_S_005_FR_008_NullBytePadding(t *testing.T) {
 
 // Test_S_005_FR_009_RowSizeValidation tests FR-009: System MUST ensure overall row length matches Header's row_size exactly
 func Test_S_005_FR_009_RowSizeValidation(t *testing.T) {
-	header := &Header{
-		signature: "fDB",
-		version:   1,
-		rowSize:   512,
-		skewMs:    5000,
-	}
-
 	key, err := uuid.NewV7()
 	if err != nil {
 		t.Fatalf("Failed to generate UUIDv7: %v", err)
@@ -610,7 +556,7 @@ func Test_S_005_FR_009_RowSizeValidation(t *testing.T) {
 	value := `{"test":"value"}`
 	dataRow := &DataRow{
 		baseRow[*DataRowPayload]{
-			Header:       header,
+			RowSize:      512,
 			StartControl: START_TRANSACTION,
 			EndControl:   TRANSACTION_COMMIT,
 			RowPayload: &DataRowPayload{
@@ -630,7 +576,7 @@ func Test_S_005_FR_009_RowSizeValidation(t *testing.T) {
 	}
 
 	// Verify row length matches header row_size exactly
-	expectedSize := header.GetRowSize()
+	expectedSize := 512
 	if len(rowBytes) != expectedSize {
 		t.Errorf("Row size mismatch: expected %d, got %d", expectedSize, len(rowBytes))
 	}
@@ -639,16 +585,9 @@ func Test_S_005_FR_009_RowSizeValidation(t *testing.T) {
 	rowSizes := []int{128, 256, 1024, 2048}
 	for _, size := range rowSizes {
 		t.Run(fmt.Sprintf("row_size_%d", size), func(t *testing.T) {
-			testHeader := &Header{
-				signature: "fDB",
-				version:   1,
-				rowSize:   size,
-				skewMs:    5000,
-			}
-
 			testRow := &DataRow{
 				baseRow[*DataRowPayload]{
-					Header:       testHeader,
+					RowSize:      size,
 					StartControl: START_TRANSACTION,
 					EndControl:   TRANSACTION_COMMIT,
 					RowPayload: &DataRowPayload{
@@ -675,15 +614,8 @@ func Test_S_005_FR_009_RowSizeValidation(t *testing.T) {
 
 	// Test that validation rejects payloads that would exceed ROW_SIZE
 	t.Run("rejects_payload_exceeding_row_size", func(t *testing.T) {
-		testHeader := &Header{
-			signature: "fDB",
-			version:   1,
-			rowSize:   512,
-			skewMs:    5000,
-		}
-
 		// Calculate maximum JSON value size: row_size - 7 (fixed overhead) - 24 (Base64 UUID) = 481 bytes
-		maxJsonValueSize := testHeader.GetRowSize() - 7 - 24
+		maxJsonValueSize := 512 - 7 - 24
 
 		// Create a JSON value that exceeds the maximum by 1 byte
 		excessiveValue := make([]byte, maxJsonValueSize+1)
@@ -693,7 +625,7 @@ func Test_S_005_FR_009_RowSizeValidation(t *testing.T) {
 
 		excessiveDataRow := &DataRow{
 			baseRow[*DataRowPayload]{
-				Header:       testHeader,
+				RowSize:      512,
 				StartControl: START_TRANSACTION,
 				EndControl:   TRANSACTION_COMMIT,
 				RowPayload: &DataRowPayload{
@@ -720,15 +652,8 @@ func Test_S_005_FR_009_RowSizeValidation(t *testing.T) {
 
 	// Test that validation accepts payloads that are exactly at the maximum allowed size
 	t.Run("accepts_payload_at_maximum_size", func(t *testing.T) {
-		testHeader := &Header{
-			signature: "fDB",
-			version:   1,
-			rowSize:   512,
-			skewMs:    5000,
-		}
-
 		// Calculate maximum JSON value size: row_size - 7 (fixed overhead) - 24 (Base64 UUID) = 481 bytes
-		maxJsonValueSize := testHeader.GetRowSize() - 7 - 24
+		maxJsonValueSize := 512 - 7 - 24
 
 		// Create a JSON value that is exactly at the maximum
 		maxValue := make([]byte, maxJsonValueSize)
@@ -738,7 +663,7 @@ func Test_S_005_FR_009_RowSizeValidation(t *testing.T) {
 
 		maxDataRow := &DataRow{
 			baseRow[*DataRowPayload]{
-				Header:       testHeader,
+				RowSize:      512,
 				StartControl: START_TRANSACTION,
 				EndControl:   TRANSACTION_COMMIT,
 				RowPayload: &DataRowPayload{
@@ -759,21 +684,14 @@ func Test_S_005_FR_009_RowSizeValidation(t *testing.T) {
 		if err != nil {
 			t.Errorf("MarshalText() should succeed for payload at maximum size, got error: %v", err)
 		}
-		if len(rowBytes) != testHeader.GetRowSize() {
-			t.Errorf("Marshaled row size mismatch: expected %d, got %d", testHeader.GetRowSize(), len(rowBytes))
+		if len(rowBytes) != 512 {
+			t.Errorf("Marshaled row size mismatch: expected %d, got %d", 512, len(rowBytes))
 		}
 	})
 }
 
 // Test_S_005_FR_010_ControlCharacterValidation tests FR-010: System MUST validate that start and end control characters are valid single-byte characters for single row context
 func Test_S_005_FR_010_ControlCharacterValidation(t *testing.T) {
-	header := &Header{
-		signature: "fDB",
-		version:   1,
-		rowSize:   512,
-		skewMs:    5000,
-	}
-
 	key, err := uuid.NewV7()
 	if err != nil {
 		t.Fatalf("Failed to generate UUIDv7: %v", err)
@@ -787,7 +705,7 @@ func Test_S_005_FR_010_ControlCharacterValidation(t *testing.T) {
 		t.Run("valid_start_"+string(sc), func(t *testing.T) {
 			dataRow := &DataRow{
 				baseRow[*DataRowPayload]{
-					Header:       header,
+					RowSize:      512,
 					StartControl: sc,
 					EndControl:   TRANSACTION_COMMIT,
 					RowPayload: &DataRowPayload{
@@ -816,7 +734,7 @@ func Test_S_005_FR_010_ControlCharacterValidation(t *testing.T) {
 		t.Run("valid_end_"+ec.String(), func(t *testing.T) {
 			dataRow := &DataRow{
 				baseRow[*DataRowPayload]{
-					Header:       header,
+					RowSize:      512,
 					StartControl: START_TRANSACTION,
 					EndControl:   ec,
 					RowPayload: &DataRowPayload{
@@ -834,13 +752,6 @@ func Test_S_005_FR_010_ControlCharacterValidation(t *testing.T) {
 
 // Test_S_005_FR_011_NilInputValidation tests FR-011: System MUST reject DataRows with nil payload, nil header, or empty/zero UUID
 func Test_S_005_FR_011_NilInputValidation(t *testing.T) {
-	header := &Header{
-		signature: "fDB",
-		version:   1,
-		rowSize:   512,
-		skewMs:    5000,
-	}
-
 	key, err := uuid.NewV7()
 	if err != nil {
 		t.Fatalf("Failed to generate UUIDv7: %v", err)
@@ -848,29 +759,11 @@ func Test_S_005_FR_011_NilInputValidation(t *testing.T) {
 
 	value := `{"test":"value"}`
 
-	// Test nil header
-	t.Run("nil_header", func(t *testing.T) {
-		dataRow := &DataRow{
-			baseRow[*DataRowPayload]{
-				Header:       nil,
-				StartControl: START_TRANSACTION,
-				EndControl:   TRANSACTION_COMMIT,
-				RowPayload: &DataRowPayload{
-					Key:   key,
-					Value: value,
-				},
-			},
-		}
-		if err := dataRow.Validate(); err == nil {
-			t.Error("Nil header should be rejected")
-		}
-	})
-
 	// Test nil payload
 	t.Run("nil_payload", func(t *testing.T) {
 		dataRow := &DataRow{
 			baseRow[*DataRowPayload]{
-				Header:       header,
+				RowSize:      512,
 				StartControl: START_TRANSACTION,
 				EndControl:   TRANSACTION_COMMIT,
 				RowPayload:   nil,
@@ -885,7 +778,7 @@ func Test_S_005_FR_011_NilInputValidation(t *testing.T) {
 	t.Run("zero_uuid", func(t *testing.T) {
 		dataRow := &DataRow{
 			baseRow[*DataRowPayload]{
-				Header:       header,
+				RowSize:      512,
 				StartControl: START_TRANSACTION,
 				EndControl:   TRANSACTION_COMMIT,
 				RowPayload: &DataRowPayload{
@@ -903,7 +796,7 @@ func Test_S_005_FR_011_NilInputValidation(t *testing.T) {
 	t.Run("empty_value", func(t *testing.T) {
 		dataRow := &DataRow{
 			baseRow[*DataRowPayload]{
-				Header:       header,
+				RowSize:      512,
 				StartControl: START_TRANSACTION,
 				EndControl:   TRANSACTION_COMMIT,
 				RowPayload: &DataRowPayload{
@@ -920,12 +813,6 @@ func Test_S_005_FR_011_NilInputValidation(t *testing.T) {
 
 // Test_S_005_FR_012_ChildStructValidation tests FR-012: System MUST validate all child structs during construction before parent validation
 func Test_S_005_FR_012_ChildStructValidation(t *testing.T) {
-	header := &Header{
-		signature: "fDB",
-		version:   1,
-		rowSize:   512,
-		skewMs:    5000,
-	}
 
 	key, err := uuid.NewV7()
 	if err != nil {
@@ -950,7 +837,7 @@ func Test_S_005_FR_012_ChildStructValidation(t *testing.T) {
 		// Create DataRow with invalid payload
 		dataRow := &DataRow{
 			baseRow[*DataRowPayload]{
-				Header:       header,
+				RowSize:      512,
 				StartControl: START_TRANSACTION,
 				EndControl:   TRANSACTION_COMMIT,
 				RowPayload:   invalidPayload,
@@ -968,7 +855,7 @@ func Test_S_005_FR_012_ChildStructValidation(t *testing.T) {
 		// Create DataRow with invalid start control but valid payload
 		dataRow := &DataRow{
 			baseRow[*DataRowPayload]{
-				Header:       header,
+				RowSize:      512,
 				StartControl: CHECKSUM_ROW, // Invalid for DataRow
 				EndControl:   TRANSACTION_COMMIT,
 				RowPayload: &DataRowPayload{
@@ -994,7 +881,7 @@ func Test_S_005_FR_012_ChildStructValidation(t *testing.T) {
 	t.Run("complete_validation_chain", func(t *testing.T) {
 		dataRow := &DataRow{
 			baseRow[*DataRowPayload]{
-				Header:       header,
+				RowSize:      512,
 				StartControl: START_TRANSACTION,
 				EndControl:   TRANSACTION_COMMIT,
 				RowPayload: &DataRowPayload{

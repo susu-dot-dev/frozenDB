@@ -12,6 +12,21 @@ type Data struct {
 	Response chan<- error
 }
 
+// DBFile defines interface for file operations, enabling mock implementations for testing.
+// This interface is used by Transaction to read rows and calculate checksums.
+//
+// Methods:
+//   - Read: Reads bytes from file at specified offset
+//   - Size: Returns current file size in bytes
+//   - Close: Closes the file
+//   - SetWriter: Sets write channel for appending data
+type DBFile interface {
+	Read(start int64, size int32) ([]byte, error)
+	Size() int64
+	Close() error
+	SetWriter(dataChan <-chan Data) error
+}
+
 type FileManager struct {
 	file         atomic.Value // stores *os.File (nil after Close())
 	writeChannel atomic.Value // stores <-chan Data (nil when no writer)

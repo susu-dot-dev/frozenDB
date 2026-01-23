@@ -57,11 +57,7 @@ type ChecksumRow struct {
 // NewChecksumRow creates a new checksum row from header and data bytes
 // The header must already be validated by its creator (e.g., UnmarshalText or manual creation with Validate()).
 // This function only checks that header is non-nil.
-func NewChecksumRow(header *Header, dataBytes []byte) (*ChecksumRow, error) {
-	if header == nil {
-		return nil, NewInvalidInputError("Header is required", nil)
-	}
-
+func NewChecksumRow(rowSize int, dataBytes []byte) (*ChecksumRow, error) {
 	if len(dataBytes) == 0 {
 		return nil, NewInvalidInputError("dataBytes cannot be empty", nil)
 	}
@@ -73,7 +69,7 @@ func NewChecksumRow(header *Header, dataBytes []byte) (*ChecksumRow, error) {
 	// Create checksum row
 	cr := &ChecksumRow{
 		baseRow[*Checksum]{
-			Header:       header,
+			RowSize:      rowSize,
 			StartControl: CHECKSUM_ROW,
 			EndControl:   CHECKSUM_ROW_CONTROL,
 			RowPayload:   &checksum,
@@ -106,7 +102,6 @@ func (cr *ChecksumRow) MarshalText() ([]byte, error) {
 
 // UnmarshalText deserializes ChecksumRow from byte array with validation
 func (cr *ChecksumRow) UnmarshalText(text []byte) error {
-	// Unmarshal using baseRow (Header must be set - programmer error if nil)
 	// This will parse StartControl and EndControl from the text
 	// baseRow.UnmarshalText() will call baseRow.Validate() internally
 	if err := cr.baseRow.UnmarshalText(text); err != nil {
