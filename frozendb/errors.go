@@ -191,3 +191,20 @@ func NewTransactionActiveError(message string, err error) *TransactionActiveErro
 type TransactionActiveError struct {
 	FrozenDBError
 }
+
+// NewInvalidDataError creates a new InvalidDataError.
+func NewInvalidDataError(message string, err error) *InvalidDataError {
+	return &InvalidDataError{
+		FrozenDBError: FrozenDBError{
+			Code:    "invalid_data",
+			Message: message,
+			Err:     err,
+		},
+	}
+}
+
+// InvalidDataError is returned for JSON data that cannot be unmarshaled.
+// Used for: JSON syntax errors, type mismatches, malformed data in stored values.
+type InvalidDataError struct {
+	FrozenDBError
+}
