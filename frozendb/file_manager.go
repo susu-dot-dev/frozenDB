@@ -5,6 +5,7 @@ import (
 	"math"
 	"os"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"syscall"
 )
@@ -34,6 +35,7 @@ type DBFile interface {
 type FileManager struct {
 	file         atomic.Value // stores *os.File (nil after Close())
 	writeChannel atomic.Value // stores <-chan Data (nil when no writer)
+	writerWg     sync.WaitGroup
 	currentSize  atomic.Uint64
 	mode         string // Access mode: "read" or "write"
 }
@@ -188,11 +190,21 @@ func (fm *FileManager) SetWriter(dataChan <-chan Data) error {
 		return NewInvalidActionError("cannot set writer on read-mode DBFile", nil)
 	}
 
-	// The writer channel is allowed to be set when the FileManager is closed
-	// In that case, any writes will fail
+	// Reject nil channel - outside callers cannot pass nil
+	// The only way to reset the channel is for the writerLoop to finish
+	// (when the channel is closed by the caller)
+	if dataChan == nil {
+		return NewInvalidActionError("dataChan cannot be nil", nil)
+	}
+
 	if !fm.writeChannel.CompareAndSwap((<-chan Data)(nil), dataChan) {
 		return NewInvalidActionError("writer already active", nil)
 	}
+
+	// Increment wait group before starting goroutine
+	// The writer channel is allowed to be set when the FileManager is closed
+	// In that case, any writes will fail from getFile() or Write() calls
+	fm.writerWg.Add(1)
 	go fm.writerLoop(dataChan)
 
 	return nil
@@ -202,7 +214,11 @@ func (fm *FileManager) SetWriter(dataChan <-chan Data) error {
 // The channel is passed as a parameter to ensure this goroutine drains
 // the channel it was started with, even if fm.writeChannel changes.
 func (fm *FileManager) writerLoop(dataChan <-chan Data) {
-	defer fm.writeChannel.Store((<-chan Data)(nil))
+	defer func() {
+		fm.writeChannel.Store((<-chan Data)(nil))
+		fm.writerWg.Done()
+	}()
+
 	for data := range dataChan {
 		err := fm.processWrite(data.Bytes)
 		data.Response <- err

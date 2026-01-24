@@ -636,6 +636,12 @@ func (tx *Transaction) Commit() error {
 			return err
 		}
 
+		// Close writer channel now that transaction is finalized
+		if tx.writeChan != nil {
+			close(tx.writeChan)
+			tx.writeChan = nil
+		}
+
 		return nil
 	}
 
@@ -672,6 +678,12 @@ func (tx *Transaction) Commit() error {
 	// Check and insert checksum row if needed (after DataRow commit)
 	if err := tx.checkAndInsertChecksum(); err != nil {
 		return err
+	}
+
+	// Close writer channel now that transaction is finalized
+	if tx.writeChan != nil {
+		close(tx.writeChan)
+		tx.writeChan = nil
 	}
 
 	return nil
@@ -711,6 +723,37 @@ func (tx *Transaction) IsCommitted() bool {
 
 	// If last row ends with 'E', transaction is still open
 	return false
+}
+
+// Close closes the transaction's writer channel and tombstones the transaction.
+// This method should be called when the transaction is no longer needed,
+// especially in error scenarios or when explicitly terminating a transaction.
+// After calling Close(), the transaction cannot perform any more operations.
+//
+// Postconditions:
+//   - writeChan is closed (allows writerLoop to exit and reset FileManager's writeChannel)
+//   - Transaction is tombstoned (all future operations will return errors)
+//   - Safe to call multiple times (idempotent)
+func (tx *Transaction) Close() error {
+	tx.mu.Lock()
+	defer tx.mu.Unlock()
+
+	// Already tombstoned - nothing to do
+	if tx.tombstone {
+		return nil
+	}
+
+	// Tombstone the transaction first
+	tx.tombstone = true
+
+	// Close the writer channel if it exists
+	// This signals writerLoop to exit, which will nil out FileManager's writeChannel
+	if tx.writeChan != nil {
+		close(tx.writeChan)
+		tx.writeChan = nil
+	}
+
+	return nil
 }
 
 // Savepoint creates a savepoint at the current position in the transaction.
@@ -864,6 +907,12 @@ func (tx *Transaction) Rollback(savepointId int) error {
 			return err
 		}
 
+		// Close writer channel now that transaction is finalized
+		if tx.writeChan != nil {
+			close(tx.writeChan)
+			tx.writeChan = nil
+		}
+
 		return nil
 	}
 
@@ -893,6 +942,12 @@ func (tx *Transaction) Rollback(savepointId int) error {
 	// Check and insert checksum row if needed (after rollback DataRow write)
 	if err := tx.checkAndInsertChecksum(); err != nil {
 		return err
+	}
+
+	// Close writer channel now that transaction is finalized
+	if tx.writeChan != nil {
+		close(tx.writeChan)
+		tx.writeChan = nil
 	}
 
 	return nil

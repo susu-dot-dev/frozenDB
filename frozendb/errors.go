@@ -136,7 +136,58 @@ func NewTombstonedError(message string, err error) *TombstonedError {
 	}
 }
 
+// NewReadError creates a new ReadError.
+func NewReadError(message string, err error) *ReadError {
+	return &ReadError{
+		FrozenDBError: FrozenDBError{
+			Code:    "read_error",
+			Message: message,
+			Err:     err,
+		},
+	}
+}
+
 // TombstonedError is returned when operations are attempted on a tombstoned FileManager.
 type TombstonedError struct {
+	FrozenDBError
+}
+
+// ReadError is returned for disk read operation failures.
+// Used for: file I/O errors, read permission issues, hardware read failures.
+type ReadError struct {
+	FrozenDBError
+}
+
+// NewKeyNotFoundError creates a new KeyNotFoundError.
+func NewKeyNotFoundError(message string, err error) *KeyNotFoundError {
+	return &KeyNotFoundError{
+		FrozenDBError: FrozenDBError{
+			Code:    "key_not_found",
+			Message: message,
+			Err:     err,
+		},
+	}
+}
+
+// KeyNotFoundError is returned when a UUID key cannot be found in the database.
+// Used for: GetIndex() operations when the specified key does not exist.
+type KeyNotFoundError struct {
+	FrozenDBError
+}
+
+// NewTransactionActiveError creates a new TransactionActiveError.
+func NewTransactionActiveError(message string, err error) *TransactionActiveError {
+	return &TransactionActiveError{
+		FrozenDBError: FrozenDBError{
+			Code:    "transaction_active",
+			Message: message,
+			Err:     err,
+		},
+	}
+}
+
+// TransactionActiveError is returned when a transaction is still open with no ending row.
+// Used for: GetTransactionEnd() when the transaction has not been committed or rolled back.
+type TransactionActiveError struct {
 	FrozenDBError
 }
