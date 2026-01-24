@@ -62,7 +62,7 @@ channel to FileManager.
 
 - `Begin() error` - Initializes transaction, writes PartialDataRow to disk via
   writeChan. Tomestones transaction on write failure.
-- `AddRow(key uuid.UUID, value string) error` - Adds row, writes previous
+- `AddRow(key uuid.UUID, value json.RawMessage) error` - Adds row, writes previous
   PartialDataRow (if exists) and new PartialDataRow to disk. Tombstones
   transaction on write failure.
 - `Commit() error` - Finalizes transaction, writes NullRow or final DataRow to
@@ -108,7 +108,7 @@ Begin() and AddRow() operations, indicates transaction is in-progress.
 **Operations**:
 
 - `MarshalText() ([]byte, error)` - Serializes to bytes in current state
-- `AddRow(key uuid.UUID, value string) error` - Adds key-value data
+- `AddRow(key uuid.UUID, value json.RawMessage) error` - Adds key-value data
 - `Savepoint() error` - Marks row as having savepoint intent
 - `EndRow() (*DataRow, error)` - Finalizes with RE end_control (commit)
 - `Commit() (*DataRow, error)` - Finalizes with TC or SC end_control (commit)

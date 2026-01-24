@@ -77,10 +77,10 @@ if err := pdr.Validate(); err != nil {
 func (p *PartialDataRow) AddRow(key uuid.UUID, json string) error
 ```
 
-**Description**: Transitions from PartialDataRowWithStartControl to PartialDataRowWithPayload by adding UUIDv7 key and JSON payload  
+**Description**: Transitions from PartialDataRowWithStartControl to PartialDataRowWithPayload by adding UUIDv7 key and JSON string value  
 **Parameters**:
 - `key uuid.UUID` - UUIDv7 key (must be valid and Base64-encodable)
-- `json string` - JSON payload (must be non-empty UTF-8 JSON string)
+- `json string` - JSON string value (must be non-empty UTF-8 JSON string)
 
 **Returns**:
 - `error` - InvalidActionError if not in PartialDataRowWithStartControl, InvalidInputError for validation failures
@@ -243,7 +243,7 @@ func (p *PartialDataRow) validateField(field string) error
 - `"row_start"`: Validates ROW_START byte (0x1F) - all states
 - `"start_control"`: Validates START_CONTROL character - all states  
 - `"uuid"`: Validates UUIDv7 using existing ValidateUUIDv7() - PartialDataRowWithPayload+
-- `"json"`: Validates JSON payload (non-empty, UTF-8 string) - PartialDataRowWithPayload+
+- `"json"`: Validates JSON string value (non-empty, UTF-8 string) - PartialDataRowWithPayload+
 - `"end_control_first"`: Validates 'S' character for savepoint intent - PartialDataRowWithSavepoint only
 - `"padding"`: Validates NULL_BYTE padding count - PartialDataRowWithPayload+
 
@@ -275,7 +275,7 @@ func (p *PartialDataRow) Validate() error {
 - **PartialDataRowWithPayload**: PartialDataRowWithStartControl + UUIDv7 + JSON (non-empty UTF-8 string) + padding validation
 - **PartialDataRowWithSavepoint**: PartialDataRowWithPayload + 'S' character validation
 
-**Note**: JSON structural syntax validation is intentionally out of scope at this layer, consistent with DataRow behavior. The JSON payload is validated for non-emptiness and UTF-8 encoding only.
+**Note**: JSON structural syntax validation is intentionally out of scope at this layer, consistent with DataRow behavior. The JSON string value is validated for non-emptiness and UTF-8 encoding only.
 
 **Fields Validated**:
 - ROW_START (must be 0x1F)

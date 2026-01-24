@@ -15,11 +15,11 @@
 
 ### User Story 1 - Create and Store Key-Value Data (Priority: P1)
 
-As a frozenDB user, I need to create data rows that store key-value pairs with UUIDv7 keys and JSON payloads so that I can persist structured data in the database with proper time ordering.
+As a frozenDB user, I need to create data rows that store key-value pairs with UUIDv7 keys and JSON string values so that I can persist structured data in the database with proper time ordering.
 
 **Why this priority**: Core functionality for any key-value database - without data rows, the database cannot store user data, making it fundamentally unusable.
 
-**Independent Test**: Can be fully tested by creating a DataRow with a valid UUIDv7 key and JSON payload, serializing it to bytes, and verifying the bytes match the expected v1_file_format.md structure.
+**Independent Test**: Can be fully tested by creating a DataRow with a valid UUIDv7 key and JSON string value, serializing it to bytes, and verifying the bytes match the expected v1_file_format.md structure.
 
 **Acceptance Scenarios**:
 

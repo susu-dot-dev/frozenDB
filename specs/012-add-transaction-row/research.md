@@ -70,7 +70,7 @@
 
 ### Mutex Pattern
 ```go
-func (tx *Transaction) AddRow(key uuid.UUID, value string) error {
+func (tx *Transaction) AddRow(key uuid.UUID, value json.RawMessage) error {
     tx.mu.Lock()
     defer tx.mu.Unlock()  // Always unlock, even on panic
     

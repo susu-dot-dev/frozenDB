@@ -36,7 +36,7 @@ Container for the actual key-value data.
 ```go
 type DataRowPayload struct {
     Key   uuid.UUID // UUIDv7 key for time ordering
-    Value string    // JSON string value (no syntax validation at this layer)
+    Value json.RawMessage    // JSON string value (no syntax validation at this layer)
 }
 ```
 

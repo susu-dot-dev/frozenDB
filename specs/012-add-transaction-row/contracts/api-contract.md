@@ -15,7 +15,7 @@ type Transaction interface {
     Begin() error
     
     // AddRow adds a key-value pair to the current transaction
-    AddRow(key uuid.UUID, value string) error
+    AddRow(key uuid.UUID, value json.RawMessage) error
     
     // Commit finalizes the transaction and makes all rows persistent
     Commit() error
@@ -57,7 +57,7 @@ type Transaction interface {
 // Performance:
 //   - O(1) amortized time complexity
 //   - Fixed memory footprint regardless of database size
-func (tx *Transaction) AddRow(key uuid.UUID, value string) error
+func (tx *Transaction) AddRow(key uuid.UUID, value json.RawMessage) error
 ```
 
 ## 2. Error Contract

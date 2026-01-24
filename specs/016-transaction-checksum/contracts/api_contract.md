@@ -82,7 +82,7 @@ func NewTransaction(db DBFile, header *Header, writeChan chan<- Data) (*Transact
 
 ```go
 // AddRow adds a new key-value pair to the transaction
-func (tx *Transaction) AddRow(key uuid.UUID, value string) error
+func (tx *Transaction) AddRow(key uuid.UUID, value json.RawMessage) error
 ```
 
 **New Behavior**:

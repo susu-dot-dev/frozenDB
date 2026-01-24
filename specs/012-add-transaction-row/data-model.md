@@ -90,7 +90,7 @@ tx := &Transaction{
 
 ```go
 // AddRow adds a new key-value pair to the transaction
-func (tx *Transaction) AddRow(key uuid.UUID, value string) error
+func (tx *Transaction) AddRow(key uuid.UUID, value json.RawMessage) error
 
 // GetMaxTimestamp returns the current maximum timestamp in the transaction
 func (tx *Transaction) GetMaxTimestamp() int64

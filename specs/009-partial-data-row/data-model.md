@@ -81,13 +81,13 @@ func NewInvalidActionError(message string, err error) *InvalidActionError {
 - All PartialDataRowWithStartControl validation + UUIDv7 validation + JSON structural validation
 - UUID_base64 must be 24-byte valid Base64 encoding of UUIDv7
 - JSON_payload must be valid UTF-8 string (non-empty); structural JSON syntax validation is out of scope at this layer (same as DataRow)
-- Padding must be correct NULL_BYTE count immediately following JSON payload
+- Padding must be correct NULL_BYTE count immediately following JSON string value
 
 **Padding Calculation**:
 ```go
 padding_bytes = row_size - len(json_payload) - 31
 // where 31 = 1(ROW_START) + 1(start_control) + 24(UUID) + 2(end_control) + 2(parity) + 1(ROW_END)
-// Padding comes immediately after JSON payload, up to row_size - 2 bytes
+// Padding comes immediately after JSON string value, up to row_size - 2 bytes
 ```
 
 ### PartialDataRowWithSavepoint: Savepoint Intent
@@ -98,7 +98,7 @@ padding_bytes = row_size - len(json_payload) - 31
 - All PartialDataRowWithPayload validation + 'S' character verification
 - 'S' must be single character indicating savepoint intent
 - No second END_CONTROL byte present
-- Padding comes immediately after JSON payload (same as PartialDataRowWithPayload)
+- Padding comes immediately after JSON string value (same as PartialDataRowWithPayload)
 - 'S' character comes after padding, leaving space for final end_control byte
 - MarshalText() must output: PartialDataRowWithStartControl + UUID_base64 + JSON_payload + padding + 'S'
 

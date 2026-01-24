@@ -1,6 +1,7 @@
 package frozendb
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"testing"
@@ -69,7 +70,7 @@ func createTransactionWithMockWriter(header *Header) *Transaction {
 }
 
 // Helper function to create a test DataRow
-func createTestDataRow(startControl StartControl, endControl EndControl, key uuid.UUID, value string) *DataRow {
+func createTestDataRow(startControl StartControl, endControl EndControl, key uuid.UUID, value json.RawMessage) *DataRow {
 	return &DataRow{
 		baseRow[*DataRowPayload]{
 			RowSize:      512,
@@ -92,7 +93,7 @@ func Test_S_006_FR_001_TransactionStructCreation(t *testing.T) {
 			t.Fatalf("Failed to generate UUIDv7: %v", err)
 		}
 
-		row := createTestDataRow(START_TRANSACTION, TRANSACTION_COMMIT, key, `{"data":"test"}`)
+		row := createTestDataRow(START_TRANSACTION, TRANSACTION_COMMIT, key, json.RawMessage(`{"data":"test"}`))
 		if err := row.Validate(); err != nil {
 			t.Fatalf("Row validation failed: %v", err)
 		}
@@ -129,7 +130,7 @@ func Test_S_006_FR_001_TransactionStructCreation(t *testing.T) {
 				endControl = ROW_END_CONTROL
 			}
 
-			row := createTestDataRow(startControl, endControl, key, `{"data":"test"}`)
+			row := createTestDataRow(startControl, endControl, key, json.RawMessage(`{"data":"test"}`))
 			if err := row.Validate(); err != nil {
 				t.Fatalf("Row validation failed: %v", err)
 			}
@@ -173,17 +174,17 @@ func Test_S_006_FR_002_DirectIndexingSystem(t *testing.T) {
 		t.Fatalf("Failed to generate UUIDv7: %v", err)
 	}
 
-	row1 := createTestDataRow(START_TRANSACTION, ROW_END_CONTROL, key1, `{"data":"first"}`)
+	row1 := createTestDataRow(START_TRANSACTION, ROW_END_CONTROL, key1, json.RawMessage(`{"data":"first"}`))
 	if err := row1.Validate(); err != nil {
 		t.Fatalf("Row validation failed: %v", err)
 	}
 
-	row2 := createTestDataRow(ROW_CONTINUE, ROW_END_CONTROL, key2, `{"data":"second"}`)
+	row2 := createTestDataRow(ROW_CONTINUE, ROW_END_CONTROL, key2, json.RawMessage(`{"data":"second"}`))
 	if err := row2.Validate(); err != nil {
 		t.Fatalf("Row validation failed: %v", err)
 	}
 
-	row3 := createTestDataRow(ROW_CONTINUE, TRANSACTION_COMMIT, key3, `{"data":"third"}`)
+	row3 := createTestDataRow(ROW_CONTINUE, TRANSACTION_COMMIT, key3, json.RawMessage(`{"data":"third"}`))
 	if err := row3.Validate(); err != nil {
 		t.Fatalf("Row validation failed: %v", err)
 	}
@@ -223,11 +224,11 @@ func Test_S_006_FR_006_GetCommittedRowsIterator(t *testing.T) {
 		key2, _ := uuid.NewV7()
 		key3, _ := uuid.NewV7()
 
-		row1 := createTestDataRow(START_TRANSACTION, ROW_END_CONTROL, key1, `{"data":"first"}`)
+		row1 := createTestDataRow(START_TRANSACTION, ROW_END_CONTROL, key1, json.RawMessage(`{"data":"first"}`))
 		row1.Validate()
-		row2 := createTestDataRow(ROW_CONTINUE, ROW_END_CONTROL, key2, `{"data":"second"}`)
+		row2 := createTestDataRow(ROW_CONTINUE, ROW_END_CONTROL, key2, json.RawMessage(`{"data":"second"}`))
 		row2.Validate()
-		row3 := createTestDataRow(ROW_CONTINUE, TRANSACTION_COMMIT, key3, `{"data":"third"}`)
+		row3 := createTestDataRow(ROW_CONTINUE, TRANSACTION_COMMIT, key3, json.RawMessage(`{"data":"third"}`))
 		row3.Validate()
 
 		tx := &Transaction{
@@ -260,9 +261,9 @@ func Test_S_006_FR_006_GetCommittedRowsIterator(t *testing.T) {
 		key1, _ := uuid.NewV7()
 		key2, _ := uuid.NewV7()
 
-		row1 := createTestDataRow(START_TRANSACTION, ROW_END_CONTROL, key1, `{"data":"first"}`)
+		row1 := createTestDataRow(START_TRANSACTION, ROW_END_CONTROL, key1, json.RawMessage(`{"data":"first"}`))
 		row1.Validate()
-		row2 := createTestDataRow(ROW_CONTINUE, FULL_ROLLBACK, key2, `{"data":"second"}`)
+		row2 := createTestDataRow(ROW_CONTINUE, FULL_ROLLBACK, key2, json.RawMessage(`{"data":"second"}`))
 		row2.Validate()
 
 		tx := &Transaction{
@@ -290,13 +291,13 @@ func Test_S_006_FR_006_GetCommittedRowsIterator(t *testing.T) {
 		key2, _ := uuid.NewV7()
 		key3, _ := uuid.NewV7()
 
-		row1 := createTestDataRow(START_TRANSACTION, SAVEPOINT_CONTINUE, key1, `{"data":"first"}`)
+		row1 := createTestDataRow(START_TRANSACTION, SAVEPOINT_CONTINUE, key1, json.RawMessage(`{"data":"first"}`))
 		row1.Validate()
-		row2 := createTestDataRow(ROW_CONTINUE, ROW_END_CONTROL, key2, `{"data":"second"}`)
+		row2 := createTestDataRow(ROW_CONTINUE, ROW_END_CONTROL, key2, json.RawMessage(`{"data":"second"}`))
 		row2.Validate()
 		// Rollback to savepoint 1 (created on row1)
 		rollbackEndControl := EndControl{'R', '1'}
-		row3 := createTestDataRow(ROW_CONTINUE, rollbackEndControl, key3, `{"data":"third"}`)
+		row3 := createTestDataRow(ROW_CONTINUE, rollbackEndControl, key3, json.RawMessage(`{"data":"third"}`))
 		row3.Validate()
 
 		tx := &Transaction{
@@ -336,17 +337,17 @@ func Test_S_006_FR_007_CommitRollbackLogic(t *testing.T) {
 		key4, _ := uuid.NewV7()
 
 		// Row 1: Transaction start + savepoint 1
-		row1 := createTestDataRow(START_TRANSACTION, SAVEPOINT_CONTINUE, key1, `{"data":"first"}`)
+		row1 := createTestDataRow(START_TRANSACTION, SAVEPOINT_CONTINUE, key1, json.RawMessage(`{"data":"first"}`))
 		row1.Validate()
 		// Row 2: Continue
-		row2 := createTestDataRow(ROW_CONTINUE, ROW_END_CONTROL, key2, `{"data":"second"}`)
+		row2 := createTestDataRow(ROW_CONTINUE, ROW_END_CONTROL, key2, json.RawMessage(`{"data":"second"}`))
 		row2.Validate()
 		// Row 3: Continue + savepoint 2
-		row3 := createTestDataRow(ROW_CONTINUE, SAVEPOINT_CONTINUE, key3, `{"data":"third"}`)
+		row3 := createTestDataRow(ROW_CONTINUE, SAVEPOINT_CONTINUE, key3, json.RawMessage(`{"data":"third"}`))
 		row3.Validate()
 		// Row 4: Rollback to savepoint 1
 		rollbackEndControl := EndControl{'R', '1'}
-		row4 := createTestDataRow(ROW_CONTINUE, rollbackEndControl, key4, `{"data":"fourth"}`)
+		row4 := createTestDataRow(ROW_CONTINUE, rollbackEndControl, key4, json.RawMessage(`{"data":"fourth"}`))
 		row4.Validate()
 
 		tx := &Transaction{
@@ -381,10 +382,10 @@ func Test_S_006_FR_007_CommitRollbackLogic(t *testing.T) {
 		key2, _ := uuid.NewV7()
 
 		// Row 1: Transaction start + savepoint 1 + continue
-		row1 := createTestDataRow(START_TRANSACTION, SAVEPOINT_CONTINUE, key1, `{"data":"first"}`)
+		row1 := createTestDataRow(START_TRANSACTION, SAVEPOINT_CONTINUE, key1, json.RawMessage(`{"data":"first"}`))
 		row1.Validate()
 		// Row 2: Continue + commit
-		row2 := createTestDataRow(ROW_CONTINUE, TRANSACTION_COMMIT, key2, `{"data":"second"}`)
+		row2 := createTestDataRow(ROW_CONTINUE, TRANSACTION_COMMIT, key2, json.RawMessage(`{"data":"second"}`))
 		row2.Validate()
 
 		tx := &Transaction{
@@ -420,7 +421,7 @@ func Test_S_006_FR_003_TransactionStartValidation(t *testing.T) {
 	// Test: Valid transaction start
 	t.Run("valid_transaction_start", func(t *testing.T) {
 		key, _ := uuid.NewV7()
-		row := createTestDataRow(START_TRANSACTION, TRANSACTION_COMMIT, key, `{"data":"test"}`)
+		row := createTestDataRow(START_TRANSACTION, TRANSACTION_COMMIT, key, json.RawMessage(`{"data":"test"}`))
 		row.Validate()
 
 		tx := &Transaction{
@@ -436,7 +437,7 @@ func Test_S_006_FR_003_TransactionStartValidation(t *testing.T) {
 	// Test: Invalid transaction start (starts with R)
 	t.Run("invalid_transaction_start", func(t *testing.T) {
 		key, _ := uuid.NewV7()
-		row := createTestDataRow(ROW_CONTINUE, TRANSACTION_COMMIT, key, `{"data":"test"}`)
+		row := createTestDataRow(ROW_CONTINUE, TRANSACTION_COMMIT, key, json.RawMessage(`{"data":"test"}`))
 		row.Validate()
 
 		tx := &Transaction{
@@ -458,9 +459,9 @@ func Test_S_006_FR_004_IsCommittedMethod(t *testing.T) {
 		key1, _ := uuid.NewV7()
 		key2, _ := uuid.NewV7()
 
-		row1 := createTestDataRow(START_TRANSACTION, ROW_END_CONTROL, key1, `{"data":"first"}`)
+		row1 := createTestDataRow(START_TRANSACTION, ROW_END_CONTROL, key1, json.RawMessage(`{"data":"first"}`))
 		row1.Validate()
-		row2 := createTestDataRow(ROW_CONTINUE, TRANSACTION_COMMIT, key2, `{"data":"second"}`)
+		row2 := createTestDataRow(ROW_CONTINUE, TRANSACTION_COMMIT, key2, json.RawMessage(`{"data":"second"}`))
 		row2.Validate()
 
 		tx := &Transaction{
@@ -477,9 +478,9 @@ func Test_S_006_FR_004_IsCommittedMethod(t *testing.T) {
 		key1, _ := uuid.NewV7()
 		key2, _ := uuid.NewV7()
 
-		row1 := createTestDataRow(START_TRANSACTION, ROW_END_CONTROL, key1, `{"data":"first"}`)
+		row1 := createTestDataRow(START_TRANSACTION, ROW_END_CONTROL, key1, json.RawMessage(`{"data":"first"}`))
 		row1.Validate()
-		row2 := createTestDataRow(ROW_CONTINUE, FULL_ROLLBACK, key2, `{"data":"second"}`)
+		row2 := createTestDataRow(ROW_CONTINUE, FULL_ROLLBACK, key2, json.RawMessage(`{"data":"second"}`))
 		row2.Validate()
 
 		tx := &Transaction{
@@ -495,7 +496,7 @@ func Test_S_006_FR_004_IsCommittedMethod(t *testing.T) {
 	t.Run("open_transaction", func(t *testing.T) {
 		key, _ := uuid.NewV7()
 
-		row := createTestDataRow(START_TRANSACTION, ROW_END_CONTROL, key, `{"data":"test"}`)
+		row := createTestDataRow(START_TRANSACTION, ROW_END_CONTROL, key, json.RawMessage(`{"data":"test"}`))
 		row.Validate()
 
 		tx := &Transaction{
@@ -515,7 +516,7 @@ func Test_S_006_FR_005_OpenTransactionHandling(t *testing.T) {
 	t.Run("single_row_open", func(t *testing.T) {
 		key, _ := uuid.NewV7()
 
-		row := createTestDataRow(START_TRANSACTION, ROW_END_CONTROL, key, `{"data":"test"}`)
+		row := createTestDataRow(START_TRANSACTION, ROW_END_CONTROL, key, json.RawMessage(`{"data":"test"}`))
 		row.Validate()
 
 		tx := &Transaction{
@@ -532,9 +533,9 @@ func Test_S_006_FR_005_OpenTransactionHandling(t *testing.T) {
 		key1, _ := uuid.NewV7()
 		key2, _ := uuid.NewV7()
 
-		row1 := createTestDataRow(START_TRANSACTION, ROW_END_CONTROL, key1, `{"data":"first"}`)
+		row1 := createTestDataRow(START_TRANSACTION, ROW_END_CONTROL, key1, json.RawMessage(`{"data":"first"}`))
 		row1.Validate()
-		row2 := createTestDataRow(ROW_CONTINUE, ROW_END_CONTROL, key2, `{"data":"second"}`)
+		row2 := createTestDataRow(ROW_CONTINUE, ROW_END_CONTROL, key2, json.RawMessage(`{"data":"second"}`))
 		row2.Validate()
 
 		tx := &Transaction{
@@ -551,9 +552,9 @@ func Test_S_006_FR_005_OpenTransactionHandling(t *testing.T) {
 		key1, _ := uuid.NewV7()
 		key2, _ := uuid.NewV7()
 
-		row1 := createTestDataRow(START_TRANSACTION, SAVEPOINT_CONTINUE, key1, `{"data":"first"}`)
+		row1 := createTestDataRow(START_TRANSACTION, SAVEPOINT_CONTINUE, key1, json.RawMessage(`{"data":"first"}`))
 		row1.Validate()
-		row2 := createTestDataRow(ROW_CONTINUE, ROW_END_CONTROL, key2, `{"data":"second"}`)
+		row2 := createTestDataRow(ROW_CONTINUE, ROW_END_CONTROL, key2, json.RawMessage(`{"data":"second"}`))
 		row2.Validate()
 
 		tx := &Transaction{
@@ -574,9 +575,9 @@ func Test_S_006_FR_008_SavepointDetection(t *testing.T) {
 		key1, _ := uuid.NewV7()
 		key2, _ := uuid.NewV7()
 
-		row1 := createTestDataRow(START_TRANSACTION, ROW_END_CONTROL, key1, `{"data":"first"}`)
+		row1 := createTestDataRow(START_TRANSACTION, ROW_END_CONTROL, key1, json.RawMessage(`{"data":"first"}`))
 		row1.Validate()
-		row2 := createTestDataRow(ROW_CONTINUE, TRANSACTION_COMMIT, key2, `{"data":"second"}`)
+		row2 := createTestDataRow(ROW_CONTINUE, TRANSACTION_COMMIT, key2, json.RawMessage(`{"data":"second"}`))
 		row2.Validate()
 
 		tx := &Transaction{
@@ -594,9 +595,9 @@ func Test_S_006_FR_008_SavepointDetection(t *testing.T) {
 		key1, _ := uuid.NewV7()
 		key2, _ := uuid.NewV7()
 
-		row1 := createTestDataRow(START_TRANSACTION, SAVEPOINT_CONTINUE, key1, `{"data":"first"}`)
+		row1 := createTestDataRow(START_TRANSACTION, SAVEPOINT_CONTINUE, key1, json.RawMessage(`{"data":"first"}`))
 		row1.Validate()
-		row2 := createTestDataRow(ROW_CONTINUE, TRANSACTION_COMMIT, key2, `{"data":"second"}`)
+		row2 := createTestDataRow(ROW_CONTINUE, TRANSACTION_COMMIT, key2, json.RawMessage(`{"data":"second"}`))
 		row2.Validate()
 
 		tx := &Transaction{
@@ -618,11 +619,11 @@ func Test_S_006_FR_008_SavepointDetection(t *testing.T) {
 		key2, _ := uuid.NewV7()
 		key3, _ := uuid.NewV7()
 
-		row1 := createTestDataRow(START_TRANSACTION, SAVEPOINT_CONTINUE, key1, `{"data":"first"}`)
+		row1 := createTestDataRow(START_TRANSACTION, SAVEPOINT_CONTINUE, key1, json.RawMessage(`{"data":"first"}`))
 		row1.Validate()
-		row2 := createTestDataRow(ROW_CONTINUE, SAVEPOINT_CONTINUE, key2, `{"data":"second"}`)
+		row2 := createTestDataRow(ROW_CONTINUE, SAVEPOINT_CONTINUE, key2, json.RawMessage(`{"data":"second"}`))
 		row2.Validate()
-		row3 := createTestDataRow(ROW_CONTINUE, TRANSACTION_COMMIT, key3, `{"data":"third"}`)
+		row3 := createTestDataRow(ROW_CONTINUE, TRANSACTION_COMMIT, key3, json.RawMessage(`{"data":"third"}`))
 		row3.Validate()
 
 		tx := &Transaction{
@@ -655,16 +656,16 @@ func Test_S_006_FR_009_SavepointIndices(t *testing.T) {
 		key4, _ := uuid.NewV7()
 
 		// Row 0: Transaction start + continue (no savepoint)
-		row1 := createTestDataRow(START_TRANSACTION, ROW_END_CONTROL, key1, `{"data":"first"}`)
+		row1 := createTestDataRow(START_TRANSACTION, ROW_END_CONTROL, key1, json.RawMessage(`{"data":"first"}`))
 		row1.Validate()
 		// Row 1: Continue + savepoint
-		row2 := createTestDataRow(ROW_CONTINUE, SAVEPOINT_CONTINUE, key2, `{"data":"second"}`)
+		row2 := createTestDataRow(ROW_CONTINUE, SAVEPOINT_CONTINUE, key2, json.RawMessage(`{"data":"second"}`))
 		row2.Validate()
 		// Row 2: Continue (no savepoint)
-		row3 := createTestDataRow(ROW_CONTINUE, ROW_END_CONTROL, key3, `{"data":"third"}`)
+		row3 := createTestDataRow(ROW_CONTINUE, ROW_END_CONTROL, key3, json.RawMessage(`{"data":"third"}`))
 		row3.Validate()
 		// Row 3: Continue + savepoint
-		row4 := createTestDataRow(ROW_CONTINUE, SAVEPOINT_COMMIT, key4, `{"data":"fourth"}`)
+		row4 := createTestDataRow(ROW_CONTINUE, SAVEPOINT_COMMIT, key4, json.RawMessage(`{"data":"fourth"}`))
 		row4.Validate()
 
 		tx := &Transaction{
@@ -797,7 +798,7 @@ func Test_S_011_FR_003_BeginReturnsInvalidActionError(t *testing.T) {
 	t.Run("begin_on_non_empty_transaction_fails", func(t *testing.T) {
 		// Create a transaction with existing rows
 		key, _ := uuid.NewV7()
-		row := createTestDataRow(START_TRANSACTION, TRANSACTION_COMMIT, key, `{"data":"test"}`)
+		row := createTestDataRow(START_TRANSACTION, TRANSACTION_COMMIT, key, json.RawMessage(`{"data":"test"}`))
 		row.Validate()
 
 		tx := &Transaction{
@@ -933,7 +934,7 @@ func Test_S_011_FR_004_CommitReturnsInvalidActionError(t *testing.T) {
 
 		// Add row data to move to PartialDataRowWithPayload state
 		key, _ := uuid.NewV7()
-		err = tx.last.AddRow(key, `{"data":"test"}`)
+		err = tx.last.AddRow(key, json.RawMessage(`{"data":"test"}`))
 		if err != nil {
 			t.Fatalf("AddRow() failed: %v", err)
 		}
@@ -1073,7 +1074,7 @@ func Test_S_012_FR_001_BeginRequiredBeforeAddRow(t *testing.T) {
 			t.Fatalf("Failed to generate UUIDv7: %v", err)
 		}
 
-		err = tx.AddRow(key, `{"data":"test"}`)
+		err = tx.AddRow(key, json.RawMessage(`{"data":"test"}`))
 		if err == nil {
 			t.Fatal("AddRow() should fail when Begin() has not been called")
 		}
@@ -1096,7 +1097,7 @@ func Test_S_012_FR_001_BeginRequiredBeforeAddRow(t *testing.T) {
 			t.Fatalf("Failed to generate UUIDv7: %v", err)
 		}
 
-		err = tx.AddRow(key, `{"data":"test"}`)
+		err = tx.AddRow(key, json.RawMessage(`{"data":"test"}`))
 		if err != nil {
 			t.Fatalf("AddRow() should succeed after Begin(): %v", err)
 		}
@@ -1120,13 +1121,13 @@ func Test_S_012_FR_002_AddRowFinalizesPartialDataRow(t *testing.T) {
 		key2, _ := uuid.NewV7()
 
 		// First AddRow
-		err = tx.AddRow(key1, `{"data":"first"}`)
+		err = tx.AddRow(key1, json.RawMessage(`{"data":"first"}`))
 		if err != nil {
 			t.Fatalf("First AddRow() failed: %v", err)
 		}
 
 		// Second AddRow should finalize the first
-		err = tx.AddRow(key2, `{"data":"second"}`)
+		err = tx.AddRow(key2, json.RawMessage(`{"data":"second"}`))
 		if err != nil {
 			t.Fatalf("Second AddRow() failed: %v", err)
 		}
@@ -1161,9 +1162,9 @@ func Test_S_012_FR_003_AddRowMovesPreviousToRows(t *testing.T) {
 		key3, _ := uuid.NewV7()
 
 		// Add three rows
-		tx.AddRow(key1, `{"data":"first"}`)
-		tx.AddRow(key2, `{"data":"second"}`)
-		tx.AddRow(key3, `{"data":"third"}`)
+		tx.AddRow(key1, json.RawMessage(`{"data":"first"}`))
+		tx.AddRow(key2, json.RawMessage(`{"data":"second"}`))
+		tx.AddRow(key3, json.RawMessage(`{"data":"third"}`))
 
 		// Should have 2 finalized rows (third is still partial)
 		rows := tx.GetRows()
@@ -1195,7 +1196,7 @@ func Test_S_012_FR_004_AddRowCreatesNewPartialDataRow(t *testing.T) {
 		}
 
 		key, _ := uuid.NewV7()
-		err = tx.AddRow(key, `{"data":"test"}`)
+		err = tx.AddRow(key, json.RawMessage(`{"data":"test"}`))
 		if err != nil {
 			t.Fatalf("AddRow() failed: %v", err)
 		}
@@ -1235,9 +1236,9 @@ func Test_S_012_FR_005_AddRowUsesContinueStartControl(t *testing.T) {
 		key2, _ := uuid.NewV7()
 		key3, _ := uuid.NewV7()
 
-		tx.AddRow(key1, `{"data":"first"}`)
-		tx.AddRow(key2, `{"data":"second"}`)
-		tx.AddRow(key3, `{"data":"third"}`)
+		tx.AddRow(key1, json.RawMessage(`{"data":"first"}`))
+		tx.AddRow(key2, json.RawMessage(`{"data":"second"}`))
+		tx.AddRow(key3, json.RawMessage(`{"data":"third"}`))
 		tx.Commit()
 
 		rows := tx.GetRows()
@@ -1268,7 +1269,7 @@ func Test_S_012_FR_006_AddRowValidatesUUIDv7(t *testing.T) {
 		tx := createTransactionWithMockWriter(header)
 		tx.Begin()
 
-		err := tx.AddRow(uuid.Nil, `{"data":"test"}`)
+		err := tx.AddRow(uuid.Nil, json.RawMessage(`{"data":"test"}`))
 		if err == nil {
 			t.Fatal("AddRow() should reject uuid.Nil")
 		}
@@ -1285,7 +1286,7 @@ func Test_S_012_FR_006_AddRowValidatesUUIDv7(t *testing.T) {
 		// Create a UUIDv4 (not v7)
 		uuidV4 := uuid.New()
 
-		err := tx.AddRow(uuidV4, `{"data":"test"}`)
+		err := tx.AddRow(uuidV4, json.RawMessage(`{"data":"test"}`))
 		if err == nil {
 			t.Fatal("AddRow() should reject non-UUIDv7")
 		}
@@ -1306,7 +1307,7 @@ func Test_S_012_FR_007_AddRowValidatesNonEmptyValue(t *testing.T) {
 		tx.Begin()
 
 		key, _ := uuid.NewV7()
-		err := tx.AddRow(key, "")
+		err := tx.AddRow(key, json.RawMessage(""))
 		if err == nil {
 			t.Fatal("AddRow() should reject empty value")
 		}
@@ -1321,7 +1322,7 @@ func Test_S_012_FR_007_AddRowValidatesNonEmptyValue(t *testing.T) {
 		tx.Begin()
 
 		key, _ := uuid.NewV7()
-		err := tx.AddRow(key, `{"data":"test"}`)
+		err := tx.AddRow(key, json.RawMessage(`{"data":"test"}`))
 		if err != nil {
 			t.Fatalf("AddRow() should accept non-empty value: %v", err)
 		}
@@ -1340,8 +1341,8 @@ func Test_S_012_FR_008_CommitFinalizesLastPartialDataRow(t *testing.T) {
 		key1, _ := uuid.NewV7()
 		key2, _ := uuid.NewV7()
 
-		tx.AddRow(key1, `{"data":"first"}`)
-		tx.AddRow(key2, `{"data":"second"}`)
+		tx.AddRow(key1, json.RawMessage(`{"data":"first"}`))
+		tx.AddRow(key2, json.RawMessage(`{"data":"second"}`))
 
 		err := tx.Commit()
 		if err != nil {
@@ -1369,7 +1370,7 @@ func Test_S_012_FR_008_CommitFinalizesLastPartialDataRow(t *testing.T) {
 		tx.Begin()
 
 		key, _ := uuid.NewV7()
-		tx.AddRow(key, `{"data":"only"}`)
+		tx.AddRow(key, json.RawMessage(`{"data":"only"}`))
 
 		err := tx.Commit()
 		if err != nil {
@@ -1432,7 +1433,7 @@ func Test_S_012_FR_010_AddRowEnforces100RowLimit(t *testing.T) {
 		// Add 100 rows
 		for i := 0; i < 100; i++ {
 			key, _ := uuid.NewV7()
-			err := tx.AddRow(key, `{"data":"test"}`)
+			err := tx.AddRow(key, json.RawMessage(`{"data":"test"}`))
 			if err != nil {
 				t.Fatalf("AddRow() %d failed: %v", i, err)
 			}
@@ -1440,7 +1441,7 @@ func Test_S_012_FR_010_AddRowEnforces100RowLimit(t *testing.T) {
 
 		// 101st row should fail
 		key, _ := uuid.NewV7()
-		err := tx.AddRow(key, `{"data":"overflow"}`)
+		err := tx.AddRow(key, json.RawMessage(`{"data":"overflow"}`))
 		if err == nil {
 			t.Fatal("AddRow() should fail when adding 101st row")
 		}
@@ -1457,7 +1458,7 @@ func Test_S_012_FR_010_AddRowEnforces100RowLimit(t *testing.T) {
 		// Add 100 rows
 		for i := 0; i < 100; i++ {
 			key, _ := uuid.NewV7()
-			err := tx.AddRow(key, `{"data":"test"}`)
+			err := tx.AddRow(key, json.RawMessage(`{"data":"test"}`))
 			if err != nil {
 				t.Fatalf("AddRow() %d failed: %v", i, err)
 			}
@@ -1485,12 +1486,12 @@ func Test_S_012_FR_011_AddRowValidatesActiveTransaction(t *testing.T) {
 		tx.Begin()
 
 		key1, _ := uuid.NewV7()
-		tx.AddRow(key1, `{"data":"test"}`)
+		tx.AddRow(key1, json.RawMessage(`{"data":"test"}`))
 		tx.Commit()
 
 		// Try to add row after commit
 		key2, _ := uuid.NewV7()
-		err := tx.AddRow(key2, `{"data":"after_commit"}`)
+		err := tx.AddRow(key2, json.RawMessage(`{"data":"after_commit"}`))
 		if err == nil {
 			t.Fatal("AddRow() should fail on committed transaction")
 		}
@@ -1504,7 +1505,7 @@ func Test_S_012_FR_011_AddRowValidatesActiveTransaction(t *testing.T) {
 		tx := createTransactionWithMockWriter(header)
 
 		key, _ := uuid.NewV7()
-		err := tx.AddRow(key, `{"data":"test"}`)
+		err := tx.AddRow(key, json.RawMessage(`{"data":"test"}`))
 		if err == nil {
 			t.Fatal("AddRow() should fail on inactive transaction")
 		}
@@ -1529,7 +1530,7 @@ func Test_S_012_FR_012_AddRowThreadSafety(t *testing.T) {
 		for i := 0; i < 10; i++ {
 			go func() {
 				key, _ := uuid.NewV7()
-				err := tx.AddRow(key, `{"data":"concurrent"}`)
+				err := tx.AddRow(key, json.RawMessage(`{"data":"concurrent"}`))
 				done <- err
 			}()
 		}
@@ -1582,7 +1583,7 @@ func Test_S_012_FR_013_TransactionReceivesMaxTimestamp(t *testing.T) {
 
 		tx.Begin()
 		key, _ := uuid.NewV7()
-		tx.AddRow(key, `{"data":"test"}`)
+		tx.AddRow(key, json.RawMessage(`{"data":"test"}`))
 
 		// maxTimestamp should be updated
 		if tx.GetMaxTimestamp() <= 1000 {
@@ -1605,13 +1606,13 @@ func Test_S_012_FR_014_AddRowPreservesUUIDOrdering(t *testing.T) {
 		key2, _ := uuid.NewV7()
 		key3, _ := uuid.NewV7()
 
-		if err := tx.AddRow(key1, `{"data":"1"}`); err != nil {
+		if err := tx.AddRow(key1, json.RawMessage(`{"data":"1"}`)); err != nil {
 			t.Fatalf("First AddRow failed: %v", err)
 		}
-		if err := tx.AddRow(key2, `{"data":"2"}`); err != nil {
+		if err := tx.AddRow(key2, json.RawMessage(`{"data":"2"}`)); err != nil {
 			t.Fatalf("Second AddRow failed: %v", err)
 		}
-		if err := tx.AddRow(key3, `{"data":"3"}`); err != nil {
+		if err := tx.AddRow(key3, json.RawMessage(`{"data":"3"}`)); err != nil {
 			t.Fatalf("Third AddRow failed: %v", err)
 		}
 	})
@@ -1630,7 +1631,7 @@ func Test_S_012_FR_015_AddRowUpdatesMaxTimestamp(t *testing.T) {
 		initialMax := tx.GetMaxTimestamp()
 
 		key, _ := uuid.NewV7()
-		err := tx.AddRow(key, `{"data":"test"}`)
+		err := tx.AddRow(key, json.RawMessage(`{"data":"test"}`))
 		if err != nil {
 			t.Fatalf("AddRow failed: %v", err)
 		}
@@ -1659,7 +1660,7 @@ func Test_S_012_FR_016_AddRowReturnsKeyOrderingError(t *testing.T) {
 
 		// Add first key
 		key1, _ := uuid.NewV7()
-		err := tx.AddRow(key1, `{"data":"first"}`)
+		err := tx.AddRow(key1, json.RawMessage(`{"data":"first"}`))
 		if err != nil {
 			t.Fatalf("First AddRow failed: %v", err)
 		}
@@ -1670,7 +1671,7 @@ func Test_S_012_FR_016_AddRowReturnsKeyOrderingError(t *testing.T) {
 		// Decrement the timestamp (first 6 bytes)
 		olderKey[5]-- // This decrements the timestamp by 1ms
 
-		err = tx.AddRow(olderKey, `{"data":"older"}`)
+		err = tx.AddRow(olderKey, json.RawMessage(`{"data":"older"}`))
 		if err == nil {
 			t.Fatal("AddRow should reject older timestamp")
 		}
@@ -1700,7 +1701,7 @@ func Test_S_012_FR_017_EmptyDatabaseMaxTimestampZero(t *testing.T) {
 		tx.Begin()
 
 		key, _ := uuid.NewV7()
-		err := tx.AddRow(key, `{"data":"test"}`)
+		err := tx.AddRow(key, json.RawMessage(`{"data":"test"}`))
 		if err != nil {
 			t.Fatalf("First AddRow should succeed: %v", err)
 		}
@@ -1729,7 +1730,7 @@ func Test_S_013_FR_001_SavepointMethodExists(t *testing.T) {
 			t.Fatalf("Failed to generate UUIDv7: %v", err)
 		}
 
-		err = tx.AddRow(key, `{"data":"test"}`)
+		err = tx.AddRow(key, json.RawMessage(`{"data":"test"}`))
 		if err != nil {
 			t.Fatalf("AddRow() failed: %v", err)
 		}
@@ -1751,7 +1752,7 @@ func Test_S_013_FR_001_SavepointMethodExists(t *testing.T) {
 		key1, _ := uuid.NewV7()
 		key2, _ := uuid.NewV7()
 
-		err = tx.AddRow(key1, `{"data":"first"}`)
+		err = tx.AddRow(key1, json.RawMessage(`{"data":"first"}`))
 		if err != nil {
 			t.Fatalf("First AddRow() failed: %v", err)
 		}
@@ -1761,7 +1762,7 @@ func Test_S_013_FR_001_SavepointMethodExists(t *testing.T) {
 			t.Fatalf("Savepoint() failed: %v", err)
 		}
 
-		err = tx.AddRow(key2, `{"data":"second"}`)
+		err = tx.AddRow(key2, json.RawMessage(`{"data":"second"}`))
 		if err != nil {
 			t.Fatalf("Second AddRow() failed: %v", err)
 		}
@@ -1882,7 +1883,7 @@ func Test_S_013_FR_007_SavepointEnforcesMaximumNineSavepoints(t *testing.T) {
 
 		for i := 0; i < 9; i++ {
 			key, _ := uuid.NewV7()
-			err = tx.AddRow(key, fmt.Sprintf(`{"data":"row%d"}`, i))
+			err = tx.AddRow(key, json.RawMessage(fmt.Sprintf(`{"data":"row%d"}`, i)))
 			if err != nil {
 				t.Fatalf("AddRow() failed for row %d: %v", i, err)
 			}
@@ -1896,7 +1897,7 @@ func Test_S_013_FR_007_SavepointEnforcesMaximumNineSavepoints(t *testing.T) {
 		}
 
 		key, _ := uuid.NewV7()
-		err = tx.AddRow(key, `{"data":"ninth_row"}`)
+		err = tx.AddRow(key, json.RawMessage(`{"data":"ninth_row"}`))
 		if err != nil {
 			t.Fatalf("AddRow() failed for ninth row: %v", err)
 		}
@@ -1917,7 +1918,7 @@ func Test_S_013_FR_007_SavepointEnforcesMaximumNineSavepoints(t *testing.T) {
 
 		for i := 0; i < 9; i++ {
 			key, _ := uuid.NewV7()
-			err = tx.AddRow(key, fmt.Sprintf(`{"data":"row%d"}`, i))
+			err = tx.AddRow(key, json.RawMessage(fmt.Sprintf(`{"data":"row%d"}`, i)))
 			if err != nil {
 				t.Fatalf("AddRow() failed for row %d: %v", i, err)
 			}
@@ -1929,7 +1930,7 @@ func Test_S_013_FR_007_SavepointEnforcesMaximumNineSavepoints(t *testing.T) {
 		}
 
 		key, _ := uuid.NewV7()
-		err = tx.AddRow(key, `{"data":"tenth_row"}`)
+		err = tx.AddRow(key, json.RawMessage(`{"data":"tenth_row"}`))
 		if err != nil {
 			t.Fatalf("AddRow() failed for tenth row: %v", err)
 		}
@@ -1963,7 +1964,7 @@ func Test_S_013_FR_002_FullRollbackMethodExists(t *testing.T) {
 			t.Fatalf("Failed to generate UUIDv7: %v", err)
 		}
 
-		err = tx.AddRow(key, `{"data":"test"}`)
+		err = tx.AddRow(key, json.RawMessage(`{"data":"test"}`))
 		if err != nil {
 			t.Fatalf("AddRow() failed: %v", err)
 		}
@@ -1985,12 +1986,12 @@ func Test_S_013_FR_002_FullRollbackMethodExists(t *testing.T) {
 		key1, _ := uuid.NewV7()
 		key2, _ := uuid.NewV7()
 
-		err = tx.AddRow(key1, `{"data":"first"}`)
+		err = tx.AddRow(key1, json.RawMessage(`{"data":"first"}`))
 		if err != nil {
 			t.Fatalf("First AddRow() failed: %v", err)
 		}
 
-		err = tx.AddRow(key2, `{"data":"second"}`)
+		err = tx.AddRow(key2, json.RawMessage(`{"data":"second"}`))
 		if err != nil {
 			t.Fatalf("Second AddRow() failed: %v", err)
 		}
@@ -2023,7 +2024,7 @@ func Test_S_013_FR_002_FullRollbackMethodExists(t *testing.T) {
 		}
 
 		key, _ := uuid.NewV7()
-		err = tx.AddRow(key, `{"data":"test"}`)
+		err = tx.AddRow(key, json.RawMessage(`{"data":"test"}`))
 		if err != nil {
 			t.Fatalf("AddRow() failed: %v", err)
 		}
@@ -2151,12 +2152,12 @@ func Test_S_013_FR_014_FullRollbackUsesR0OrS0EndControl(t *testing.T) {
 		key1, _ := uuid.NewV7()
 		key2, _ := uuid.NewV7()
 
-		err = tx.AddRow(key1, `{"data":"first"}`)
+		err = tx.AddRow(key1, json.RawMessage(`{"data":"first"}`))
 		if err != nil {
 			t.Fatalf("First AddRow() failed: %v", err)
 		}
 
-		err = tx.AddRow(key2, `{"data":"second"}`)
+		err = tx.AddRow(key2, json.RawMessage(`{"data":"second"}`))
 		if err != nil {
 			t.Fatalf("Second AddRow() failed: %v", err)
 		}
@@ -2191,7 +2192,7 @@ func Test_S_013_FR_014_FullRollbackUsesR0OrS0EndControl(t *testing.T) {
 		key1, _ := uuid.NewV7()
 		key2, _ := uuid.NewV7()
 
-		err = tx.AddRow(key1, `{"data":"first"}`)
+		err = tx.AddRow(key1, json.RawMessage(`{"data":"first"}`))
 		if err != nil {
 			t.Fatalf("First AddRow() failed: %v", err)
 		}
@@ -2201,7 +2202,7 @@ func Test_S_013_FR_014_FullRollbackUsesR0OrS0EndControl(t *testing.T) {
 			t.Fatalf("Savepoint() failed: %v", err)
 		}
 
-		err = tx.AddRow(key2, `{"data":"second"}`)
+		err = tx.AddRow(key2, json.RawMessage(`{"data":"second"}`))
 		if err != nil {
 			t.Fatalf("Second AddRow() failed: %v", err)
 		}
@@ -2250,7 +2251,7 @@ func Test_S_013_FR_003_PartialRollbackMethodExists(t *testing.T) {
 		key2, _ := uuid.NewV7()
 		key3, _ := uuid.NewV7()
 
-		err = tx.AddRow(key1, `{"data":"first"}`)
+		err = tx.AddRow(key1, json.RawMessage(`{"data":"first"}`))
 		if err != nil {
 			t.Fatalf("First AddRow() failed: %v", err)
 		}
@@ -2260,12 +2261,12 @@ func Test_S_013_FR_003_PartialRollbackMethodExists(t *testing.T) {
 			t.Fatalf("Savepoint() failed: %v", err)
 		}
 
-		err = tx.AddRow(key2, `{"data":"second"}`)
+		err = tx.AddRow(key2, json.RawMessage(`{"data":"second"}`))
 		if err != nil {
 			t.Fatalf("Second AddRow() failed: %v", err)
 		}
 
-		err = tx.AddRow(key3, `{"data":"third"}`)
+		err = tx.AddRow(key3, json.RawMessage(`{"data":"third"}`))
 		if err != nil {
 			t.Fatalf("Third AddRow() failed: %v", err)
 		}
@@ -2299,7 +2300,7 @@ func Test_S_013_FR_003_PartialRollbackMethodExists(t *testing.T) {
 		key3, _ := uuid.NewV7()
 		key4, _ := uuid.NewV7()
 
-		err = tx.AddRow(key1, `{"data":"first"}`)
+		err = tx.AddRow(key1, json.RawMessage(`{"data":"first"}`))
 		if err != nil {
 			t.Fatalf("First AddRow() failed: %v", err)
 		}
@@ -2309,7 +2310,7 @@ func Test_S_013_FR_003_PartialRollbackMethodExists(t *testing.T) {
 			t.Fatalf("First Savepoint() failed: %v", err)
 		}
 
-		err = tx.AddRow(key2, `{"data":"second"}`)
+		err = tx.AddRow(key2, json.RawMessage(`{"data":"second"}`))
 		if err != nil {
 			t.Fatalf("Second AddRow() failed: %v", err)
 		}
@@ -2319,12 +2320,12 @@ func Test_S_013_FR_003_PartialRollbackMethodExists(t *testing.T) {
 			t.Fatalf("Second Savepoint() failed: %v", err)
 		}
 
-		err = tx.AddRow(key3, `{"data":"third"}`)
+		err = tx.AddRow(key3, json.RawMessage(`{"data":"third"}`))
 		if err != nil {
 			t.Fatalf("Third AddRow() failed: %v", err)
 		}
 
-		err = tx.AddRow(key4, `{"data":"fourth"}`)
+		err = tx.AddRow(key4, json.RawMessage(`{"data":"fourth"}`))
 		if err != nil {
 			t.Fatalf("Fourth AddRow() failed: %v", err)
 		}
@@ -2350,7 +2351,7 @@ func Test_S_013_FR_008_RollbackReturnsErrorForInvalidSavepointNumber(t *testing.
 		}
 
 		key, _ := uuid.NewV7()
-		err = tx.AddRow(key, `{"data":"test"}`)
+		err = tx.AddRow(key, json.RawMessage(`{"data":"test"}`))
 		if err != nil {
 			t.Fatalf("AddRow() failed: %v", err)
 		}
@@ -2375,7 +2376,7 @@ func Test_S_013_FR_008_RollbackReturnsErrorForInvalidSavepointNumber(t *testing.
 
 		for i := 0; i < 3; i++ {
 			key, _ := uuid.NewV7()
-			err = tx.AddRow(key, fmt.Sprintf(`{"data":"row%d"}`, i))
+			err = tx.AddRow(key, json.RawMessage(fmt.Sprintf(`{"data":"row%d"}`, i)))
 			if err != nil {
 				t.Fatalf("AddRow() failed for row %d: %v", i, err)
 			}
@@ -2406,7 +2407,7 @@ func Test_S_013_FR_008_RollbackReturnsErrorForInvalidSavepointNumber(t *testing.
 		}
 
 		key, _ := uuid.NewV7()
-		err = tx.AddRow(key, `{"data":"test"}`)
+		err = tx.AddRow(key, json.RawMessage(`{"data":"test"}`))
 		if err != nil {
 			t.Fatalf("AddRow() failed: %v", err)
 		}
@@ -2430,7 +2431,7 @@ func Test_S_013_FR_008_RollbackReturnsErrorForInvalidSavepointNumber(t *testing.
 		}
 
 		key, _ := uuid.NewV7()
-		err = tx.AddRow(key, `{"data":"test"}`)
+		err = tx.AddRow(key, json.RawMessage(`{"data":"test"}`))
 		if err != nil {
 			t.Fatalf("AddRow() failed: %v", err)
 		}
@@ -2463,7 +2464,7 @@ func Test_S_013_FR_011_PartialRollbackCommitsRowsUpToSavepoint(t *testing.T) {
 		key2, _ := uuid.NewV7()
 		key3, _ := uuid.NewV7()
 
-		err = tx.AddRow(key1, `{"data":"first"}`)
+		err = tx.AddRow(key1, json.RawMessage(`{"data":"first"}`))
 		if err != nil {
 			t.Fatalf("First AddRow() failed: %v", err)
 		}
@@ -2473,12 +2474,12 @@ func Test_S_013_FR_011_PartialRollbackCommitsRowsUpToSavepoint(t *testing.T) {
 			t.Fatalf("Savepoint() failed: %v", err)
 		}
 
-		err = tx.AddRow(key2, `{"data":"second"}`)
+		err = tx.AddRow(key2, json.RawMessage(`{"data":"second"}`))
 		if err != nil {
 			t.Fatalf("Second AddRow() failed: %v", err)
 		}
 
-		err = tx.AddRow(key3, `{"data":"third"}`)
+		err = tx.AddRow(key3, json.RawMessage(`{"data":"third"}`))
 		if err != nil {
 			t.Fatalf("Third AddRow() failed: %v", err)
 		}
@@ -2520,7 +2521,7 @@ func Test_S_013_FR_011_PartialRollbackCommitsRowsUpToSavepoint(t *testing.T) {
 		key3, _ := uuid.NewV7()
 		key4, _ := uuid.NewV7()
 
-		err = tx.AddRow(key1, `{"data":"first"}`)
+		err = tx.AddRow(key1, json.RawMessage(`{"data":"first"}`))
 		if err != nil {
 			t.Fatalf("First AddRow() failed: %v", err)
 		}
@@ -2530,7 +2531,7 @@ func Test_S_013_FR_011_PartialRollbackCommitsRowsUpToSavepoint(t *testing.T) {
 			t.Fatalf("First Savepoint() failed: %v", err)
 		}
 
-		err = tx.AddRow(key2, `{"data":"second"}`)
+		err = tx.AddRow(key2, json.RawMessage(`{"data":"second"}`))
 		if err != nil {
 			t.Fatalf("Second AddRow() failed: %v", err)
 		}
@@ -2540,12 +2541,12 @@ func Test_S_013_FR_011_PartialRollbackCommitsRowsUpToSavepoint(t *testing.T) {
 			t.Fatalf("Second Savepoint() failed: %v", err)
 		}
 
-		err = tx.AddRow(key3, `{"data":"third"}`)
+		err = tx.AddRow(key3, json.RawMessage(`{"data":"third"}`))
 		if err != nil {
 			t.Fatalf("Third AddRow() failed: %v", err)
 		}
 
-		err = tx.AddRow(key4, `{"data":"fourth"}`)
+		err = tx.AddRow(key4, json.RawMessage(`{"data":"fourth"}`))
 		if err != nil {
 			t.Fatalf("Fourth AddRow() failed: %v", err)
 		}
@@ -2592,7 +2593,7 @@ func Test_S_013_FR_012_PartialRollbackInvalidatesRowsAfterSavepoint(t *testing.T
 		key2, _ := uuid.NewV7()
 		key3, _ := uuid.NewV7()
 
-		err = tx.AddRow(key1, `{"data":"first"}`)
+		err = tx.AddRow(key1, json.RawMessage(`{"data":"first"}`))
 		if err != nil {
 			t.Fatalf("First AddRow() failed: %v", err)
 		}
@@ -2602,12 +2603,12 @@ func Test_S_013_FR_012_PartialRollbackInvalidatesRowsAfterSavepoint(t *testing.T
 			t.Fatalf("Savepoint() failed: %v", err)
 		}
 
-		err = tx.AddRow(key2, `{"data":"second"}`)
+		err = tx.AddRow(key2, json.RawMessage(`{"data":"second"}`))
 		if err != nil {
 			t.Fatalf("Second AddRow() failed: %v", err)
 		}
 
-		err = tx.AddRow(key3, `{"data":"third"}`)
+		err = tx.AddRow(key3, json.RawMessage(`{"data":"third"}`))
 		if err != nil {
 			t.Fatalf("Third AddRow() failed: %v", err)
 		}
@@ -2656,7 +2657,7 @@ func Test_S_013_FR_013_PartialRollbackUsesRnOrSnEndControl(t *testing.T) {
 		key2, _ := uuid.NewV7()
 		key3, _ := uuid.NewV7()
 
-		err = tx.AddRow(key1, `{"data":"first"}`)
+		err = tx.AddRow(key1, json.RawMessage(`{"data":"first"}`))
 		if err != nil {
 			t.Fatalf("First AddRow() failed: %v", err)
 		}
@@ -2666,12 +2667,12 @@ func Test_S_013_FR_013_PartialRollbackUsesRnOrSnEndControl(t *testing.T) {
 			t.Fatalf("Savepoint() failed: %v", err)
 		}
 
-		err = tx.AddRow(key2, `{"data":"second"}`)
+		err = tx.AddRow(key2, json.RawMessage(`{"data":"second"}`))
 		if err != nil {
 			t.Fatalf("Second AddRow() failed: %v", err)
 		}
 
-		err = tx.AddRow(key3, `{"data":"third"}`)
+		err = tx.AddRow(key3, json.RawMessage(`{"data":"third"}`))
 		if err != nil {
 			t.Fatalf("Third AddRow() failed: %v", err)
 		}
@@ -2839,7 +2840,7 @@ func Test_S_015_FR_002_AddRowWritesPreviousAndNewPartialDataRow(t *testing.T) {
 
 		// First AddRow - should write incremental bytes (rowSize-7 bytes)
 		key, _ := uuid.NewV7()
-		if err := tx.AddRow(key, `{"data":"test"}`); err != nil {
+		if err := tx.AddRow(key, json.RawMessage(`{"data":"test"}`)); err != nil {
 			t.Fatalf("AddRow() failed: %v", err)
 		}
 
@@ -2886,7 +2887,7 @@ func Test_S_015_FR_002_AddRowWritesPreviousAndNewPartialDataRow(t *testing.T) {
 			t.Fatalf("Begin() failed: %v", err)
 		}
 		key1, _ := uuid.NewV7()
-		if err := tx.AddRow(key1, `{"data":"first"}`); err != nil {
+		if err := tx.AddRow(key1, json.RawMessage(`{"data":"first"}`)); err != nil {
 			t.Fatalf("First AddRow() failed: %v", err)
 		}
 
@@ -2894,7 +2895,7 @@ func Test_S_015_FR_002_AddRowWritesPreviousAndNewPartialDataRow(t *testing.T) {
 
 		// Second AddRow - should finalize previous (5 bytes: RE + parity + ROW_END) and write new (rowSize-5 bytes)
 		key2, _ := uuid.NewV7()
-		if err := tx.AddRow(key2, `{"data":"second"}`); err != nil {
+		if err := tx.AddRow(key2, json.RawMessage(`{"data":"second"}`)); err != nil {
 			t.Fatalf("Second AddRow() failed: %v", err)
 		}
 
@@ -2947,7 +2948,7 @@ func Test_S_015_FR_003_CommitWithRowsWritesFinalDataRow(t *testing.T) {
 			t.Fatalf("Begin() failed: %v", err)
 		}
 		key, _ := uuid.NewV7()
-		if err := tx.AddRow(key, `{"data":"test"}`); err != nil {
+		if err := tx.AddRow(key, json.RawMessage(`{"data":"test"}`)); err != nil {
 			t.Fatalf("AddRow() failed: %v", err)
 		}
 
@@ -3144,7 +3145,7 @@ func Test_S_015_FR_005_AddRowSynchronousWrite(t *testing.T) {
 		sizeBefore := fm.Size()
 
 		key, _ := uuid.NewV7()
-		err = tx.AddRow(key, `{"data":"test"}`)
+		err = tx.AddRow(key, json.RawMessage(`{"data":"test"}`))
 		if err != nil {
 			t.Fatalf("AddRow() failed: %v", err)
 		}
@@ -3196,7 +3197,7 @@ func Test_S_015_FR_005_CommitSynchronousWrite(t *testing.T) {
 			t.Fatalf("Begin() failed: %v", err)
 		}
 		key, _ := uuid.NewV7()
-		if err := tx.AddRow(key, `{"data":"test"}`); err != nil {
+		if err := tx.AddRow(key, json.RawMessage(`{"data":"test"}`)); err != nil {
 			t.Fatalf("AddRow() failed: %v", err)
 		}
 
@@ -3257,7 +3258,7 @@ func Test_S_015_FR_006_BeginWriteFailureNoPartialData(t *testing.T) {
 		}
 
 		key, _ := uuid.NewV7()
-		if err := tx.AddRow(key, `{"data":"test"}`); err == nil {
+		if err := tx.AddRow(key, json.RawMessage(`{"data":"test"}`)); err == nil {
 			t.Fatal("AddRow() should return TombstonedError on tombstoned transaction")
 		} else if _, ok := err.(*TombstonedError); !ok {
 			t.Errorf("Expected TombstonedError, got %T: %v", err, err)
@@ -3303,7 +3304,7 @@ func Test_S_015_FR_006_AddRowWriteFailureNoPartialData(t *testing.T) {
 		}()
 
 		key, _ := uuid.NewV7()
-		err := tx.AddRow(key, `{"data":"test"}`)
+		err := tx.AddRow(key, json.RawMessage(`{"data":"test"}`))
 		if err == nil {
 			t.Fatal("AddRow() should return error on write failure")
 		}
@@ -3315,7 +3316,7 @@ func Test_S_015_FR_006_AddRowWriteFailureNoPartialData(t *testing.T) {
 
 		// FR-006: Verify subsequent API calls return TombstonedError
 		key2, _ := uuid.NewV7()
-		if err := tx.AddRow(key2, `{"data":"test2"}`); err == nil {
+		if err := tx.AddRow(key2, json.RawMessage(`{"data":"test2"}`)); err == nil {
 			t.Fatal("AddRow() should return TombstonedError on tombstoned transaction")
 		} else if _, ok := err.(*TombstonedError); !ok {
 			t.Errorf("Expected TombstonedError, got %T: %v", err, err)
@@ -3357,7 +3358,7 @@ func Test_S_015_FR_006_CommitWriteFailureNoPartialData(t *testing.T) {
 			data.Response <- nil // AddRow succeeds
 		}()
 		key, _ := uuid.NewV7()
-		if err := tx.AddRow(key, `{"data":"test"}`); err != nil {
+		if err := tx.AddRow(key, json.RawMessage(`{"data":"test"}`)); err != nil {
 			t.Fatalf("AddRow() failed: %v", err)
 		}
 
@@ -3379,7 +3380,7 @@ func Test_S_015_FR_006_CommitWriteFailureNoPartialData(t *testing.T) {
 
 		// FR-006: Verify subsequent API calls return TombstonedError
 		key2, _ := uuid.NewV7()
-		if err := tx.AddRow(key2, `{"data":"test2"}`); err == nil {
+		if err := tx.AddRow(key2, json.RawMessage(`{"data":"test2"}`)); err == nil {
 			t.Fatal("AddRow() should return TombstonedError on tombstoned transaction")
 		} else if _, ok := err.(*TombstonedError); !ok {
 			t.Errorf("Expected TombstonedError, got %T: %v", err, err)
@@ -3447,7 +3448,7 @@ func Test_S_015_FR_007_TransactionOnlyAppendsNewBytes(t *testing.T) {
 			t.Fatalf("Begin() failed: %v", err)
 		}
 		key, _ := uuid.NewV7()
-		if err := tx.AddRow(key, `{"data":"test"}`); err != nil {
+		if err := tx.AddRow(key, json.RawMessage(`{"data":"test"}`)); err != nil {
 			t.Fatalf("AddRow() failed: %v", err)
 		}
 		if err := tx.Commit(); err != nil {
@@ -3520,7 +3521,7 @@ func Test_S_015_FR_008_TransactionAssumesValidFile(t *testing.T) {
 		}
 
 		key, _ := uuid.NewV7()
-		if err := tx.AddRow(key, `{"data":"test"}`); err != nil {
+		if err := tx.AddRow(key, json.RawMessage(`{"data":"test"}`)); err != nil {
 			t.Fatalf("AddRow() should succeed with valid file structure: %v", err)
 		}
 
@@ -3575,7 +3576,7 @@ func Test_S_015_FR_009_TransactionNoChecksumRows(t *testing.T) {
 		// Add multiple rows (but less than 10,000)
 		for i := 0; i < 10; i++ {
 			key, _ := uuid.NewV7()
-			if err := tx.AddRow(key, fmt.Sprintf(`{"data":"row%d"}`, i)); err != nil {
+			if err := tx.AddRow(key, json.RawMessage(fmt.Sprintf(`{"data":"row%d"}`, i))); err != nil {
 				t.Fatalf("AddRow() failed: %v", err)
 			}
 		}
@@ -3722,7 +3723,7 @@ func Test_S_015_FR_010_ConcurrentAddRow(t *testing.T) {
 		for i := 0; i < 10; i++ {
 			go func(id int) {
 				key, _ := uuid.NewV7()
-				err := tx.AddRow(key, fmt.Sprintf(`{"data":"row%d"}`, id))
+				err := tx.AddRow(key, json.RawMessage(fmt.Sprintf(`{"data":"row%d"}`, id)))
 				done <- err
 			}(i)
 		}
@@ -3789,7 +3790,7 @@ func Test_S_015_FR_010_ConcurrentAddRowAndCommit(t *testing.T) {
 
 		// Add one row first
 		key1, _ := uuid.NewV7()
-		if err := tx.AddRow(key1, `{"data":"first"}`); err != nil {
+		if err := tx.AddRow(key1, json.RawMessage(`{"data":"first"}`)); err != nil {
 			t.Fatalf("First AddRow() failed: %v", err)
 		}
 
@@ -3798,7 +3799,7 @@ func Test_S_015_FR_010_ConcurrentAddRowAndCommit(t *testing.T) {
 		for i := 0; i < 4; i++ {
 			go func(id int) {
 				key, _ := uuid.NewV7()
-				err := tx.AddRow(key, fmt.Sprintf(`{"data":"row%d"}`, id))
+				err := tx.AddRow(key, json.RawMessage(fmt.Sprintf(`{"data":"row%d"}`, id)))
 				done <- err
 			}(i)
 		}
@@ -3872,7 +3873,7 @@ func Test_S_016_FR_001_ChecksumAtIntervals(t *testing.T) {
 					t.Fatalf("Failed to generate UUIDv7: %v", err)
 				}
 
-				if err := tx.AddRow(key, fmt.Sprintf(`{"data":"row%d"}`, txNum*100+i)); err != nil {
+				if err := tx.AddRow(key, json.RawMessage(fmt.Sprintf(`{"data":"row%d"}`, txNum*100+i))); err != nil {
 					t.Fatalf("AddRow() failed: %v", err)
 				}
 			}
@@ -3948,7 +3949,7 @@ func Test_S_016_FR_001_ChecksumAtIntervals(t *testing.T) {
 					t.Fatalf("Failed to generate UUIDv7: %v", err)
 				}
 
-				if err := tx.AddRow(key, fmt.Sprintf(`{"data":"row%d"}`, txNum*100+i)); err != nil {
+				if err := tx.AddRow(key, json.RawMessage(fmt.Sprintf(`{"data":"row%d"}`, txNum*100+i))); err != nil {
 					t.Fatalf("AddRow() failed: %v", err)
 				}
 			}
@@ -4026,7 +4027,7 @@ func Test_S_016_FR_003_ExcludePartialDataRows(t *testing.T) {
 				t.Fatalf("Failed to generate UUIDv7: %v", err)
 			}
 
-			if err := tx.AddRow(key, fmt.Sprintf(`{"data":"row%d"}`, txNum*100+rowNum)); err != nil {
+			if err := tx.AddRow(key, json.RawMessage(fmt.Sprintf(`{"data":"row%d"}`, txNum*100+rowNum))); err != nil {
 				t.Fatalf("AddRow() failed: %v", err)
 			}
 		}
@@ -4058,7 +4059,7 @@ func Test_S_016_FR_003_ExcludePartialDataRows(t *testing.T) {
 		t.Fatalf("Failed to generate UUIDv7: %v", err)
 	}
 
-	if err := tx.AddRow(key, `{"data":"partial"}`); err != nil {
+	if err := tx.AddRow(key, json.RawMessage(`{"data":"partial"}`)); err != nil {
 		t.Fatalf("AddRow() failed: %v", err)
 	}
 
@@ -4122,7 +4123,7 @@ func Test_S_016_FR_004_FormatRequirements(t *testing.T) {
 				t.Fatalf("Failed to generate UUIDv7: %v", err)
 			}
 
-			if err := tx.AddRow(key, fmt.Sprintf(`{"data":"row%d"}`, txNum*100+rowNum)); err != nil {
+			if err := tx.AddRow(key, json.RawMessage(fmt.Sprintf(`{"data":"row%d"}`, txNum*100+rowNum))); err != nil {
 				t.Fatalf("AddRow() failed: %v", err)
 			}
 		}
@@ -4220,7 +4221,7 @@ func Test_S_016_FR_005_TransparencyToTransactions(t *testing.T) {
 				t.Fatalf("Failed to generate UUIDv7: %v", err)
 			}
 
-			if err := tx.AddRow(key, fmt.Sprintf(`{"data":"row%d"}`, txNum*100+rowNum)); err != nil {
+			if err := tx.AddRow(key, json.RawMessage(fmt.Sprintf(`{"data":"row%d"}`, txNum*100+rowNum))); err != nil {
 				t.Fatalf("AddRow() failed: %v", err)
 			}
 		}
@@ -4252,7 +4253,7 @@ func Test_S_016_FR_005_TransparencyToTransactions(t *testing.T) {
 			t.Fatalf("Failed to generate UUIDv7: %v", err)
 		}
 
-		if err := tx.AddRow(key, fmt.Sprintf(`{"data":"row%d"}`, 9900+i)); err != nil {
+		if err := tx.AddRow(key, json.RawMessage(fmt.Sprintf(`{"data":"row%d"}`, 9900+i))); err != nil {
 			t.Fatalf("AddRow() failed: %v", err)
 		}
 	}
@@ -4284,7 +4285,7 @@ func Test_S_016_FR_005_TransparencyToTransactions(t *testing.T) {
 			t.Fatalf("Failed to generate UUIDv7: %v", err)
 		}
 
-		if err := tx.AddRow(key, fmt.Sprintf(`{"data":"boundary%d"}`, i)); err != nil {
+		if err := tx.AddRow(key, json.RawMessage(fmt.Sprintf(`{"data":"boundary%d"}`, i))); err != nil {
 			t.Fatalf("AddRow() failed: %v", err)
 		}
 	}
@@ -4349,7 +4350,7 @@ func Test_S_016_FR_006_StartControlAfterChecksum(t *testing.T) {
 				t.Fatalf("Failed to generate UUIDv7: %v", err)
 			}
 
-			if err := tx.AddRow(key, fmt.Sprintf(`{"data":"row%d"}`, txNum*100+rowNum)); err != nil {
+			if err := tx.AddRow(key, json.RawMessage(fmt.Sprintf(`{"data":"row%d"}`, txNum*100+rowNum))); err != nil {
 				t.Fatalf("AddRow() failed: %v", err)
 			}
 		}
@@ -4381,7 +4382,7 @@ func Test_S_016_FR_006_StartControlAfterChecksum(t *testing.T) {
 		t.Fatalf("Failed to generate UUIDv7: %v", err)
 	}
 
-	if err := tx.AddRow(key1, `{"data":"row10000"}`); err != nil {
+	if err := tx.AddRow(key1, json.RawMessage(`{"data":"row10000"}`)); err != nil {
 		t.Fatalf("AddRow() failed: %v", err)
 	}
 
@@ -4391,7 +4392,7 @@ func Test_S_016_FR_006_StartControlAfterChecksum(t *testing.T) {
 		t.Fatalf("Failed to generate UUIDv7: %v", err)
 	}
 
-	if err := tx.AddRow(key2, `{"data":"row10001"}`); err != nil {
+	if err := tx.AddRow(key2, json.RawMessage(`{"data":"row10001"}`)); err != nil {
 		t.Fatalf("AddRow() failed: %v", err)
 	}
 
@@ -4401,7 +4402,7 @@ func Test_S_016_FR_006_StartControlAfterChecksum(t *testing.T) {
 		t.Fatalf("Failed to generate UUIDv7: %v", err)
 	}
 
-	if err := tx.AddRow(key3, `{"data":"row10002"}`); err != nil {
+	if err := tx.AddRow(key3, json.RawMessage(`{"data":"row10002"}`)); err != nil {
 		t.Fatalf("AddRow() failed: %v", err)
 	}
 
@@ -4459,7 +4460,7 @@ func Test_S_016_FR_007_NotInQueryResults(t *testing.T) {
 				t.Fatalf("Failed to generate UUIDv7: %v", err)
 			}
 
-			if err := tx.AddRow(key, fmt.Sprintf(`{"data":"row%d"}`, txNum*100+rowNum)); err != nil {
+			if err := tx.AddRow(key, json.RawMessage(fmt.Sprintf(`{"data":"row%d"}`, txNum*100+rowNum))); err != nil {
 				t.Fatalf("AddRow() failed: %v", err)
 			}
 		}
@@ -4539,7 +4540,7 @@ func Test_S_016_US2_TransactionSpansChecksumBoundary(t *testing.T) {
 				t.Fatalf("Failed to generate UUIDv7: %v", err)
 			}
 
-			if err := tx.AddRow(key, fmt.Sprintf(`{"data":"row%d"}`, txNum*100+rowNum)); err != nil {
+			if err := tx.AddRow(key, json.RawMessage(fmt.Sprintf(`{"data":"row%d"}`, txNum*100+rowNum))); err != nil {
 				t.Fatalf("AddRow() failed: %v", err)
 			}
 		}
@@ -4572,7 +4573,7 @@ func Test_S_016_US2_TransactionSpansChecksumBoundary(t *testing.T) {
 			t.Fatalf("Failed to generate UUIDv7: %v", err)
 		}
 
-		if err := tx.AddRow(key, fmt.Sprintf(`{"data":"boundary%d"}`, i)); err != nil {
+		if err := tx.AddRow(key, json.RawMessage(fmt.Sprintf(`{"data":"boundary%d"}`, i))); err != nil {
 			t.Fatalf("AddRow() failed: %v", err)
 		}
 	}
@@ -4650,7 +4651,7 @@ func Test_S_016_US2_ChecksumRowNotInResults(t *testing.T) {
 				t.Fatalf("Failed to generate UUIDv7: %v", err)
 			}
 
-			if err := tx.AddRow(key, fmt.Sprintf(`{"data":"row%d"}`, txNum*100+rowNum)); err != nil {
+			if err := tx.AddRow(key, json.RawMessage(fmt.Sprintf(`{"data":"row%d"}`, txNum*100+rowNum))); err != nil {
 				t.Fatalf("AddRow() failed: %v", err)
 			}
 		}
@@ -4742,7 +4743,7 @@ func Test_S_016_US2_SavepointStateAfterChecksum(t *testing.T) {
 				t.Fatalf("Failed to generate UUIDv7: %v", err)
 			}
 
-			if err := tx.AddRow(key, fmt.Sprintf(`{"data":"row%d"}`, txNum*100+rowNum)); err != nil {
+			if err := tx.AddRow(key, json.RawMessage(fmt.Sprintf(`{"data":"row%d"}`, txNum*100+rowNum))); err != nil {
 				t.Fatalf("AddRow() failed: %v", err)
 			}
 		}
@@ -4774,7 +4775,7 @@ func Test_S_016_US2_SavepointStateAfterChecksum(t *testing.T) {
 		t.Fatalf("Failed to generate UUIDv7: %v", err)
 	}
 
-	if err := tx.AddRow(key1, `{"data":"row1"}`); err != nil {
+	if err := tx.AddRow(key1, json.RawMessage(`{"data":"row1"}`)); err != nil {
 		t.Fatalf("AddRow() failed: %v", err)
 	}
 
@@ -4795,7 +4796,7 @@ func Test_S_016_US2_SavepointStateAfterChecksum(t *testing.T) {
 		t.Fatalf("Failed to generate UUIDv7: %v", err)
 	}
 
-	if err := tx.AddRow(key2, `{"data":"row2"}`); err != nil {
+	if err := tx.AddRow(key2, json.RawMessage(`{"data":"row2"}`)); err != nil {
 		t.Fatalf("AddRow() failed: %v", err)
 	}
 
@@ -4832,7 +4833,7 @@ func Test_S_016_US2_SavepointStateAfterChecksum(t *testing.T) {
 				t.Fatalf("Failed to generate UUIDv7: %v", err)
 			}
 
-			if err := tx.AddRow(key, fmt.Sprintf(`{"data":"row%d"}`, txNum*100+rowNum)); err != nil {
+			if err := tx.AddRow(key, json.RawMessage(fmt.Sprintf(`{"data":"row%d"}`, txNum*100+rowNum))); err != nil {
 				t.Fatalf("AddRow() failed: %v", err)
 			}
 		}
@@ -4864,7 +4865,7 @@ func Test_S_016_US2_SavepointStateAfterChecksum(t *testing.T) {
 		t.Fatalf("Failed to generate UUIDv7: %v", err)
 	}
 
-	if err := tx.AddRow(key1, `{"data":"row1"}`); err != nil {
+	if err := tx.AddRow(key1, json.RawMessage(`{"data":"row1"}`)); err != nil {
 		t.Fatalf("AddRow() failed: %v", err)
 	}
 
@@ -4885,7 +4886,7 @@ func Test_S_016_US2_SavepointStateAfterChecksum(t *testing.T) {
 		t.Fatalf("Failed to generate UUIDv7: %v", err)
 	}
 
-	if err := tx.AddRow(key2, `{"data":"row2"}`); err != nil {
+	if err := tx.AddRow(key2, json.RawMessage(`{"data":"row2"}`)); err != nil {
 		t.Fatalf("AddRow() failed: %v", err)
 	}
 
@@ -4943,7 +4944,7 @@ func Test_S_016_US2_RollbackAfterChecksum(t *testing.T) {
 				t.Fatalf("Failed to generate UUIDv7: %v", err)
 			}
 
-			if err := tx.AddRow(key, fmt.Sprintf(`{"data":"row%d"}`, txNum*100+rowNum)); err != nil {
+			if err := tx.AddRow(key, json.RawMessage(fmt.Sprintf(`{"data":"row%d"}`, txNum*100+rowNum))); err != nil {
 				t.Fatalf("AddRow() failed: %v", err)
 			}
 		}
@@ -4975,7 +4976,7 @@ func Test_S_016_US2_RollbackAfterChecksum(t *testing.T) {
 		t.Fatalf("Failed to generate UUIDv7: %v", err)
 	}
 
-	if err := tx.AddRow(key1, `{"data":"before_savepoint"}`); err != nil {
+	if err := tx.AddRow(key1, json.RawMessage(`{"data":"before_savepoint"}`)); err != nil {
 		t.Fatalf("AddRow() failed: %v", err)
 	}
 
@@ -4990,7 +4991,7 @@ func Test_S_016_US2_RollbackAfterChecksum(t *testing.T) {
 		t.Fatalf("Failed to generate UUIDv7: %v", err)
 	}
 
-	if err := tx.AddRow(key2, `{"data":"after_savepoint"}`); err != nil {
+	if err := tx.AddRow(key2, json.RawMessage(`{"data":"after_savepoint"}`)); err != nil {
 		t.Fatalf("AddRow() failed: %v", err)
 	}
 
@@ -5000,7 +5001,7 @@ func Test_S_016_US2_RollbackAfterChecksum(t *testing.T) {
 		t.Fatalf("Failed to generate UUIDv7: %v", err)
 	}
 
-	if err := tx.AddRow(key3, `{"data":"after_checksum"}`); err != nil {
+	if err := tx.AddRow(key3, json.RawMessage(`{"data":"after_checksum"}`)); err != nil {
 		t.Fatalf("AddRow() failed: %v", err)
 	}
 

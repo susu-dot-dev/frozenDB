@@ -2,6 +2,7 @@ package frozendb
 
 import (
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"testing"
 
@@ -18,7 +19,7 @@ func Test_S_005_FR_001_DataRowCreation(t *testing.T) {
 	}
 
 	// JSON string value (no syntax validation at this layer)
-	value := `{"name":"John Doe","age":30}`
+	value := json.RawMessage(`{"name":"John Doe","age":30}`)
 
 	// Create DataRow with manual struct initialization
 	dataRow := &DataRow{
@@ -45,7 +46,7 @@ func Test_S_005_FR_001_DataRowCreation(t *testing.T) {
 	}
 
 	retrievedValue := dataRow.GetValue()
-	if retrievedValue != value {
+	if string(retrievedValue) != string(value) {
 		t.Errorf("Value mismatch: expected %s, got %s", value, retrievedValue)
 	}
 }
@@ -110,7 +111,7 @@ func Test_S_005_FR_003_SerializationFormat(t *testing.T) {
 		t.Fatalf("Failed to generate UUIDv7: %v", err)
 	}
 
-	value := `{"name":"Test"}`
+	value := json.RawMessage(`{"name":"Test"}`)
 	dataRow := &DataRow{
 		baseRow[*DataRowPayload]{
 			RowSize:      512,
@@ -185,7 +186,7 @@ func Test_S_005_FR_003_SerializationFormat(t *testing.T) {
 
 	// Verify JSON payload matches original value
 	jsonPayload := string(rowBytes[payloadStart:payloadEnd])
-	if jsonPayload != value {
+	if string(jsonPayload) != string(value) {
 		t.Errorf("JSON payload mismatch: expected %s, got %s", value, jsonPayload)
 	}
 
@@ -221,7 +222,7 @@ func Test_S_005_FR_004_DeserializationValidation(t *testing.T) {
 		t.Fatalf("Failed to generate UUIDv7: %v", err)
 	}
 
-	value := `{"name":"Deserialize Test","count":42}`
+	value := json.RawMessage(`{"name":"Deserialize Test","count":42}`)
 	originalRow := &DataRow{
 		baseRow[*DataRowPayload]{
 			RowSize:      512,
@@ -267,7 +268,7 @@ func Test_S_005_FR_004_DeserializationValidation(t *testing.T) {
 	}
 
 	deserializedValue := deserializedRow.GetValue()
-	if deserializedValue != value {
+	if string(deserializedValue) != string(value) {
 		t.Errorf("Value mismatch after round-trip: expected %s, got %s", value, deserializedValue)
 	}
 
@@ -288,7 +289,7 @@ func Test_S_005_FR_005_StartControlValidation(t *testing.T) {
 		t.Fatalf("Failed to generate UUIDv7: %v", err)
 	}
 
-	value := `{"test":"value"}`
+	value := json.RawMessage(`{"test":"value"}`)
 
 	// Test valid start controls
 	t.Run("valid_T", func(t *testing.T) {
@@ -351,7 +352,7 @@ func Test_S_005_FR_006_EndControlValidation(t *testing.T) {
 		t.Fatalf("Failed to generate UUIDv7: %v", err)
 	}
 
-	value := `{"test":"value"}`
+	value := json.RawMessage(`{"test":"value"}`)
 
 	// Test valid end controls
 	validEndControls := []EndControl{
@@ -409,7 +410,7 @@ func Test_S_005_FR_007_ParityByteCalculation(t *testing.T) {
 		t.Fatalf("Failed to generate UUIDv7: %v", err)
 	}
 
-	value := `{"test":"value"}`
+	value := json.RawMessage(`{"test":"value"}`)
 	dataRow := &DataRow{
 		baseRow[*DataRowPayload]{
 			RowSize:      512,
@@ -499,7 +500,7 @@ func Test_S_005_FR_008_NullBytePadding(t *testing.T) {
 	}
 
 	// Test with small JSON value to ensure padding
-	value := `{"test":"value"}`
+	value := json.RawMessage(`{"test":"value"}`)
 	dataRow := &DataRow{
 		baseRow[*DataRowPayload]{
 			RowSize:      512,
@@ -534,7 +535,7 @@ func Test_S_005_FR_008_NullBytePadding(t *testing.T) {
 
 	// Verify JSON payload is present
 	jsonPayload := string(rowBytes[payloadStart:payloadEnd])
-	if jsonPayload != value {
+	if string(jsonPayload) != string(value) {
 		t.Errorf("JSON payload mismatch: expected %s, got %s", value, jsonPayload)
 	}
 
@@ -553,7 +554,7 @@ func Test_S_005_FR_009_RowSizeValidation(t *testing.T) {
 		t.Fatalf("Failed to generate UUIDv7: %v", err)
 	}
 
-	value := `{"test":"value"}`
+	value := json.RawMessage(`{"test":"value"}`)
 	dataRow := &DataRow{
 		baseRow[*DataRowPayload]{
 			RowSize:      512,
@@ -630,7 +631,7 @@ func Test_S_005_FR_009_RowSizeValidation(t *testing.T) {
 				EndControl:   TRANSACTION_COMMIT,
 				RowPayload: &DataRowPayload{
 					Key:   key,
-					Value: string(excessiveValue),
+					Value: excessiveValue,
 				},
 			},
 		}
@@ -668,7 +669,7 @@ func Test_S_005_FR_009_RowSizeValidation(t *testing.T) {
 				EndControl:   TRANSACTION_COMMIT,
 				RowPayload: &DataRowPayload{
 					Key:   key,
-					Value: string(maxValue),
+					Value: maxValue,
 				},
 			},
 		}
@@ -697,7 +698,7 @@ func Test_S_005_FR_010_ControlCharacterValidation(t *testing.T) {
 		t.Fatalf("Failed to generate UUIDv7: %v", err)
 	}
 
-	value := `{"test":"value"}`
+	value := json.RawMessage(`{"test":"value"}`)
 
 	// Test valid single-byte start controls
 	validStartControls := []StartControl{START_TRANSACTION, ROW_CONTINUE}
@@ -757,7 +758,7 @@ func Test_S_005_FR_011_NilInputValidation(t *testing.T) {
 		t.Fatalf("Failed to generate UUIDv7: %v", err)
 	}
 
-	value := `{"test":"value"}`
+	value := json.RawMessage(`{"test":"value"}`)
 
 	// Test nil payload
 	t.Run("nil_payload", func(t *testing.T) {
@@ -801,7 +802,7 @@ func Test_S_005_FR_011_NilInputValidation(t *testing.T) {
 				EndControl:   TRANSACTION_COMMIT,
 				RowPayload: &DataRowPayload{
 					Key:   key,
-					Value: "",
+					Value: json.RawMessage(""),
 				},
 			},
 		}
@@ -819,7 +820,7 @@ func Test_S_005_FR_012_ChildStructValidation(t *testing.T) {
 		t.Fatalf("Failed to generate UUIDv7: %v", err)
 	}
 
-	value := `{"test":"value"}`
+	value := json.RawMessage(`{"test":"value"}`)
 
 	// Test that payload validation happens before DataRow validation
 	t.Run("payload_validation_first", func(t *testing.T) {
