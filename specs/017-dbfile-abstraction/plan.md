@@ -44,7 +44,6 @@ specs/017-dbfile-abstraction/
 ├── plan.md              # This file (/speckit.plan command output)
 ├── research.md          # Phase 0 output - Breaking change analysis complete
 ├── data-model.md        # Phase 1 output - Enhanced DBFile interface model
-├── quickstart.md        # Phase 1 output - Usage examples and patterns
 ├── contracts/           # Phase 1 output - API contracts and error types
 │   └── api.md
 └── tasks.md             # Phase 2 output (/speckit.tasks command - NOT created by /speckit.plan)

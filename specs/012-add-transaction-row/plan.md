@@ -44,7 +44,6 @@ specs/012-add-transaction-row/
 ├── plan.md              # This file (/speckit.plan command output)
 ├── research.md          # Phase 0 output (/speckit.plan command output)
 ├── data-model.md        # Phase 1 output (/speckit.plan command output)
-├── quickstart.md        # Phase 1 output (/speckit.plan command output)
 ├── contracts/           # Phase 1 output (/speckit.plan command output)
 └── tasks.md             # Phase 2 output (/speckit.tasks command - NOT created by /speckit.plan)
 ```

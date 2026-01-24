@@ -39,7 +39,7 @@ Enhanced Transaction struct with new fields (`empty *NullRow`, `last *PartialDat
 - [x] **Chronological Ordering**: Design supports time-based key ordering with proper handling of time variations - Uses existing UUIDv7 validation from DataRow/PartialDataRow
 - [x] **Concurrent Read-Write Safety**: Design supports concurrent reads and writes without data corruption - Mutex protection ensures thread-safe state transitions
 - [x] **Single-File Architecture**: Database uses single file enabling simple backup/recovery - No changes to file architecture, only in-memory transaction management
-- [x] **Spec Test Compliance**: All functional requirements have corresponding spec tests in [filename]_spec_test.go files - Documented in quickstart and data-model, ready for spec test implementation
+- [x] **Spec Test Compliance**: All functional requirements have corresponding spec tests in [filename]_spec_test.go files - Documented in data-model, ready for spec test implementation
 
 ## Project Structure
 
@@ -50,7 +50,6 @@ specs/[###-feature]/
 ├── plan.md              # This file (/speckit.plan command output)
 ├── research.md          # Phase 0 output (/speckit.plan command)
 ├── data-model.md        # Phase 1 output (/speckit.plan command)
-├── quickstart.md        # Phase 1 output (/speckit.plan command)
 ├── contracts/           # Phase 1 output (/speckit.plan command)
 └── tasks.md             # Phase 2 output (/speckit.tasks command - NOT created by /speckit.plan)
 ```
@@ -80,7 +79,6 @@ specs/
     ├── plan.md              # This implementation plan
     ├── research.md          # Phase 0 research output
     ├── data-model.md        # Phase 1 data model
-    ├── quickstart.md        # Phase 1 quickstart guide
     └── contracts/           # Phase 1 API contracts
 ```
 

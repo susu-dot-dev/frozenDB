@@ -51,7 +51,7 @@ You **MUST** consider the user input before proceeding (if not empty).
    - **IF EXISTS**: Read data-model.md for entities and relationships
    - **IF EXISTS**: Read contracts/ for API specifications and test requirements
    - **IF EXISTS**: Read research.md for technical decisions and constraints
-   - **IF EXISTS**: Read quickstart.md for integration scenarios
+   - **IF EXISTS**: Read research.md for technical decisions and constraints
 
 4. Parse tasks.md structure and extract:
    - **Task phases**: Tests, Core, Integration, Polish
