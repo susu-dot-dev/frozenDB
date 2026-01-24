@@ -29,7 +29,7 @@ You **MUST** consider the user input before proceeding (if not empty).
    - Fill Constitution Check section from constitution
    - Evaluate gates (ERROR if violations unjustified)
    - Phase 0: Generate research.md (resolve all NEEDS CLARIFICATION)
-   - Phase 1: Generate data-model.md, contracts/, quickstart.md
+   - Phase 1: Generate data-model.md, contracts/
    - Phase 1: Update agent context by running the agent script
    - Re-evaluate Constitution Check post-design
 
@@ -75,19 +75,7 @@ You **MUST** consider the user input before proceeding (if not empty).
    - Use standard REST/GraphQL patterns
    - Output OpenAPI/GraphQL schema to `/contracts/`
 
-3. **Generate a simple quickstart** from the API contracts
-   - Limit the quickstart to no more than 3 examples
-   - Show the general pattern for usage, not exhaustive edge cases
-   - Do not invent new functions in the quickstart. If needed for usage, these should go in the api.md
-
-4. **Agent context update**:
-   - Run `.specify/scripts/bash/update-agent-context.sh opencode`
-   - These scripts detect which AI agent is in use
-   - Update the appropriate agent-specific context file
-   - Add only new technology from current plan
-   - Preserve manual additions between markers
-
-**Output**: data-model.md, /contracts/*, quickstart.md, agent-specific file
+**Output**: data-model.md, /contracts/*
 
 ## Key rules
 

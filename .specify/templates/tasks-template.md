@@ -143,7 +143,6 @@ description: "Task list template for feature implementation"
 - [ ] TXXX Performance optimization across all stories
 - [ ] TXXX Additional unit tests (if requested) in tests/unit/
 - [ ] TXXX Security hardening
-- [ ] TXXX Run quickstart.md validation
 - [ ] TXXX Run spec tests for all modules and ensure every FR-XXX has test coverage
 - [ ] TXXX Verify no spec tests use t.Skip() without comprehensive documentation
 
