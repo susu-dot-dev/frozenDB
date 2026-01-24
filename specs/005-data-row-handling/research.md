@@ -6,7 +6,7 @@
 
 ## Research Summary
 
-This document captures research findings for implementing DataRow handling in frozenDB, building on the established ChecksumRow architecture while adding UUIDv7 key validation and JSON payload handling.
+This document captures research findings for implementing DataRow handling in frozenDB, building on the established ChecksumRow architecture while adding UUIDv7 key validation and JSON string value handling.
 
 ## Key Research Areas
 
@@ -164,7 +164,7 @@ Follow v1_file_format.md exactly:
 
 1. Create DataRow struct following ChecksumRow patterns
 2. Implement UUIDv7 validation with github.com/google/uuid
-3. Add JSON payload handling with NULL_BYTE padding
+3. Add JSON string value handling with NULL_BYTE padding
 4. Implement serialization according to v1_file_format.md
 5. Create comprehensive unit and spec tests
 6. Validate integration with existing frozenDB architecture

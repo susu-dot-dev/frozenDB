@@ -1,6 +1,7 @@
 package frozendb
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/google/uuid"
@@ -75,7 +76,7 @@ func TestPartialDataRow_ValidationWithNilRowSize(t *testing.T) {
 					StartControl: START_TRANSACTION,
 					RowPayload: &DataRowPayload{
 						Key:   key,
-						Value: `{"name":"test"}`,
+						Value: json.RawMessage(`{"name":"test"}`),
 					},
 				},
 			},
@@ -116,7 +117,7 @@ func TestPartialDataRow_State2ValidationRequiresPayload(t *testing.T) {
 		pdr.state = PartialDataRowWithPayload
 		pdr.d.RowPayload = &DataRowPayload{
 			Key:   uuid.Nil,
-			Value: "test",
+			Value: json.RawMessage("test"),
 		}
 
 		err = pdr.Validate()
@@ -134,7 +135,7 @@ func TestPartialDataRow_State2ValidationRequiresPayload(t *testing.T) {
 		pdr.state = PartialDataRowWithPayload
 		pdr.d.RowPayload = &DataRowPayload{
 			Key:   key,
-			Value: "",
+			Value: json.RawMessage(""),
 		}
 
 		err = pdr.Validate()
@@ -189,7 +190,7 @@ func TestPartialDataRow_CommitFromInvalidStates(t *testing.T) {
 		if err != nil {
 			t.Fatalf("NewPartialDataRow failed: %v", err)
 		}
-		if err := pdr.AddRow(key, `{"name":"test"}`); err != nil {
+		if err := pdr.AddRow(key, json.RawMessage(`{"name":"test"}`)); err != nil {
 			t.Fatalf("AddRow failed: %v", err)
 		}
 
@@ -208,7 +209,7 @@ func TestPartialDataRow_CommitFromInvalidStates(t *testing.T) {
 		if err != nil {
 			t.Fatalf("NewPartialDataRow failed: %v", err)
 		}
-		if err := pdr.AddRow(key, `{"name":"test"}`); err != nil {
+		if err := pdr.AddRow(key, json.RawMessage(`{"name":"test"}`)); err != nil {
 			t.Fatalf("AddRow failed: %v", err)
 		}
 		if err := pdr.Savepoint(); err != nil {
@@ -247,7 +248,7 @@ func TestPartialDataRow_RollbackValidation(t *testing.T) {
 		if err != nil {
 			t.Fatalf("NewPartialDataRow failed: %v", err)
 		}
-		if err := pdr.AddRow(key, `{"name":"test"}`); err != nil {
+		if err := pdr.AddRow(key, json.RawMessage(`{"name":"test"}`)); err != nil {
 			t.Fatalf("AddRow failed: %v", err)
 		}
 
@@ -262,7 +263,7 @@ func TestPartialDataRow_RollbackValidation(t *testing.T) {
 		if err != nil {
 			t.Fatalf("NewPartialDataRow failed: %v", err)
 		}
-		if err := pdr.AddRow(key, `{"name":"test"}`); err != nil {
+		if err := pdr.AddRow(key, json.RawMessage(`{"name":"test"}`)); err != nil {
 			t.Fatalf("AddRow failed: %v", err)
 		}
 
@@ -277,7 +278,7 @@ func TestPartialDataRow_RollbackValidation(t *testing.T) {
 		if err != nil {
 			t.Fatalf("NewPartialDataRow failed: %v", err)
 		}
-		if err := pdr.AddRow(key, `{"name":"test"}`); err != nil {
+		if err := pdr.AddRow(key, json.RawMessage(`{"name":"test"}`)); err != nil {
 			t.Fatalf("AddRow failed: %v", err)
 		}
 
@@ -316,7 +317,7 @@ func TestPartialDataRow_EndRowValidation(t *testing.T) {
 		if err != nil {
 			t.Fatalf("NewPartialDataRow failed: %v", err)
 		}
-		if err := pdr.AddRow(key, `{"name":"test"}`); err != nil {
+		if err := pdr.AddRow(key, json.RawMessage(`{"name":"test"}`)); err != nil {
 			t.Fatalf("AddRow failed: %v", err)
 		}
 
@@ -343,7 +344,7 @@ func TestPartialDataRow_GetState(t *testing.T) {
 	}
 
 	key := generateValidUUIDv7()
-	if err := pdr.AddRow(key, `{"name":"test"}`); err != nil {
+	if err := pdr.AddRow(key, json.RawMessage(`{"name":"test"}`)); err != nil {
 		t.Fatalf("AddRow failed: %v", err)
 	}
 
@@ -383,12 +384,12 @@ func TestPartialDataRow_AddRowFromState2_ShouldFail(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewPartialDataRow failed: %v", err)
 	}
-	if err := pdr.AddRow(key, `{"name":"test"}`); err != nil {
+	if err := pdr.AddRow(key, json.RawMessage(`{"name":"test"}`)); err != nil {
 		t.Fatalf("AddRow failed: %v", err)
 	}
 
 	key2 := generateValidUUIDv7()
-	err = pdr.AddRow(key2, `{"name":"test2"}`)
+	err = pdr.AddRow(key2, json.RawMessage(`{"name":"test2"}`))
 	if err == nil {
 		t.Error("AddRow from State2 should fail")
 	}
@@ -404,7 +405,7 @@ func TestPartialDataRow_AddRowFromState3_ShouldFail(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewPartialDataRow failed: %v", err)
 	}
-	if err := pdr.AddRow(key, `{"name":"test"}`); err != nil {
+	if err := pdr.AddRow(key, json.RawMessage(`{"name":"test"}`)); err != nil {
 		t.Fatalf("AddRow failed: %v", err)
 	}
 	if err := pdr.Savepoint(); err != nil {
@@ -412,7 +413,7 @@ func TestPartialDataRow_AddRowFromState3_ShouldFail(t *testing.T) {
 	}
 
 	key2 := generateValidUUIDv7()
-	err = pdr.AddRow(key2, `{"name":"test2"}`)
+	err = pdr.AddRow(key2, json.RawMessage(`{"name":"test2"}`))
 	if err == nil {
 		t.Error("AddRow from State3 should fail")
 	}
@@ -428,7 +429,7 @@ func TestPartialDataRow_SavepointFromState3_ShouldFail(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewPartialDataRow failed: %v", err)
 	}
-	if err := pdr.AddRow(key, `{"name":"test"}`); err != nil {
+	if err := pdr.AddRow(key, json.RawMessage(`{"name":"test"}`)); err != nil {
 		t.Fatalf("AddRow failed: %v", err)
 	}
 	if err := pdr.Savepoint(); err != nil {
@@ -453,7 +454,7 @@ func TestPartialDataRow_AddRowWithInvalidUUID(t *testing.T) {
 
 	t.Run("WithUUIDv4_ShouldFail", func(t *testing.T) {
 		invalidKey := uuid.MustParse("550e8400-e29b-41d4-a716-446655440000")
-		err := pdr.AddRow(invalidKey, `{"name":"test"}`)
+		err := pdr.AddRow(invalidKey, json.RawMessage(`{"name":"test"}`))
 		if err == nil {
 			t.Error("AddRow with UUIDv4 should fail")
 		}
@@ -463,7 +464,7 @@ func TestPartialDataRow_AddRowWithInvalidUUID(t *testing.T) {
 	})
 
 	t.Run("WithZeroUUID_ShouldFail", func(t *testing.T) {
-		err := pdr.AddRow(uuid.Nil, `{"name":"test"}`)
+		err := pdr.AddRow(uuid.Nil, json.RawMessage(`{"name":"test"}`))
 		if err == nil {
 			t.Error("AddRow with zero UUID should fail")
 		}
@@ -474,7 +475,7 @@ func TestPartialDataRow_AddRowWithInvalidUUID(t *testing.T) {
 
 	t.Run("WithEmptyJSON_ShouldFail", func(t *testing.T) {
 		validKey := generateValidUUIDv7()
-		err := pdr.AddRow(validKey, "")
+		err := pdr.AddRow(validKey, json.RawMessage(""))
 		if err == nil {
 			t.Error("AddRow with empty JSON should fail")
 		}
@@ -516,7 +517,7 @@ func TestPartialDataRow_MarshalText(t *testing.T) {
 			t.Fatalf("NewPartialDataRow failed: %v", err)
 		}
 
-		if err := pdr.AddRow(key, `{"name":"test"}`); err != nil {
+		if err := pdr.AddRow(key, json.RawMessage(`{"name":"test"}`)); err != nil {
 			t.Fatalf("AddRow failed: %v", err)
 		}
 
@@ -541,7 +542,7 @@ func TestPartialDataRow_MarshalText(t *testing.T) {
 			t.Fatalf("NewPartialDataRow failed: %v", err)
 		}
 
-		if err := pdr.AddRow(key, `{"name":"test"}`); err != nil {
+		if err := pdr.AddRow(key, json.RawMessage(`{"name":"test"}`)); err != nil {
 			t.Fatalf("AddRow failed: %v", err)
 		}
 		if err := pdr.Savepoint(); err != nil {
@@ -597,7 +598,7 @@ func TestPartialDataRow_RoundTrip(t *testing.T) {
 			t.Fatalf("NewPartialDataRow failed: %v", err)
 		}
 
-		if err := pdr.AddRow(key, `{"name":"test"}`); err != nil {
+		if err := pdr.AddRow(key, json.RawMessage(`{"name":"test"}`)); err != nil {
 			t.Fatalf("AddRow failed: %v", err)
 		}
 
@@ -624,7 +625,7 @@ func TestPartialDataRow_RoundTrip(t *testing.T) {
 			t.Fatalf("NewPartialDataRow failed: %v", err)
 		}
 
-		if err := pdr.AddRow(key, `{"name":"test"}`); err != nil {
+		if err := pdr.AddRow(key, json.RawMessage(`{"name":"test"}`)); err != nil {
 			t.Fatalf("AddRow failed: %v", err)
 		}
 		if err := pdr.Savepoint(); err != nil {
@@ -656,7 +657,7 @@ func TestPartialDataRow_UnmarshalTextWithoutRowSize(t *testing.T) {
 			t.Fatalf("NewPartialDataRow failed: %v", err)
 		}
 
-		if err := pdr.AddRow(key, `{"name":"test"}`); err != nil {
+		if err := pdr.AddRow(key, json.RawMessage(`{"name":"test"}`)); err != nil {
 			t.Fatalf("AddRow failed: %v", err)
 		}
 
@@ -687,7 +688,7 @@ func TestPartialDataRow_UnmarshalTextWithoutRowSize(t *testing.T) {
 			t.Fatalf("NewPartialDataRow failed: %v", err)
 		}
 
-		if err := pdr.AddRow(key, `{"name":"test"}`); err != nil {
+		if err := pdr.AddRow(key, json.RawMessage(`{"name":"test"}`)); err != nil {
 			t.Fatalf("AddRow failed: %v", err)
 		}
 
@@ -703,7 +704,7 @@ func TestPartialDataRow_UnmarshalTextWithoutRowSize(t *testing.T) {
 		// Intentionally NOT setting RowSize
 
 		key2 := generateValidUUIDv7()
-		err = pdr2.AddRow(key2, `{"name":"test2"}`)
+		err = pdr2.AddRow(key2, json.RawMessage(`{"name":"test2"}`))
 		if err == nil {
 			t.Error("AddRow should fail when RowSize is not set after UnmarshalText")
 		}
@@ -719,7 +720,7 @@ func TestPartialDataRow_UnmarshalTextWithoutRowSize(t *testing.T) {
 			t.Fatalf("NewPartialDataRow failed: %v", err)
 		}
 
-		if err := pdr.AddRow(key, `{"name":"test"}`); err != nil {
+		if err := pdr.AddRow(key, json.RawMessage(`{"name":"test"}`)); err != nil {
 			t.Fatalf("AddRow failed: %v", err)
 		}
 
@@ -750,7 +751,7 @@ func TestPartialDataRow_UnmarshalTextWithoutRowSize(t *testing.T) {
 			t.Fatalf("NewPartialDataRow failed: %v", err)
 		}
 
-		if err := pdr.AddRow(key, `{"name":"test"}`); err != nil {
+		if err := pdr.AddRow(key, json.RawMessage(`{"name":"test"}`)); err != nil {
 			t.Fatalf("AddRow failed: %v", err)
 		}
 
@@ -781,7 +782,7 @@ func TestPartialDataRow_UnmarshalTextWithoutRowSize(t *testing.T) {
 			t.Fatalf("NewPartialDataRow failed: %v", err)
 		}
 
-		if err := pdr.AddRow(key, `{"name":"test"}`); err != nil {
+		if err := pdr.AddRow(key, json.RawMessage(`{"name":"test"}`)); err != nil {
 			t.Fatalf("AddRow failed: %v", err)
 		}
 
@@ -812,7 +813,7 @@ func TestPartialDataRow_UnmarshalTextWithoutRowSize(t *testing.T) {
 			t.Fatalf("NewPartialDataRow failed: %v", err)
 		}
 
-		if err := pdr.AddRow(key, `{"name":"test"}`); err != nil {
+		if err := pdr.AddRow(key, json.RawMessage(`{"name":"test"}`)); err != nil {
 			t.Fatalf("AddRow failed: %v", err)
 		}
 

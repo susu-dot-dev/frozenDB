@@ -76,7 +76,7 @@ A user needs to complete a PartialDataRow by committing, rolling back to a savep
 - What happens when AddRow() is called with invalid UUIDv7 format or invalid JSON?
 - How does system handle validation errors during state transitions?
 - What happens when UnmarshalText() receives byte sequences longer than expected for the state?
-- How are null bytes and unexpected characters handled in JSON payload parsing?
+- How are null bytes and unexpected characters handled in JSON string value parsing?
 - What happens when Parity bytes are missing or invalid in deserialization?
 
 ## Clarifications
@@ -84,7 +84,7 @@ A user needs to complete a PartialDataRow by committing, rolling back to a savep
 ### Session 2026-01-14
 
 - Q: What specific error types should be returned for invalid state transitions and validation failures? → A: Create a new InvalidAction error for invalid state transitions. For validation errors, use InvalidInputError when creating a new object, and wrap that in CorruptDatabaseError when UnmarshalText is called. Otherwise, do not create new error types, just have descriptive error messages
-- Q: What are the maximum allowed size limits for JSON payloads in PartialDataRow? → A: Per v1_file_format.md requirements (the row_size limits all bytes including the JSON value payload)
+- Q: What are the maximum allowed size limits for JSON string values in PartialDataRow? → A: Per v1_file_format.md requirements (the row_size limits all bytes including the JSON value payload)
 
 - Q: How should PartialDataRow integrate with existing frozenDB transaction management? → A: This functionality is NOT to be integrated into the Transaction struct right now. That will be a future story
 - Q: Should MarshalText() include padding bytes for State2 and State3? → A: Yes, use full DataRow padding calculation for States 2 and 3
@@ -100,11 +100,11 @@ A user needs to complete a PartialDataRow by committing, rolling back to a savep
 - **FR-003**: System MUST provide Savepoint() function that transitions from State2 to State3 only when current state is State2
 - **FR-004**: System MUST prevent state transitions when current state does not permit the transition (State1→State3, State2→State1, State3→any)
 - **FR-005**: System MUST re-validate the PartialDataRow after any state transition
-- **FR-006**: System MUST provide Validate() function that checks row integrity according to current state requirements, including for State3: start_control validation, UUID validation, JSON payload validation, padding length validation, END_CONTROL first byte verification as 'S', and END_CONTROL second byte verification as null (0x00)
+- **FR-006**: System MUST provide Validate() function that checks row integrity according to current state requirements, including for State3: start_control validation, UUID validation, JSON string value validation, padding length validation, END_CONTROL first byte verification as 'S', and END_CONTROL second byte verification as null (0x00)
 - **FR-007**: System MUST provide MarshalText() function that serializes the current state to the exact byte format specified in v1_file_format.md, including calculated padding bytes for State2 and State3 using the full DataRow calculation (row_size - len(json_payload) - 31)
 - **FR-008**: System MUST provide UnmarshalText() function that deserializes byte sequences into appropriate PartialDataRow states
 - **FR-009**: System MUST validate UUIDv7 format and Base64 encoding in AddRow() function
-- **FR-010**: System MUST validate JSON payload format in AddRow() function
+- **FR-010**: System MUST validate JSON string value format in AddRow() function
 - **FR-011**: System MUST maintain state immutability - once a PartialDataRow transitions to a higher state, it cannot revert
 - **FR-012**: System MUST generate InvalidAction error for invalid state transitions, InvalidInputError for validation errors during creation, and CorruptDatabaseError wrapping InvalidInputError for all UnmarshalText() validation failures
 - **FR-013**: System MUST provide Commit() function that transitions from State2 to DataRow with end_control "TC" or from State3 to DataRow with end_control "SC"
@@ -119,7 +119,7 @@ A user needs to complete a PartialDataRow by committing, rolling back to a savep
 
 - **PartialDataRow**: An incomplete data row that exists in one of three progressive states during transaction building
   - **State1**: ROW_START and START_CONTROL bytes only (transaction begin)
-  - **State2**: State1 + Base64 UUIDv7 key + JSON payload + calculated padding bytes (complete key-value data with padding)
+  - **State2**: State1 + Base64 UUIDv7 key + JSON string value + calculated padding bytes (complete key-value data with padding)
   - **State3**: State2 + 'S' character + remaining padding (savepoint intent for transaction)
 - **Completion Methods**: Functions that convert PartialDataRows to complete DataRows with appropriate end_control characters
   - **Commit()**: Sets end_control to "TC" (from State2) or "SC" (from State3) for transaction commit
@@ -127,7 +127,7 @@ A user needs to complete a PartialDataRow by committing, rolling back to a savep
   - **EndRow()**: Sets end_control to "RE" (from State2) or "SE" (from State3) for transaction continuation
 - **State**: Current phase of PartialDataRow construction (1, 2, or 3)
 - **UUIDv7 Key**: Time-ordered unique identifier in Base64 format (24 bytes)
-- **JSON Payload**: User data in JSON format with UTF-8 encoding, limited by row_size constraint using full DataRow calculation (31 bytes + UUID + JSON payload + end_control + parity + ROW_END must fit within row_size)
+- **JSON Payload**: User data in JSON format with UTF-8 encoding, limited by row_size constraint using full DataRow calculation (31 bytes + UUID + JSON string value + end_control + parity + ROW_END must fit within row_size)
 
 ### Spec Testing Requirements
 

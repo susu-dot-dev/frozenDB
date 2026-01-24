@@ -2,6 +2,7 @@ package frozendb
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 
 	"github.com/google/uuid"
@@ -53,7 +54,7 @@ func (pdr *PartialDataRow) GetState() PartialRowState {
 	return pdr.state
 }
 
-func (pdr *PartialDataRow) AddRow(key uuid.UUID, json string) error {
+func (pdr *PartialDataRow) AddRow(key uuid.UUID, json json.RawMessage) error {
 	if pdr.d.RowSize == -1 {
 		return NewInvalidActionError("RowSize is not set", nil)
 	}
@@ -66,7 +67,7 @@ func (pdr *PartialDataRow) AddRow(key uuid.UUID, json string) error {
 		return err
 	}
 
-	if json == "" {
+	if len(json) == 0 {
 		return NewInvalidInputError("value cannot be empty", nil)
 	}
 

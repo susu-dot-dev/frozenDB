@@ -1,6 +1,7 @@
 package frozendb
 
 import (
+	"encoding/json"
 	"sync"
 
 	"github.com/google/uuid"
@@ -411,7 +412,7 @@ func (tx *Transaction) Begin() error {
 //   - InvalidInputError: Invalid UUIDv7, empty value, or >=100 rows
 //   - KeyOrderingError: Timestamp ordering violation
 //   - TombstonedError: Transaction is tombstoned
-func (tx *Transaction) AddRow(key uuid.UUID, value string) error {
+func (tx *Transaction) AddRow(key uuid.UUID, value json.RawMessage) error {
 	tx.mu.Lock()
 	defer tx.mu.Unlock()
 
@@ -434,7 +435,7 @@ func (tx *Transaction) AddRow(key uuid.UUID, value string) error {
 	}
 
 	// FR-007: Validate non-empty value
-	if value == "" {
+	if len(value) == 0 {
 		return NewInvalidInputError("value cannot be empty", nil)
 	}
 

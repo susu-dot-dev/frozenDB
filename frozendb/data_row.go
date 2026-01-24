@@ -2,17 +2,18 @@ package frozendb
 
 import (
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 
 	"github.com/google/uuid"
 )
 
 // DataRowPayload contains the key-value data for a DataRow.
-// The Key must be a UUIDv7 for proper time ordering, and Value is a JSON string
-// (no syntax validation is performed at this layer).
+// The Key must be a UUIDv7 for proper time ordering, and Value is a json.RawMessage
+// that stores raw JSON bytes without validation at this layer.
 type DataRowPayload struct {
-	Key   uuid.UUID // UUIDv7 key for time ordering
-	Value string    // JSON string value (no syntax validation at this layer)
+	Key   uuid.UUID       // UUIDv7 key for time ordering
+	Value json.RawMessage // Raw JSON bytes (no syntax validation at this layer)
 }
 
 // MarshalText serializes DataRowPayload to bytes: Base64-encoded UUID (24 bytes) + JSON value
@@ -63,7 +64,7 @@ func (drp *DataRowPayload) UnmarshalText(text []byte) error {
 	}
 
 	// Extract JSON value (remaining bytes)
-	value := string(text[24:])
+	value := json.RawMessage(text[24:])
 
 	drp.Key = key
 	drp.Value = value
@@ -83,7 +84,7 @@ func (drp *DataRowPayload) Validate() error {
 	}
 
 	// Validate value is non-empty
-	if drp.Value == "" {
+	if len(drp.Value) == 0 {
 		return NewInvalidInputError("DataRowPayload.Value cannot be empty", nil)
 	}
 
@@ -111,7 +112,7 @@ func ValidateUUIDv7(u uuid.UUID) *InvalidInputError {
 	return nil
 }
 
-// DataRow represents a single key-value data row with UUIDv7 key and JSON string value.
+// DataRow represents a single key-value data row with UUIDv7 key and json.RawMessage value.
 // DataRow follows the v1_file_format.md specification and uses baseRow for common
 // file format handling. DataRows can be created manually or deserialized from bytes.
 type DataRow struct {
@@ -124,14 +125,14 @@ func (dr *DataRow) GetKey() uuid.UUID {
 	return dr.RowPayload.Key
 }
 
-// GetValue retrieves the JSON string value from the DataRow.
+// GetValue retrieves the raw JSON bytes from the DataRow.
 // This method assumes Validate() has been called and passed, ensuring RowPayload is not nil.
-func (dr *DataRow) GetValue() string {
+func (dr *DataRow) GetValue() json.RawMessage {
 	return dr.RowPayload.Value
 }
 
 // MarshalText serializes DataRow to exact byte format per v1_file_format.md specification.
-// The output includes ROW_START, start_control, Base64-encoded UUID, JSON value with
+// The output includes ROW_START, start_control, Base64-encoded UUID, raw JSON bytes with
 // NULL_BYTE padding, end_control, parity bytes, and ROW_END.
 // Returns an error if serialization fails.
 func (dr *DataRow) MarshalText() ([]byte, error) {

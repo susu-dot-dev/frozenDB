@@ -68,7 +68,7 @@ func (tx *Transaction) checkAndInsertChecksum() error {
 }
 
 // Call after AddRow(), Commit(), Rollback()
-func (tx *Transaction) AddRow(key uuid.UUID, value string) error {
+func (tx *Transaction) AddRow(key uuid.UUID, value json.RawMessage) error {
     // ... existing write logic ...
 
     // Check if checksum needed after row write

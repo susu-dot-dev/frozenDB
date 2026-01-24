@@ -61,7 +61,7 @@ Base entity for all row types in frozenDB.
 - `startControl`: Single byte (`T`, `R`, `C`, `N`)
 - `endControl`: Two bytes per EndControl specification
 - `uuid`: UUIDv7 key (except NullRow uses uuid.Nil)
-- `value`: JSON payload (empty for NullRow)
+- `value`: JSON string value (empty for NullRow)
 - `sentinels`: ROW_START (0x1F) and ROW_END (0x0A)
 
 **Row Types:**

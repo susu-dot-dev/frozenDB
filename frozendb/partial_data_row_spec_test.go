@@ -1,6 +1,7 @@
 package frozendb
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/google/uuid"
@@ -54,7 +55,7 @@ func Test_S_009_FR_001_PartialDataRowCreation(t *testing.T) {
 
 func Test_S_009_FR_002_AddRowStateTransition(t *testing.T) {
 	key := generateValidUUIDv7()
-	jsonValue := `{"name":"test","value":123}`
+	jsonValue := json.RawMessage(`{"name":"test","value":123}`)
 
 	pdr, err := NewPartialDataRow(512, START_TRANSACTION)
 	if err != nil {
@@ -72,7 +73,7 @@ func Test_S_009_FR_002_AddRowStateTransition(t *testing.T) {
 
 func Test_S_009_FR_003_SavepointStateTransition(t *testing.T) {
 	key := generateValidUUIDv7()
-	jsonValue := `{"name":"test","value":123}`
+	jsonValue := json.RawMessage(`{"name":"test","value":123}`)
 
 	pdr, err := NewPartialDataRow(512, START_TRANSACTION)
 	if err != nil {
@@ -94,7 +95,7 @@ func Test_S_009_FR_003_SavepointStateTransition(t *testing.T) {
 
 func Test_S_009_FR_004_PreventInvalidStateTransitions(t *testing.T) {
 	key := generateValidUUIDv7()
-	jsonValue := `{"name":"test","value":123}`
+	jsonValue := json.RawMessage(`{"name":"test","value":123}`)
 
 	t.Run("State1_CannotCallSavepoint", func(t *testing.T) {
 		pdr, err := NewPartialDataRow(512, START_TRANSACTION)
@@ -186,7 +187,7 @@ func Test_S_009_FR_005_RevalidateAfterTransition(t *testing.T) {
 		}
 
 		key := generateValidUUIDv7()
-		jsonValue := `{"name":"test"}`
+		jsonValue := json.RawMessage(`{"name":"test"}`)
 
 		if err := pdr.AddRow(key, jsonValue); err != nil {
 			t.Fatalf("AddRow failed: %v", err)
@@ -226,7 +227,7 @@ func Test_S_009_FR_006_ValidateFunction(t *testing.T) {
 		}
 
 		key := generateValidUUIDv7()
-		jsonValue := `{"name":"test"}`
+		jsonValue := json.RawMessage(`{"name":"test"}`)
 
 		if err := pdr.AddRow(key, jsonValue); err != nil {
 			t.Fatalf("AddRow failed: %v", err)
@@ -244,7 +245,7 @@ func Test_S_009_FR_006_ValidateFunction(t *testing.T) {
 		}
 
 		key := generateValidUUIDv7()
-		jsonValue := `{"name":"test"}`
+		jsonValue := json.RawMessage(`{"name":"test"}`)
 
 		if err := pdr.AddRow(key, jsonValue); err != nil {
 			t.Fatalf("AddRow failed: %v", err)
@@ -262,7 +263,7 @@ func Test_S_009_FR_006_ValidateFunction(t *testing.T) {
 func Test_S_009_FR_009_ValidateUUIDv7Format(t *testing.T) {
 	validKey := generateValidUUIDv7()
 	invalidKey := uuid.MustParse("550e8400-e29b-41d4-a716-446655440000")
-	jsonValue := `{"name":"test"}`
+	jsonValue := json.RawMessage(`{"name":"test"}`)
 
 	t.Run("ValidUUIDv7_Accept", func(t *testing.T) {
 		pdr, err := NewPartialDataRow(512, START_TRANSACTION)
@@ -315,7 +316,7 @@ func Test_S_009_FR_010_ValidateJSONPayload(t *testing.T) {
 			t.Fatalf("NewPartialDataRow failed: %v", err)
 		}
 
-		jsonValue := `{"name":"test","value":123}`
+		jsonValue := json.RawMessage(`{"name":"test","value":123}`)
 		if err := pdr.AddRow(key, jsonValue); err != nil {
 			t.Errorf("AddRow should accept valid JSON string: %v", err)
 		}
@@ -327,7 +328,7 @@ func Test_S_009_FR_010_ValidateJSONPayload(t *testing.T) {
 			t.Fatalf("NewPartialDataRow failed: %v", err)
 		}
 
-		err = pdr.AddRow(key, "")
+		err = pdr.AddRow(key, json.RawMessage(""))
 		if err == nil {
 			t.Error("AddRow should reject empty JSON")
 		}
@@ -342,7 +343,7 @@ func Test_S_009_FR_010_ValidateJSONPayload(t *testing.T) {
 			t.Fatalf("NewPartialDataRow failed: %v", err)
 		}
 
-		jsonValue := "plain text value"
+		jsonValue := json.RawMessage("plain text value")
 		if err := pdr.AddRow(key, jsonValue); err != nil {
 			t.Errorf("AddRow should accept valid UTF-8 string: %v", err)
 		}
@@ -351,7 +352,7 @@ func Test_S_009_FR_010_ValidateJSONPayload(t *testing.T) {
 
 func Test_S_009_FR_011_StateImmutability(t *testing.T) {
 	key := generateValidUUIDv7()
-	jsonValue := `{"name":"test"}`
+	jsonValue := json.RawMessage(`{"name":"test"}`)
 
 	pdr, err := NewPartialDataRow(512, START_TRANSACTION)
 	if err != nil {
@@ -435,7 +436,7 @@ func Test_S_009_FR_007_MarshalTextFunction(t *testing.T) {
 		}
 
 		key := generateValidUUIDv7()
-		jsonValue := `{"name":"test"}`
+		jsonValue := json.RawMessage(`{"name":"test"}`)
 
 		if err := pdr.AddRow(key, jsonValue); err != nil {
 			t.Fatalf("AddRow failed: %v", err)
@@ -462,7 +463,7 @@ func Test_S_009_FR_007_MarshalTextFunction(t *testing.T) {
 		}
 
 		key := generateValidUUIDv7()
-		jsonValue := `{"name":"test"}`
+		jsonValue := json.RawMessage(`{"name":"test"}`)
 
 		if err := pdr.AddRow(key, jsonValue); err != nil {
 			t.Fatalf("AddRow failed: %v", err)
@@ -520,7 +521,7 @@ func Test_S_009_FR_008_UnmarshalTextFunction(t *testing.T) {
 		}
 
 		key := generateValidUUIDv7()
-		jsonValue := `{"name":"test"}`
+		jsonValue := json.RawMessage(`{"name":"test"}`)
 
 		if err := pdr.AddRow(key, jsonValue); err != nil {
 			t.Fatalf("AddRow failed: %v", err)
@@ -549,7 +550,7 @@ func Test_S_009_FR_008_UnmarshalTextFunction(t *testing.T) {
 		}
 
 		key := generateValidUUIDv7()
-		jsonValue := `{"name":"test"}`
+		jsonValue := json.RawMessage(`{"name":"test"}`)
 
 		if err := pdr.AddRow(key, jsonValue); err != nil {
 			t.Fatalf("AddRow failed: %v", err)
@@ -598,7 +599,7 @@ func Test_S_009_FR_012_ErrorTypes(t *testing.T) {
 		}
 
 		key := generateValidUUIDv7()
-		err = pdr.AddRow(key, "")
+		err = pdr.AddRow(key, json.RawMessage(""))
 		if err == nil {
 			t.Error("Expected error for empty JSON")
 		}
@@ -610,7 +611,7 @@ func Test_S_009_FR_012_ErrorTypes(t *testing.T) {
 
 func Test_S_009_FR_013_CommitFunction(t *testing.T) {
 	key := generateValidUUIDv7()
-	jsonValue := `{"name":"test"}`
+	jsonValue := json.RawMessage(`{"name":"test"}`)
 
 	t.Run("State2_Commit_ReturnsTC", func(t *testing.T) {
 		pdr, err := NewPartialDataRow(512, START_TRANSACTION)
@@ -664,7 +665,7 @@ func Test_S_009_FR_013_CommitFunction(t *testing.T) {
 
 func Test_S_009_FR_014_RollbackFunction(t *testing.T) {
 	key := generateValidUUIDv7()
-	jsonValue := `{"name":"test"}`
+	jsonValue := json.RawMessage(`{"name":"test"}`)
 
 	t.Run("State2_Rollback_ReturnsR0", func(t *testing.T) {
 		pdr, err := NewPartialDataRow(512, START_TRANSACTION)
@@ -762,7 +763,7 @@ func Test_S_009_FR_014_RollbackFunction(t *testing.T) {
 
 func Test_S_009_FR_015_EndRowFunction(t *testing.T) {
 	key := generateValidUUIDv7()
-	jsonValue := `{"name":"test"}`
+	jsonValue := json.RawMessage(`{"name":"test"}`)
 
 	t.Run("State2_EndRow_ReturnsRE", func(t *testing.T) {
 		pdr, err := NewPartialDataRow(512, START_TRANSACTION)
@@ -813,7 +814,7 @@ func Test_S_009_FR_015_EndRowFunction(t *testing.T) {
 
 func Test_S_009_FR_016_RollbackSavepointValidation(t *testing.T) {
 	key := generateValidUUIDv7()
-	jsonValue := `{"name":"test"}`
+	jsonValue := json.RawMessage(`{"name":"test"}`)
 
 	pdr := &PartialDataRow{
 		state: PartialDataRowWithStartControl,
@@ -890,7 +891,7 @@ func Test_S_009_FR_017_PreventCompletionFromState1(t *testing.T) {
 
 func Test_S_009_FR_018_CompletionReturnValues(t *testing.T) {
 	key := generateValidUUIDv7()
-	jsonValue := `{"name":"test"}`
+	jsonValue := json.RawMessage(`{"name":"test"}`)
 
 	pdr := &PartialDataRow{
 		state: PartialDataRowWithStartControl,
@@ -962,7 +963,7 @@ func Test_S_009_FR_019_DataRowValidationBeforeReturn(t *testing.T) {
 			t.Fatalf("NewPartialDataRow failed: %v", err)
 		}
 
-		if err := pdr.AddRow(key, `{"name":"test"}`); err != nil {
+		if err := pdr.AddRow(key, json.RawMessage(`{"name":"test"}`)); err != nil {
 			t.Fatalf("AddRow failed: %v", err)
 		}
 
@@ -983,7 +984,7 @@ func Test_S_009_FR_019_DataRowValidationBeforeReturn(t *testing.T) {
 			t.Fatalf("NewPartialDataRow failed: %v", err)
 		}
 
-		if err := pdr.AddRow(key, `{"name":"test"}`); err != nil {
+		if err := pdr.AddRow(key, json.RawMessage(`{"name":"test"}`)); err != nil {
 			t.Fatalf("AddRow failed: %v", err)
 		}
 
@@ -1004,7 +1005,7 @@ func Test_S_009_FR_019_DataRowValidationBeforeReturn(t *testing.T) {
 			t.Fatalf("NewPartialDataRow failed: %v", err)
 		}
 
-		if err := pdr.AddRow(key, `{"name":"test"}`); err != nil {
+		if err := pdr.AddRow(key, json.RawMessage(`{"name":"test"}`)); err != nil {
 			t.Fatalf("AddRow failed: %v", err)
 		}
 
@@ -1033,7 +1034,7 @@ func Test_S_009_GetState(t *testing.T) {
 		}
 
 		key := generateValidUUIDv7()
-		if err := pdr.AddRow(key, `{"name":"test"}`); err != nil {
+		if err := pdr.AddRow(key, json.RawMessage(`{"name":"test"}`)); err != nil {
 			t.Fatalf("AddRow failed: %v", err)
 		}
 

@@ -1,6 +1,7 @@
 package frozendb
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/google/uuid"
@@ -21,7 +22,7 @@ func TestDataRowPayload_MarshalText(t *testing.T) {
 			name: "valid payload",
 			payload: &DataRowPayload{
 				Key:   key,
-				Value: `{"test":"value"}`,
+				Value: json.RawMessage(`{"test":"value"}`),
 			},
 			wantErr: false,
 		},
@@ -34,7 +35,7 @@ func TestDataRowPayload_MarshalText(t *testing.T) {
 			name: "empty value",
 			payload: &DataRowPayload{
 				Key:   key,
-				Value: "",
+				Value: json.RawMessage(""),
 			},
 			wantErr: false, // MarshalText doesn't validate empty value
 		},
@@ -63,7 +64,7 @@ func TestDataRowPayload_UnmarshalText(t *testing.T) {
 	// Create valid payload bytes
 	validPayload := &DataRowPayload{
 		Key:   key,
-		Value: `{"test":"value"}`,
+		Value: json.RawMessage(`{"test":"value"}`),
 	}
 	validBytes, err := validPayload.MarshalText()
 	if err != nil {
@@ -118,7 +119,7 @@ func TestDataRowPayload_Validate(t *testing.T) {
 			name: "valid payload",
 			payload: &DataRowPayload{
 				Key:   key,
-				Value: `{"test":"value"}`,
+				Value: json.RawMessage(`{"test":"value"}`),
 			},
 			wantErr: false,
 		},
@@ -131,7 +132,7 @@ func TestDataRowPayload_Validate(t *testing.T) {
 			name: "empty value",
 			payload: &DataRowPayload{
 				Key:   key,
-				Value: "",
+				Value: json.RawMessage(""),
 			},
 			wantErr: true,
 		},
@@ -139,7 +140,7 @@ func TestDataRowPayload_Validate(t *testing.T) {
 			name: "invalid UUIDv4",
 			payload: &DataRowPayload{
 				Key:   uuid.MustParse("550e8400-e29b-41d4-a716-446655440000"), // v4
-				Value: `{"test":"value"}`,
+				Value: json.RawMessage(`{"test":"value"}`),
 			},
 			wantErr: true,
 		},
@@ -147,7 +148,7 @@ func TestDataRowPayload_Validate(t *testing.T) {
 			name: "zero UUID",
 			payload: &DataRowPayload{
 				Key:   uuid.Nil,
-				Value: `{"test":"value"}`,
+				Value: json.RawMessage(`{"test":"value"}`),
 			},
 			wantErr: true,
 		},
@@ -219,7 +220,7 @@ func TestDataRow_GetKey(t *testing.T) {
 					RowSize: 512,
 					RowPayload: &DataRowPayload{
 						Key:   key,
-						Value: `{"test":"value"}`,
+						Value: json.RawMessage(`{"test":"value"}`),
 					},
 				},
 			},
@@ -243,11 +244,11 @@ func TestDataRow_GetValue(t *testing.T) {
 		t.Fatalf("Failed to generate UUIDv7: %v", err)
 	}
 
-	value := `{"test":"value"}`
+	value := json.RawMessage(`{"test":"value"}`)
 	tests := []struct {
 		name    string
 		dataRow *DataRow
-		want    string
+		want    json.RawMessage
 	}{
 		{
 			name: "valid value",
@@ -267,7 +268,7 @@ func TestDataRow_GetValue(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := tt.dataRow.GetValue()
-			if got != tt.want {
+			if string(got) != string(tt.want) {
 				t.Errorf("DataRow.GetValue() = %v, want %v", got, tt.want)
 			}
 		})
@@ -280,7 +281,7 @@ func TestDataRow_RoundTripSerialization(t *testing.T) {
 		t.Fatalf("Failed to generate UUIDv7: %v", err)
 	}
 
-	value := `{"name":"Test","count":42,"active":true}`
+	value := json.RawMessage(`{"name":"Test","count":42,"active":true}`)
 	originalRow := &DataRow{
 		baseRow[*DataRowPayload]{
 			RowSize:      512,
@@ -319,8 +320,8 @@ func TestDataRow_RoundTripSerialization(t *testing.T) {
 		t.Errorf("Key mismatch: expected %s, got %s", key, deserializedRow.GetKey())
 	}
 
-	if deserializedRow.GetValue() != value {
-		t.Errorf("Value mismatch: expected %s, got %s", value, deserializedRow.GetValue())
+	if string(deserializedRow.GetValue()) != string(value) {
+		t.Errorf("Deserialized value mismatch: expected %s, got %s", value, deserializedRow.GetValue())
 	}
 }
 
@@ -344,7 +345,7 @@ func TestDataRow_Validate(t *testing.T) {
 					EndControl:   TRANSACTION_COMMIT,
 					RowPayload: &DataRowPayload{
 						Key:   key,
-						Value: `{"test":"value"}`,
+						Value: json.RawMessage(`{"test":"value"}`),
 					},
 				},
 			},
@@ -359,7 +360,7 @@ func TestDataRow_Validate(t *testing.T) {
 					EndControl:   ROW_END_CONTROL,
 					RowPayload: &DataRowPayload{
 						Key:   key,
-						Value: `{"test":"value"}`,
+						Value: json.RawMessage(`{"test":"value"}`),
 					},
 				},
 			},
@@ -374,7 +375,7 @@ func TestDataRow_Validate(t *testing.T) {
 					EndControl:   TRANSACTION_COMMIT,
 					RowPayload: &DataRowPayload{
 						Key:   key,
-						Value: `{"test":"value"}`,
+						Value: json.RawMessage(`{"test":"value"}`),
 					},
 				},
 			},
@@ -389,7 +390,7 @@ func TestDataRow_Validate(t *testing.T) {
 					EndControl:   CHECKSUM_ROW_CONTROL,
 					RowPayload: &DataRowPayload{
 						Key:   key,
-						Value: `{"test":"value"}`,
+						Value: json.RawMessage(`{"test":"value"}`),
 					},
 				},
 			},
@@ -404,7 +405,7 @@ func TestDataRow_Validate(t *testing.T) {
 					EndControl:   FULL_ROLLBACK,
 					RowPayload: &DataRowPayload{
 						Key:   key,
-						Value: `{"test":"value"}`,
+						Value: json.RawMessage(`{"test":"value"}`),
 					},
 				},
 			},
@@ -419,7 +420,7 @@ func TestDataRow_Validate(t *testing.T) {
 					EndControl:   EndControl{'R', '5'},
 					RowPayload: &DataRowPayload{
 						Key:   key,
-						Value: `{"test":"value"}`,
+						Value: json.RawMessage(`{"test":"value"}`),
 					},
 				},
 			},

@@ -1,6 +1,7 @@
 package frozendb
 
 import (
+	"encoding/json"
 	"path/filepath"
 	"testing"
 
@@ -78,13 +79,13 @@ func Test_S_019_FR_002_GetIndexReturnsCorrectIndex(t *testing.T) {
 	uuid2 := uuid.Must(uuid.NewV7())
 	uuid3 := uuid.Must(uuid.NewV7())
 
-	if err := tx.AddRow(uuid1, `{"value":"first"}`); err != nil {
+	if err := tx.AddRow(uuid1, json.RawMessage(`{"value":"first"}`)); err != nil {
 		t.Fatalf("Failed to add first row: %v", err)
 	}
-	if err := tx.AddRow(uuid2, `{"value":"second"}`); err != nil {
+	if err := tx.AddRow(uuid2, json.RawMessage(`{"value":"second"}`)); err != nil {
 		t.Fatalf("Failed to add second row: %v", err)
 	}
-	if err := tx.AddRow(uuid3, `{"value":"third"}`); err != nil {
+	if err := tx.AddRow(uuid3, json.RawMessage(`{"value":"third"}`)); err != nil {
 		t.Fatalf("Failed to add third row: %v", err)
 	}
 
@@ -173,7 +174,7 @@ func Test_S_019_FR_007_SimpleFinderImplementation(t *testing.T) {
 	testUUIDs := make([]uuid.UUID, 10)
 	for i := 0; i < 10; i++ {
 		testUUIDs[i] = uuid.Must(uuid.NewV7())
-		if err := tx.AddRow(testUUIDs[i], `{"index":`+string(rune('0'+i))+`}`); err != nil {
+		if err := tx.AddRow(testUUIDs[i], json.RawMessage(`{"index":`+string(rune('0'+i))+`}`)); err != nil {
 			t.Fatalf("Failed to add row %d: %v", i, err)
 		}
 	}
@@ -224,7 +225,7 @@ func Test_S_019_FR_007_SimpleFinderImplementation(t *testing.T) {
 	}
 
 	duplicateUUID := uuid.Must(uuid.NewV7())
-	if err := tx2.AddRow(duplicateUUID, `{"first":"true"}`); err != nil {
+	if err := tx2.AddRow(duplicateUUID, json.RawMessage(`{"first":"true"}`)); err != nil {
 		t.Fatalf("Failed to add duplicate row: %v", err)
 	}
 	if err := tx2.Commit(); err != nil {
@@ -282,7 +283,7 @@ func Test_S_019_FR_003_GetTransactionStartReturnsCorrectIndex(t *testing.T) {
 		t.Fatalf("Failed to begin transaction 1: %v", err)
 	}
 	for i := 0; i < 3; i++ {
-		if err := tx1.AddRow(uuid.Must(uuid.NewV7()), `{"tx":1}`); err != nil {
+		if err := tx1.AddRow(uuid.Must(uuid.NewV7()), json.RawMessage(`{"tx":1}`)); err != nil {
 			t.Fatalf("Failed to add row to tx1: %v", err)
 		}
 	}
@@ -304,7 +305,7 @@ func Test_S_019_FR_003_GetTransactionStartReturnsCorrectIndex(t *testing.T) {
 		t.Fatalf("Failed to begin transaction 2: %v", err)
 	}
 	for i := 0; i < 2; i++ {
-		if err := tx2.AddRow(uuid.Must(uuid.NewV7()), `{"tx":2}`); err != nil {
+		if err := tx2.AddRow(uuid.Must(uuid.NewV7()), json.RawMessage(`{"tx":2}`)); err != nil {
 			t.Fatalf("Failed to add row to tx2: %v", err)
 		}
 	}
@@ -376,7 +377,7 @@ func Test_S_019_FR_004_GetTransactionEndReturnsCorrectIndex(t *testing.T) {
 		t.Fatalf("Failed to begin transaction 1: %v", err)
 	}
 	for i := 0; i < 3; i++ {
-		if err := tx1.AddRow(uuid.Must(uuid.NewV7()), `{"tx":1}`); err != nil {
+		if err := tx1.AddRow(uuid.Must(uuid.NewV7()), json.RawMessage(`{"tx":1}`)); err != nil {
 			t.Fatalf("Failed to add row to tx1: %v", err)
 		}
 	}
@@ -398,7 +399,7 @@ func Test_S_019_FR_004_GetTransactionEndReturnsCorrectIndex(t *testing.T) {
 		t.Fatalf("Failed to begin transaction 2: %v", err)
 	}
 	for i := 0; i < 2; i++ {
-		if err := tx2.AddRow(uuid.Must(uuid.NewV7()), `{"tx":2}`); err != nil {
+		if err := tx2.AddRow(uuid.Must(uuid.NewV7()), json.RawMessage(`{"tx":2}`)); err != nil {
 			t.Fatalf("Failed to add row to tx2: %v", err)
 		}
 	}
@@ -468,7 +469,7 @@ func Test_S_019_FR_005_TransactionBoundaryErrors(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to begin transaction: %v", err)
 	}
-	if err := tx.AddRow(uuid.Must(uuid.NewV7()), `{"test":"data"}`); err != nil {
+	if err := tx.AddRow(uuid.Must(uuid.NewV7()), json.RawMessage(`{"test":"data"}`)); err != nil {
 		t.Fatalf("Failed to add row: %v", err)
 	}
 	if err := tx.Commit(); err != nil {
@@ -570,7 +571,7 @@ func Test_S_019_FR_006_OnRowAddedUpdatesState(t *testing.T) {
 	}
 
 	testUUID := uuid.Must(uuid.NewV7())
-	if err := tx.AddRow(testUUID, `{"test":"data"}`); err != nil {
+	if err := tx.AddRow(testUUID, json.RawMessage(`{"test":"data"}`)); err != nil {
 		t.Fatalf("Failed to add row: %v", err)
 	}
 
@@ -610,7 +611,7 @@ func Test_S_019_FR_006_OnRowAddedUpdatesState(t *testing.T) {
 				EndControl:   TRANSACTION_COMMIT,
 				RowPayload: &DataRowPayload{
 					Key:   uuid.Must(uuid.NewV7()),
-					Value: `{"test":"value"}`,
+					Value: json.RawMessage(`{"test":"value"}`),
 				},
 			},
 		},
@@ -652,7 +653,7 @@ func Test_S_019_FR_008_DirectLinearScanning(t *testing.T) {
 	}
 
 	testUUID := uuid.Must(uuid.NewV7())
-	if err := tx.AddRow(testUUID, `{"test":"data"}`); err != nil {
+	if err := tx.AddRow(testUUID, json.RawMessage(`{"test":"data"}`)); err != nil {
 		t.Fatalf("Failed to add row: %v", err)
 	}
 
@@ -739,7 +740,7 @@ func Test_S_019_FR_009_HandlesAllRowTypes(t *testing.T) {
 	}
 
 	uuid1 := uuid.Must(uuid.NewV7())
-	if err := tx1.AddRow(uuid1, `{"type":"data"}`); err != nil {
+	if err := tx1.AddRow(uuid1, json.RawMessage(`{"type":"data"}`)); err != nil {
 		t.Fatalf("Failed to add data row: %v", err)
 	}
 
@@ -779,7 +780,7 @@ func Test_S_019_FR_009_HandlesAllRowTypes(t *testing.T) {
 	}
 
 	uuid2 := uuid.Must(uuid.NewV7())
-	if err := tx3.AddRow(uuid2, `{"type":"data2"}`); err != nil {
+	if err := tx3.AddRow(uuid2, json.RawMessage(`{"type":"data2"}`)); err != nil {
 		t.Fatalf("Failed to add data row 2: %v", err)
 	}
 
@@ -879,7 +880,7 @@ func Test_S_019_FR_010_TransactionBoundaryDetection(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to begin transaction 1: %v", err)
 	}
-	if err := tx1.AddRow(uuid.Must(uuid.NewV7()), `{"tx":1}`); err != nil {
+	if err := tx1.AddRow(uuid.Must(uuid.NewV7()), json.RawMessage(`{"tx":1}`)); err != nil {
 		t.Fatalf("Failed to add row to tx1: %v", err)
 	}
 	if err := tx1.Commit(); err != nil {
@@ -899,10 +900,10 @@ func Test_S_019_FR_010_TransactionBoundaryDetection(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to begin transaction 2: %v", err)
 	}
-	if err := tx2.AddRow(uuid.Must(uuid.NewV7()), `{"tx":2,"row":1}`); err != nil {
+	if err := tx2.AddRow(uuid.Must(uuid.NewV7()), json.RawMessage(`{"tx":2,"row":1}`)); err != nil {
 		t.Fatalf("Failed to add first row to tx2: %v", err)
 	}
-	if err := tx2.AddRow(uuid.Must(uuid.NewV7()), `{"tx":2,"row":2}`); err != nil {
+	if err := tx2.AddRow(uuid.Must(uuid.NewV7()), json.RawMessage(`{"tx":2,"row":2}`)); err != nil {
 		t.Fatalf("Failed to add second row to tx2: %v", err)
 	}
 	if err := tx2.Commit(); err != nil {
@@ -922,7 +923,7 @@ func Test_S_019_FR_010_TransactionBoundaryDetection(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to begin transaction 3: %v", err)
 	}
-	if err := tx3.AddRow(uuid.Must(uuid.NewV7()), `{"tx":3,"row":1}`); err != nil {
+	if err := tx3.AddRow(uuid.Must(uuid.NewV7()), json.RawMessage(`{"tx":3,"row":1}`)); err != nil {
 		t.Fatalf("Failed to add row to tx3: %v", err)
 	}
 	if err := tx3.Savepoint(); err != nil {

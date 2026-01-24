@@ -1,6 +1,7 @@
 package frozendb
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -2362,7 +2363,7 @@ func Test_S_018_FR_001_ScanLastRowForTransactionState(t *testing.T) {
 		if err := tx.Begin(); err != nil {
 			t.Fatalf("Begin() failed: %v", err)
 		}
-		if err := tx.AddRow(key, `{"data":"test"}`); err != nil {
+		if err := tx.AddRow(key, json.RawMessage(`{"data":"test"}`)); err != nil {
 			t.Fatalf("AddRow() failed: %v", err)
 		}
 		if err := tx.Commit(); err != nil {
@@ -2414,7 +2415,7 @@ func Test_S_018_FR_001_ScanLastRowForTransactionState(t *testing.T) {
 		if err := tx.Begin(); err != nil {
 			t.Fatalf("Begin() failed: %v", err)
 		}
-		if err := tx.AddRow(key, `{"data":"test"}`); err != nil {
+		if err := tx.AddRow(key, json.RawMessage(`{"data":"test"}`)); err != nil {
 			t.Fatalf("AddRow() failed: %v", err)
 		}
 		// Don't commit - leave transaction open
@@ -2470,10 +2471,10 @@ func Test_S_018_FR_002_CreateTransactionForInProgressState(t *testing.T) {
 		if err := tx.Begin(); err != nil {
 			t.Fatalf("Begin() failed: %v", err)
 		}
-		if err := tx.AddRow(key1, `{"data":"row1"}`); err != nil {
+		if err := tx.AddRow(key1, json.RawMessage(`{"data":"row1"}`)); err != nil {
 			t.Fatalf("AddRow() failed: %v", err)
 		}
-		if err := tx.AddRow(key2, `{"data":"row2"}`); err != nil {
+		if err := tx.AddRow(key2, json.RawMessage(`{"data":"row2"}`)); err != nil {
 			t.Fatalf("AddRow() failed: %v", err)
 		}
 		// Leave transaction open
@@ -2502,7 +2503,7 @@ func Test_S_018_FR_002_CreateTransactionForInProgressState(t *testing.T) {
 		if rows[0].RowPayload.Key != key1 {
 			t.Errorf("Expected first row key %v, got %v", key1, rows[0].RowPayload.Key)
 		}
-		if rows[0].RowPayload.Value != `{"data":"row1"}` {
+		if string(rows[0].RowPayload.Value) != `{"data":"row1"}` {
 			t.Errorf("Expected first row value %q, got %q", `{"data":"row1"}`, rows[0].RowPayload.Value)
 		}
 
@@ -2563,7 +2564,7 @@ func Test_S_018_FR_008_DetectTransactionByEndControlCharacter(t *testing.T) {
 			if err := tx.Begin(); err != nil {
 				t.Fatalf("Begin() failed: %v", err)
 			}
-			if err := tx.AddRow(key, `{"data":"test"}`); err != nil {
+			if err := tx.AddRow(key, json.RawMessage(`{"data":"test"}`)); err != nil {
 				t.Fatalf("AddRow() failed: %v", err)
 			}
 
@@ -2598,7 +2599,7 @@ func Test_S_018_FR_008_DetectTransactionByEndControlCharacter(t *testing.T) {
 				}
 				// Add another row to finalize the previous row with savepoint
 				key2, _ := uuid.NewV7()
-				if err := tx.AddRow(key2, `{"data":"test2"}`); err != nil {
+				if err := tx.AddRow(key2, json.RawMessage(`{"data":"test2"}`)); err != nil {
 					t.Fatalf("AddRow() failed: %v", err)
 				}
 				savepointId := int(tc.endControl[1] - '0')
@@ -2625,7 +2626,7 @@ func Test_S_018_FR_008_DetectTransactionByEndControlCharacter(t *testing.T) {
 					}
 					// Add another row to finalize the previous row with savepoint
 					key2, _ := uuid.NewV7()
-					if err := tx.AddRow(key2, `{"data":"test2"}`); err != nil {
+					if err := tx.AddRow(key2, json.RawMessage(`{"data":"test2"}`)); err != nil {
 						t.Fatalf("AddRow() failed: %v", err)
 					}
 					// Create savepoint on current row, then rollback to previous savepoint
@@ -2743,7 +2744,7 @@ func Test_S_018_FR_009_HandlePartialDataRowDuringRecovery(t *testing.T) {
 		if err := tx.Begin(); err != nil {
 			t.Fatalf("Begin() failed: %v", err)
 		}
-		if err := tx.AddRow(key, `{"data":"test"}`); err != nil {
+		if err := tx.AddRow(key, json.RawMessage(`{"data":"test"}`)); err != nil {
 			t.Fatalf("AddRow() failed: %v", err)
 		}
 		// Don't finalize - leave in state 2
@@ -2791,7 +2792,7 @@ func Test_S_018_FR_009_HandlePartialDataRowDuringRecovery(t *testing.T) {
 		if err := tx.Begin(); err != nil {
 			t.Fatalf("Begin() failed: %v", err)
 		}
-		if err := tx.AddRow(key, `{"data":"test"}`); err != nil {
+		if err := tx.AddRow(key, json.RawMessage(`{"data":"test"}`)); err != nil {
 			t.Fatalf("AddRow() failed: %v", err)
 		}
 		if err := tx.Savepoint(); err != nil {
@@ -2832,7 +2833,7 @@ func Test_S_018_FR_010_DetectAllValidTransactionEndings(t *testing.T) {
 			if err := tx.Begin(); err != nil {
 				return err
 			}
-			if err := tx.AddRow(key, `{"data":"test"}`); err != nil {
+			if err := tx.AddRow(key, json.RawMessage(`{"data":"test"}`)); err != nil {
 				return err
 			}
 			return tx.Commit()
@@ -2842,7 +2843,7 @@ func Test_S_018_FR_010_DetectAllValidTransactionEndings(t *testing.T) {
 			if err := tx.Begin(); err != nil {
 				return err
 			}
-			if err := tx.AddRow(key, `{"data":"test"}`); err != nil {
+			if err := tx.AddRow(key, json.RawMessage(`{"data":"test"}`)); err != nil {
 				return err
 			}
 			if err := tx.Savepoint(); err != nil {
@@ -2855,14 +2856,14 @@ func Test_S_018_FR_010_DetectAllValidTransactionEndings(t *testing.T) {
 			if err := tx.Begin(); err != nil {
 				return err
 			}
-			return tx.AddRow(key, `{"data":"test"}`)
+			return tx.AddRow(key, json.RawMessage(`{"data":"test"}`))
 		}},
 		{"SE", SAVEPOINT_CONTINUE, true, func(tx *Transaction) error {
 			key, _ := uuid.NewV7()
 			if err := tx.Begin(); err != nil {
 				return err
 			}
-			if err := tx.AddRow(key, `{"data":"test"}`); err != nil {
+			if err := tx.AddRow(key, json.RawMessage(`{"data":"test"}`)); err != nil {
 				return err
 			}
 			return tx.Savepoint()
@@ -2872,7 +2873,7 @@ func Test_S_018_FR_010_DetectAllValidTransactionEndings(t *testing.T) {
 			if err := tx.Begin(); err != nil {
 				return err
 			}
-			if err := tx.AddRow(key, `{"data":"test"}`); err != nil {
+			if err := tx.AddRow(key, json.RawMessage(`{"data":"test"}`)); err != nil {
 				return err
 			}
 			return tx.Rollback(0)
@@ -2882,7 +2883,7 @@ func Test_S_018_FR_010_DetectAllValidTransactionEndings(t *testing.T) {
 			if err := tx.Begin(); err != nil {
 				return err
 			}
-			if err := tx.AddRow(key, `{"data":"test"}`); err != nil {
+			if err := tx.AddRow(key, json.RawMessage(`{"data":"test"}`)); err != nil {
 				return err
 			}
 			if err := tx.Savepoint(); err != nil {
@@ -2890,7 +2891,7 @@ func Test_S_018_FR_010_DetectAllValidTransactionEndings(t *testing.T) {
 			}
 			// Add another row to finalize the previous row with savepoint
 			key2, _ := uuid.NewV7()
-			if err := tx.AddRow(key2, `{"data":"test2"}`); err != nil {
+			if err := tx.AddRow(key2, json.RawMessage(`{"data":"test2"}`)); err != nil {
 				return err
 			}
 			return tx.Rollback(1)
@@ -2900,7 +2901,7 @@ func Test_S_018_FR_010_DetectAllValidTransactionEndings(t *testing.T) {
 			if err := tx.Begin(); err != nil {
 				return err
 			}
-			if err := tx.AddRow(key, `{"data":"test"}`); err != nil {
+			if err := tx.AddRow(key, json.RawMessage(`{"data":"test"}`)); err != nil {
 				return err
 			}
 			if err := tx.Savepoint(); err != nil {
@@ -2913,14 +2914,14 @@ func Test_S_018_FR_010_DetectAllValidTransactionEndings(t *testing.T) {
 			if err := tx.Begin(); err != nil {
 				return err
 			}
-			if err := tx.AddRow(key, `{"data":"test"}`); err != nil {
+			if err := tx.AddRow(key, json.RawMessage(`{"data":"test"}`)); err != nil {
 				return err
 			}
 			if err := tx.Savepoint(); err != nil {
 				return err
 			}
 			key2, _ := uuid.NewV7()
-			if err := tx.AddRow(key2, `{"data":"test2"}`); err != nil {
+			if err := tx.AddRow(key2, json.RawMessage(`{"data":"test2"}`)); err != nil {
 				return err
 			}
 			if err := tx.Savepoint(); err != nil {
@@ -3018,7 +3019,7 @@ func Test_S_018_FR_003_GetActiveTxReturnsCurrentTransaction(t *testing.T) {
 		if err := tx.Begin(); err != nil {
 			t.Fatalf("Begin() failed: %v", err)
 		}
-		if err := tx.AddRow(key, `{"data":"test"}`); err != nil {
+		if err := tx.AddRow(key, json.RawMessage(`{"data":"test"}`)); err != nil {
 			t.Fatalf("AddRow() failed: %v", err)
 		}
 		// Leave transaction open
@@ -3102,7 +3103,7 @@ func Test_S_018_FR_004_GetActiveTxReturnsNilForCommittedTransaction(t *testing.T
 		if err := tx.Begin(); err != nil {
 			t.Fatalf("Begin() failed: %v", err)
 		}
-		if err := tx.AddRow(key, `{"data":"test"}`); err != nil {
+		if err := tx.AddRow(key, json.RawMessage(`{"data":"test"}`)); err != nil {
 			t.Fatalf("AddRow() failed: %v", err)
 		}
 		if err := tx.Commit(); err != nil {
@@ -3157,7 +3158,7 @@ func Test_S_018_FR_005_GetActiveTxReturnsNilForRolledBackTransaction(t *testing.
 		if err := tx.Begin(); err != nil {
 			t.Fatalf("Begin() failed: %v", err)
 		}
-		if err := tx.AddRow(key, `{"data":"test"}`); err != nil {
+		if err := tx.AddRow(key, json.RawMessage(`{"data":"test"}`)); err != nil {
 			t.Fatalf("AddRow() failed: %v", err)
 		}
 		if err := tx.Rollback(0); err != nil {
@@ -3261,7 +3262,7 @@ func Test_S_018_FR_007_BeginTxReturnsErrorForActiveTransaction(t *testing.T) {
 		if err := tx.Begin(); err != nil {
 			t.Fatalf("Begin() failed: %v", err)
 		}
-		if err := tx.AddRow(key, `{"data":"test"}`); err != nil {
+		if err := tx.AddRow(key, json.RawMessage(`{"data":"test"}`)); err != nil {
 			t.Fatalf("AddRow() failed: %v", err)
 		}
 		// Leave transaction open
@@ -3311,7 +3312,7 @@ func Test_S_018_FR_007_BeginTxReturnsErrorForActiveTransaction(t *testing.T) {
 		if err := tx.Begin(); err != nil {
 			t.Fatalf("Begin() failed: %v", err)
 		}
-		if err := tx.AddRow(key, `{"data":"test"}`); err != nil {
+		if err := tx.AddRow(key, json.RawMessage(`{"data":"test"}`)); err != nil {
 			t.Fatalf("AddRow() failed: %v", err)
 		}
 		// Leave transaction open

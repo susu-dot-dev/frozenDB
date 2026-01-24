@@ -1,6 +1,7 @@
 package frozendb
 
 import (
+	"encoding/json"
 	"fmt"
 	"testing"
 
@@ -230,7 +231,7 @@ func TestGetIndex_SingleRow(t *testing.T) {
 
 	// Add data row at index 1
 	testKey := uuid.Must(uuid.NewV7())
-	dataRow := createMockDataRow(rowSize, testKey, `{"value":"test"}`)
+	dataRow := createMockDataRow(rowSize, testKey, json.RawMessage(`{"value":"test"}`))
 	dbFile.appendRow(dataRow)
 
 	sf, _ := NewSimpleFinder(dbFile, rowSize)
@@ -257,7 +258,7 @@ func TestGetIndex_MultipleRows(t *testing.T) {
 	keys := make([]uuid.UUID, 10)
 	for i := 0; i < 10; i++ {
 		keys[i] = uuid.Must(uuid.NewV7())
-		dataRow := createMockDataRow(rowSize, keys[i], fmt.Sprintf(`{"index":%d}`, i))
+		dataRow := createMockDataRow(rowSize, keys[i], json.RawMessage(fmt.Sprintf(`{"index":%d}`, i)))
 		dbFile.appendRow(dataRow)
 	}
 
@@ -287,14 +288,14 @@ func TestGetIndex_SkipsNonDataRows(t *testing.T) {
 
 	// Index 1: Data row with target key
 	targetKey := uuid.Must(uuid.NewV7())
-	dbFile.appendRow(createMockDataRow(rowSize, targetKey, `{"value":"target"}`))
+	dbFile.appendRow(createMockDataRow(rowSize, targetKey, json.RawMessage(`{"value":"target"}`)))
 
 	// Index 2: Null row
 	dbFile.appendRow(createMockNullRow(rowSize))
 
 	// Index 3: Another data row
 	otherKey := uuid.Must(uuid.NewV7())
-	dbFile.appendRow(createMockDataRow(rowSize, otherKey, `{"value":"other"}`))
+	dbFile.appendRow(createMockDataRow(rowSize, otherKey, json.RawMessage(`{"value":"other"}`)))
 
 	sf, _ := NewSimpleFinder(dbFile, rowSize)
 
@@ -327,8 +328,8 @@ func TestGetIndex_ReturnsFirstMatch(t *testing.T) {
 
 	// Add same key twice
 	duplicateKey := uuid.Must(uuid.NewV7())
-	dbFile.appendRow(createMockDataRow(rowSize, duplicateKey, `{"instance":"first"}`))
-	dbFile.appendRow(createMockDataRow(rowSize, duplicateKey, `{"instance":"second"}`))
+	dbFile.appendRow(createMockDataRow(rowSize, duplicateKey, json.RawMessage(`{"instance":"first"}`)))
+	dbFile.appendRow(createMockDataRow(rowSize, duplicateKey, json.RawMessage(`{"instance":"second"}`)))
 
 	sf, _ := NewSimpleFinder(dbFile, rowSize)
 
@@ -395,7 +396,7 @@ func TestGetIndex_CorruptRowReturnsError(t *testing.T) {
 
 	// Add valid row after corrupt one
 	targetKey := uuid.Must(uuid.NewV7())
-	dbFile.appendRow(createMockDataRow(rowSize, targetKey, `{"value":"valid"}`))
+	dbFile.appendRow(createMockDataRow(rowSize, targetKey, json.RawMessage(`{"value":"valid"}`)))
 
 	sf, _ := NewSimpleFinder(dbFile, rowSize)
 
@@ -424,7 +425,7 @@ func TestGetIndex_WithPartialDataRowAtEnd(t *testing.T) {
 
 	// Add complete data row at index 1
 	completeKey := uuid.Must(uuid.NewV7())
-	dbFile.appendRow(createMockDataRow(rowSize, completeKey, `{"value":"complete"}`))
+	dbFile.appendRow(createMockDataRow(rowSize, completeKey, json.RawMessage(`{"value":"complete"}`)))
 
 	// Add partial data row (incomplete bytes at end - simulates in-progress transaction)
 	partialBytes := make([]byte, 50) // Less than full row size
@@ -466,7 +467,7 @@ func TestNewSimpleFinder_DatabaseEndsWithPartialDataRow(t *testing.T) {
 	// Add a few complete rows
 	for i := 0; i < 3; i++ {
 		key := uuid.Must(uuid.NewV7())
-		dbFile.appendRow(createMockDataRow(rowSize, key, fmt.Sprintf(`{"row":%d}`, i)))
+		dbFile.appendRow(createMockDataRow(rowSize, key, json.RawMessage(fmt.Sprintf(`{"row":%d}`, i))))
 	}
 
 	// Add partial data row at end (Begin() was called but not committed)
@@ -830,7 +831,7 @@ func TestOnRowAdded_UpdatesSize(t *testing.T) {
 				EndControl:   TRANSACTION_COMMIT,
 				RowPayload: &DataRowPayload{
 					Key:   key,
-					Value: `{"test":"data"}`,
+					Value: json.RawMessage(`{"test":"data"}`),
 				},
 			},
 		},
@@ -862,7 +863,7 @@ func TestOnRowAdded_ValidatesIndex(t *testing.T) {
 				EndControl:   TRANSACTION_COMMIT,
 				RowPayload: &DataRowPayload{
 					Key:   uuid.Must(uuid.NewV7()),
-					Value: `{"test":"data"}`,
+					Value: json.RawMessage(`{"test":"data"}`),
 				},
 			},
 		},
@@ -927,7 +928,7 @@ func TestOnRowAdded_SequentialIndexing(t *testing.T) {
 					EndControl:   TRANSACTION_COMMIT,
 					RowPayload: &DataRowPayload{
 						Key:   uuid.Must(uuid.NewV7()),
-						Value: fmt.Sprintf(`{"index":%d}`, i),
+						Value: json.RawMessage(fmt.Sprintf(`{"index":%d}`, i)),
 					},
 				},
 			},
@@ -961,7 +962,7 @@ func TestSimpleFinder_ConcurrentReads(t *testing.T) {
 	keys := make([]uuid.UUID, 100)
 	for i := 0; i < 100; i++ {
 		keys[i] = uuid.Must(uuid.NewV7())
-		dbFile.appendRow(createMockDataRow(rowSize, keys[i], fmt.Sprintf(`{"i":%d}`, i)))
+		dbFile.appendRow(createMockDataRow(rowSize, keys[i], json.RawMessage(fmt.Sprintf(`{"i":%d}`, i))))
 	}
 
 	sf, _ := NewSimpleFinder(dbFile, rowSize)
@@ -1018,7 +1019,7 @@ func createMockChecksumRow(rowSize int32) []byte {
 	return bytes
 }
 
-func createMockDataRow(rowSize int32, key uuid.UUID, value string) []byte {
+func createMockDataRow(rowSize int32, key uuid.UUID, value json.RawMessage) []byte {
 	dataRow := &DataRow{
 		baseRow[*DataRowPayload]{
 			RowSize:      int(rowSize),
@@ -1051,7 +1052,7 @@ func createMockNullRow(rowSize int32) []byte {
 
 func createMockSingleRowTransaction(rowSize int32) []byte {
 	key := uuid.Must(uuid.NewV7())
-	return createMockDataRow(rowSize, key, `{"single":"row"}`)
+	return createMockDataRow(rowSize, key, json.RawMessage(`{"single":"row"}`))
 }
 
 func createMockTransactionStartRow(rowSize int32) []byte {
@@ -1063,7 +1064,7 @@ func createMockTransactionStartRow(rowSize int32) []byte {
 			EndControl:   ROW_END_CONTROL, // RE = transaction continues
 			RowPayload: &DataRowPayload{
 				Key:   key,
-				Value: `{"start":"true"}`,
+				Value: json.RawMessage(`{"start":"true"}`),
 			},
 		},
 	}
@@ -1080,7 +1081,7 @@ func createMockTransactionContinueRow(rowSize int32) []byte {
 			EndControl:   ROW_END_CONTROL, // RE = transaction continues
 			RowPayload: &DataRowPayload{
 				Key:   key,
-				Value: `{"continue":"true"}`,
+				Value: json.RawMessage(`{"continue":"true"}`),
 			},
 		},
 	}
@@ -1097,7 +1098,7 @@ func createMockTransactionEndRow(rowSize int32) []byte {
 			EndControl:   TRANSACTION_COMMIT, // TC = transaction commit
 			RowPayload: &DataRowPayload{
 				Key:   key,
-				Value: `{"end":"true"}`,
+				Value: json.RawMessage(`{"end":"true"}`),
 			},
 		},
 	}
