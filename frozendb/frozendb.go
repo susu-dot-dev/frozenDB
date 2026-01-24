@@ -1,6 +1,13 @@
 package frozendb
 
-import "sync"
+import (
+	"encoding/json"
+	"errors"
+	"fmt"
+	"sync"
+
+	"github.com/google/uuid"
+)
 
 // Access mode constants for opening frozenDB database files
 const (
@@ -26,6 +33,9 @@ type FrozenDB struct {
 	// Transaction state management
 	activeTx *Transaction // Current active transaction (nil if none)
 	txMu     sync.RWMutex // Mutex for transaction state management
+
+	// Row finder for query operations
+	finder Finder // Finder interface for locating rows by UUID key
 }
 
 // NewFrozenDB opens an existing frozenDB database file with specified access mode
@@ -60,10 +70,18 @@ func NewFrozenDB(path string, mode string) (*FrozenDB, error) {
 		return nil, err
 	}
 
+	// Create finder for row lookups
+	finder, err := NewSimpleFinder(dbFile, int32(header.GetRowSize()))
+	if err != nil {
+		cleanupErr = err
+		return nil, err
+	}
+
 	// Create FrozenDB instance
 	db := &FrozenDB{
 		file:   dbFile,
 		header: header,
+		finder: finder,
 	}
 
 	// Validate the FrozenDB instance (ensures internal consistency)
@@ -104,6 +122,11 @@ func (db *FrozenDB) Validate() error {
 	mode := db.file.GetMode()
 	if mode != MODE_READ && mode != MODE_WRITE {
 		return NewInvalidInputError("FrozenDB mode must be 'read' or 'write'", nil)
+	}
+
+	// Validate finder is not nil
+	if db.finder == nil {
+		return NewInvalidInputError("FrozenDB finder cannot be nil", nil)
 	}
 
 	return nil
@@ -446,7 +469,7 @@ func (db *FrozenDB) BeginTx() (*Transaction, error) {
 	}
 
 	// Create new transaction
-	tx, err := NewTransaction(db.file, db.header)
+	tx, err := NewTransaction(db.file, db.header, db.finder)
 	if err != nil {
 		return nil, err
 	}
@@ -460,4 +483,197 @@ func (db *FrozenDB) BeginTx() (*Transaction, error) {
 	db.activeTx = tx
 
 	return tx, nil
+}
+
+// Get retrieves the value associated with the given UUID key from committed transactions.
+// The method unmarshals the stored JSON data into the provided destination parameter.
+//
+// Parameters:
+//   - key: UUIDv7 key to search for (must not be uuid.Nil)
+//   - value: Destination for unmarshaling JSON data (must be non-nil pointer)
+//
+// Returns:
+//   - error: nil on success, or one of:
+//   - InvalidInputError: value is nil or not a pointer, or key is invalid
+//   - KeyNotFoundError: key not found in committed transactions
+//   - InvalidDataError: JSON unmarshal failed
+//   - ReadError: disk I/O failure
+//   - CorruptDatabaseError: data corruption detected
+//   - TransactionActiveError: key exists only in uncommitted transaction
+//
+// Transaction Visibility Rules:
+//   - Committed transactions (ending with TC or SC): All rows visible
+//   - Partial rollback (R1-R9, S1-S9): Rows up to savepoint N visible
+//   - Full rollback (R0, S0): No rows visible
+//   - Active transactions: No rows visible (returns TransactionActiveError)
+//
+// Thread Safety: Safe for concurrent calls on the same FrozenDB instance
+func (db *FrozenDB) Get(key uuid.UUID, value any) error {
+	// Validate input parameters
+	if key == uuid.Nil {
+		return NewInvalidInputError("key cannot be uuid.Nil", nil)
+	}
+
+	if value == nil {
+		return NewInvalidInputError("value cannot be nil", nil)
+	}
+
+	// Validate that value is a pointer (required for unmarshaling)
+	// We need to use reflection-style checking indirectly through json.Unmarshal behavior
+	// For now, we'll let json.Unmarshal handle the pointer validation
+
+	// Use finder to locate the row by UUID key
+	index, err := db.finder.GetIndex(key)
+	if err != nil {
+		// If key not found, return KeyNotFoundError as-is
+		// Other errors (ReadError, CorruptDatabaseError) pass through
+		return err
+	}
+
+	// Get transaction boundaries for the row
+	txStart, err := db.finder.GetTransactionStart(index)
+	if err != nil {
+		return err
+	}
+
+	txEnd, err := db.finder.GetTransactionEnd(index)
+	if err != nil {
+		// TransactionActiveError means uncommitted transaction
+		var txActiveErr *TransactionActiveError
+		if errors.As(err, &txActiveErr) {
+			// Key exists in active transaction - return KeyNotFoundError per spec
+			return NewKeyNotFoundError("key exists only in uncommitted transaction", err)
+		}
+		return err
+	}
+
+	// Read the transaction end row to determine transaction state
+	endRowBytes, err := db.readRowAtIndex(txEnd)
+	if err != nil {
+		return err
+	}
+
+	var endRowUnion RowUnion
+	if err := endRowUnion.UnmarshalText(endRowBytes); err != nil {
+		return NewCorruptDatabaseError("failed to parse transaction end row", err)
+	}
+
+	// Determine transaction validity based on end control
+	var endControl EndControl
+	if endRowUnion.DataRow != nil {
+		endControl = endRowUnion.DataRow.EndControl
+	} else if endRowUnion.NullRow != nil {
+		endControl = endRowUnion.NullRow.EndControl
+	} else {
+		return NewCorruptDatabaseError("transaction end row is not a DataRow or NullRow", nil)
+	}
+
+	// Check transaction termination type
+	second := endControl[1]
+
+	// Full rollback (R0 or S0) - all rows invalid
+	if second == '0' {
+		return NewKeyNotFoundError("key exists only in fully rolled back transaction", nil)
+	}
+
+	// Committed transaction (TC or SC) - all rows valid
+	if second == 'C' {
+		// Key is in committed transaction, proceed to read and unmarshal
+		return db.readAndUnmarshalRow(index, value)
+	}
+
+	// Partial rollback (R1-R9 or S1-S9) - need to check savepoint
+	if second >= '1' && second <= '9' {
+		savepointNum := int(second - '0')
+
+		// Track which row index each savepoint is on
+		savepointCount := 0
+		savepointIndex := int64(-1) // Row index where savepoint N is located
+
+		// Scan from transaction start to end, finding where savepoint N is
+		for i := txStart; i <= txEnd; i++ {
+			rowBytes, err := db.readRowAtIndex(i)
+			if err != nil {
+				return err
+			}
+
+			var rowUnion RowUnion
+			if err := rowUnion.UnmarshalText(rowBytes); err != nil {
+				return NewCorruptDatabaseError(fmt.Sprintf("failed to parse row at index %d", i), err)
+			}
+
+			// Skip checksum rows
+			if rowUnion.ChecksumRow != nil {
+				continue
+			}
+
+			// Check if this row creates a savepoint
+			var rowEndControl EndControl
+			if rowUnion.DataRow != nil {
+				rowEndControl = rowUnion.DataRow.EndControl
+			} else if rowUnion.NullRow != nil {
+				rowEndControl = rowUnion.NullRow.EndControl
+			}
+
+			if rowEndControl[0] == 'S' {
+				savepointCount++
+				if savepointCount == savepointNum {
+					savepointIndex = i
+				}
+			}
+		}
+
+		if savepointIndex == -1 {
+			return NewCorruptDatabaseError(fmt.Sprintf("savepoint %d not found in transaction", savepointNum), nil)
+		}
+
+		// Key is visible if it's at or before the savepoint row
+		if index <= savepointIndex {
+			return db.readAndUnmarshalRow(index, value)
+		} else {
+			return NewKeyNotFoundError("key exists only after savepoint in partially rolled back transaction", nil)
+		}
+	}
+
+	// Should not reach here - unknown end control
+	return NewCorruptDatabaseError(fmt.Sprintf("unknown transaction end control: %c%c", endControl[0], endControl[1]), nil)
+}
+
+// readRowAtIndex reads a row at the specified index from the database file.
+// Helper method for Get implementation.
+func (db *FrozenDB) readRowAtIndex(index int64) ([]byte, error) {
+	offset := int64(HEADER_SIZE) + index*int64(db.header.GetRowSize())
+	rowBytes, err := db.file.Read(offset, int32(db.header.GetRowSize()))
+	if err != nil {
+		return nil, NewReadError(fmt.Sprintf("failed to read row at index %d", index), err)
+	}
+	return rowBytes, nil
+}
+
+// readAndUnmarshalRow reads a row at the specified index and unmarshals its JSON value.
+// Helper method for Get implementation.
+func (db *FrozenDB) readAndUnmarshalRow(index int64, value any) error {
+	rowBytes, err := db.readRowAtIndex(index)
+	if err != nil {
+		return err
+	}
+
+	var rowUnion RowUnion
+	if err := rowUnion.UnmarshalText(rowBytes); err != nil {
+		return NewCorruptDatabaseError(fmt.Sprintf("failed to parse row at index %d", index), err)
+	}
+
+	if rowUnion.DataRow == nil {
+		return NewCorruptDatabaseError("target row is not a DataRow", nil)
+	}
+
+	// Extract JSON value from row
+	jsonValue := rowUnion.DataRow.RowPayload.Value
+
+	// Unmarshal JSON into destination
+	if err := json.Unmarshal(jsonValue, value); err != nil {
+		return NewInvalidDataError("failed to unmarshal JSON value", err)
+	}
+
+	return nil
 }

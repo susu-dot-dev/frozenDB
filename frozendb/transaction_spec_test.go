@@ -3858,7 +3858,7 @@ func Test_S_016_FR_001_ChecksumAtIntervals(t *testing.T) {
 
 		// Insert exactly 10,000 rows in 100 transactions to trigger checksum at 10,000
 		for txNum := 0; txNum < 100; txNum++ {
-			tx, err := NewTransaction(fm, header)
+			tx, err := NewTransaction(fm, header, nil)
 			if err != nil {
 				t.Fatalf("Failed to create transaction: %v", err)
 			}
@@ -3934,7 +3934,7 @@ func Test_S_016_FR_001_ChecksumAtIntervals(t *testing.T) {
 
 		// Insert 20,000 rows in 200 transactions to trigger checksum at 20,000
 		for txNum := 0; txNum < 200; txNum++ {
-			tx, err := NewTransaction(fm, header)
+			tx, err := NewTransaction(fm, header, nil)
 			if err != nil {
 				t.Fatalf("Failed to create transaction: %v", err)
 			}
@@ -4007,7 +4007,7 @@ func Test_S_016_FR_003_ExcludePartialDataRows(t *testing.T) {
 
 	// Insert 9,999 complete rows (99 transactions of 100 rows + 1 transaction of 99 rows = 100 transactions total)
 	for txNum := 0; txNum < 100; txNum++ {
-		tx, err := NewTransaction(fm, header)
+		tx, err := NewTransaction(fm, header, nil)
 		if err != nil {
 			t.Fatalf("Failed to create transaction: %v", err)
 		}
@@ -4044,7 +4044,7 @@ func Test_S_016_FR_003_ExcludePartialDataRows(t *testing.T) {
 	}
 
 	// Start a new transaction and begin it (creates PartialDataRow)
-	tx, err := NewTransaction(fm, header)
+	tx, err := NewTransaction(fm, header, nil)
 	if err != nil {
 		t.Fatalf("Failed to create transaction: %v", err)
 	}
@@ -4108,7 +4108,7 @@ func Test_S_016_FR_004_FormatRequirements(t *testing.T) {
 
 	// Insert 10,000 rows to trigger checksum
 	for txNum := 0; txNum < 100; txNum++ {
-		tx, err := NewTransaction(fm, header)
+		tx, err := NewTransaction(fm, header, nil)
 		if err != nil {
 			t.Fatalf("Failed to create transaction: %v", err)
 		}
@@ -4206,7 +4206,7 @@ func Test_S_016_FR_005_TransparencyToTransactions(t *testing.T) {
 	// Insert rows that will cross the 10,000 boundary within a single transaction
 	// Start at 9,995 rows
 	for txNum := 0; txNum < 99; txNum++ {
-		tx, err := NewTransaction(fm, header)
+		tx, err := NewTransaction(fm, header, nil)
 		if err != nil {
 			t.Fatalf("Failed to create transaction: %v", err)
 		}
@@ -4238,7 +4238,7 @@ func Test_S_016_FR_005_TransparencyToTransactions(t *testing.T) {
 	}
 
 	// Add 5 more rows (making it 9,995 total) in the last transaction
-	tx, err := NewTransaction(fm, header)
+	tx, err := NewTransaction(fm, header, nil)
 	if err != nil {
 		t.Fatalf("Failed to create transaction: %v", err)
 	}
@@ -4269,7 +4269,7 @@ func Test_S_016_FR_005_TransparencyToTransactions(t *testing.T) {
 	}
 
 	// Start a new transaction that will cross the boundary
-	tx, err = NewTransaction(fm, header)
+	tx, err = NewTransaction(fm, header, nil)
 	if err != nil {
 		t.Fatalf("Failed to create transaction: %v", err)
 	}
@@ -4330,7 +4330,7 @@ func Test_S_016_FR_006_StartControlAfterChecksum(t *testing.T) {
 
 	// Insert 9,998 rows (99 transactions of 100 rows + 1 transaction of 98 rows = 100 transactions total)
 	for txNum := 0; txNum < 100; txNum++ {
-		tx, err := NewTransaction(fm, header)
+		tx, err := NewTransaction(fm, header, nil)
 		if err != nil {
 			t.Fatalf("Failed to create transaction: %v", err)
 		}
@@ -4367,7 +4367,7 @@ func Test_S_016_FR_006_StartControlAfterChecksum(t *testing.T) {
 	}
 
 	// Start a transaction that will cross the boundary
-	tx, err := NewTransaction(fm, header)
+	tx, err := NewTransaction(fm, header, nil)
 	if err != nil {
 		t.Fatalf("Failed to create transaction: %v", err)
 	}
@@ -4445,7 +4445,7 @@ func Test_S_016_FR_007_NotInQueryResults(t *testing.T) {
 
 	// Insert 10,000 rows to trigger checksum
 	for txNum := 0; txNum < 100; txNum++ {
-		tx, err := NewTransaction(fm, header)
+		tx, err := NewTransaction(fm, header, nil)
 		if err != nil {
 			t.Fatalf("Failed to create transaction: %v", err)
 		}
@@ -4525,7 +4525,7 @@ func Test_S_016_US2_TransactionSpansChecksumBoundary(t *testing.T) {
 
 	// Insert 9,900 rows first
 	for txNum := 0; txNum < 99; txNum++ {
-		tx, err := NewTransaction(fm, header)
+		tx, err := NewTransaction(fm, header, nil)
 		if err != nil {
 			t.Fatalf("Failed to create transaction: %v", err)
 		}
@@ -4557,7 +4557,7 @@ func Test_S_016_US2_TransactionSpansChecksumBoundary(t *testing.T) {
 	}
 
 	// Start a transaction that will cross the 10,000 boundary
-	tx, err := NewTransaction(fm, header)
+	tx, err := NewTransaction(fm, header, nil)
 	if err != nil {
 		t.Fatalf("Failed to create transaction: %v", err)
 	}
@@ -4636,7 +4636,7 @@ func Test_S_016_US2_ChecksumRowNotInResults(t *testing.T) {
 
 	// Insert 10,000 rows to trigger checksum
 	for txNum := 0; txNum < 100; txNum++ {
-		tx, err := NewTransaction(fm, header)
+		tx, err := NewTransaction(fm, header, nil)
 		if err != nil {
 			t.Fatalf("Failed to create transaction: %v", err)
 		}
@@ -4723,7 +4723,7 @@ func Test_S_016_US2_SavepointStateAfterChecksum(t *testing.T) {
 
 	// Insert 9,998 rows first (99 transactions of 100 rows + 1 transaction of 98 rows = 100 transactions total)
 	for txNum := 0; txNum < 100; txNum++ {
-		tx, err := NewTransaction(fm, header)
+		tx, err := NewTransaction(fm, header, nil)
 		if err != nil {
 			t.Fatalf("Failed to create transaction: %v", err)
 		}
@@ -4760,7 +4760,7 @@ func Test_S_016_US2_SavepointStateAfterChecksum(t *testing.T) {
 	}
 
 	// Start a transaction that will cross boundary
-	tx, err := NewTransaction(fm, header)
+	tx, err := NewTransaction(fm, header, nil)
 	if err != nil {
 		t.Fatalf("Failed to create transaction: %v", err)
 	}
@@ -4818,7 +4818,7 @@ func Test_S_016_US2_SavepointStateAfterChecksum(t *testing.T) {
 
 	// Insert 9,999 rows first
 	for txNum := 0; txNum < 99; txNum++ {
-		tx, err := NewTransaction(fm, header)
+		tx, err := NewTransaction(fm, header, nil)
 		if err != nil {
 			t.Fatalf("Failed to create transaction: %v", err)
 		}
@@ -4850,7 +4850,7 @@ func Test_S_016_US2_SavepointStateAfterChecksum(t *testing.T) {
 	}
 
 	// Start a transaction that will cross the boundary
-	tx, err = NewTransaction(fm, header)
+	tx, err = NewTransaction(fm, header, nil)
 	if err != nil {
 		t.Fatalf("Failed to create transaction: %v", err)
 	}
@@ -4929,7 +4929,7 @@ func Test_S_016_US2_RollbackAfterChecksum(t *testing.T) {
 
 	// Insert 9,999 rows first
 	for txNum := 0; txNum < 99; txNum++ {
-		tx, err := NewTransaction(fm, header)
+		tx, err := NewTransaction(fm, header, nil)
 		if err != nil {
 			t.Fatalf("Failed to create transaction: %v", err)
 		}
@@ -4961,7 +4961,7 @@ func Test_S_016_US2_RollbackAfterChecksum(t *testing.T) {
 	}
 
 	// Start a transaction that will cross the boundary
-	tx, err := NewTransaction(fm, header)
+	tx, err := NewTransaction(fm, header, nil)
 	if err != nil {
 		t.Fatalf("Failed to create transaction: %v", err)
 	}

@@ -1646,6 +1646,832 @@ func Test_S_007_FR_006_ChecksumRowPositioning(t *testing.T) {
 	}
 }
 
+// Test_S_020_FR_001_CommittedTransactionDataRetrieval tests FR-001: System MUST unmarshal and populate the user's destination struct with JSON data for UUID keys that exist in fully committed transactions (transactions ending with TC or SC)
+func Test_S_020_FR_001_CommittedTransactionDataRetrieval(t *testing.T) {
+	// Create test database with header + checksum row
+	testPath := filepath.Join(t.TempDir(), "test.fdb")
+	createTestDatabase(t, testPath)
+
+	// Open database in write mode to add committed transaction
+	db, err := NewFrozenDB(testPath, MODE_WRITE)
+	if err != nil {
+		t.Fatalf("Failed to open database: %v", err)
+	}
+	defer db.Close()
+
+	// Begin transaction and add a row with JSON data
+	tx, err := db.BeginTx()
+	if err != nil {
+		t.Fatalf("Failed to begin transaction: %v", err)
+	}
+
+	// Test data structure
+	type TestData struct {
+		Name string `json:"name"`
+		Age  int    `json:"age"`
+	}
+
+	testData := TestData{Name: "John Doe", Age: 30}
+	jsonData, err := json.Marshal(testData)
+	if err != nil {
+		t.Fatalf("Failed to marshal test data: %v", err)
+	}
+
+	// Add row to transaction (using json.RawMessage)
+	key, _ := uuid.NewV7()
+	err = tx.AddRow(key, json.RawMessage(jsonData))
+	if err != nil {
+		t.Fatalf("Failed to add row: %v", err)
+	}
+
+	// Commit the transaction (ending with TC)
+	err = tx.Commit()
+	if err != nil {
+		t.Fatalf("Failed to commit transaction: %v", err)
+	}
+
+	// Close and reopen in read mode to test retrieval
+	db.Close()
+	db, err = NewFrozenDB(testPath, MODE_READ)
+	if err != nil {
+		t.Fatalf("Failed to reopen database: %v", err)
+	}
+	defer db.Close()
+
+	// Test Get method - this should be implemented to retrieve committed data
+	var retrievedData TestData
+	err = db.Get(key, &retrievedData)
+
+	// Verify the data was correctly unmarshaled and populated
+	if err != nil {
+		t.Fatalf("Get failed for committed key: %v", err)
+	}
+
+	if retrievedData.Name != testData.Name {
+		t.Errorf("Expected name %s, got %s", testData.Name, retrievedData.Name)
+	}
+
+	if retrievedData.Age != testData.Age {
+		t.Errorf("Expected age %d, got %d", testData.Age, retrievedData.Age)
+	}
+}
+
+// Test_S_020_FR_002_PartialRollbackDataRetrieval tests FR-002: System MUST unmarshal and populate the user's destination struct with JSON data for UUID keys that appear at or before the savepoint in partially rolled back transactions
+func Test_S_020_FR_002_PartialRollbackDataRetrieval(t *testing.T) {
+	// Create test database with header + checksum row
+	testPath := filepath.Join(t.TempDir(), "test.fdb")
+	createTestDatabase(t, testPath)
+
+	// Open database in write mode to create partial rollback scenario
+	db, err := NewFrozenDB(testPath, MODE_WRITE)
+	if err != nil {
+		t.Fatalf("Failed to open database: %v", err)
+	}
+	defer db.Close()
+
+	// Begin transaction and add multiple rows
+	tx, err := db.BeginTx()
+	if err != nil {
+		t.Fatalf("Failed to begin transaction: %v", err)
+	}
+
+	// Test data structure
+	type TestData struct {
+		Name  string `json:"name"`
+		Value int    `json:"value"`
+	}
+
+	// Add first row (will be at savepoint 1, should be visible after rollback to savepoint 1)
+	key1, _ := uuid.NewV7()
+	data1 := TestData{Name: "First", Value: 100}
+	jsonData1, _ := json.Marshal(data1)
+	err = tx.AddRow(key1, json.RawMessage(jsonData1))
+	if err != nil {
+		t.Fatalf("Failed to add first row: %v", err)
+	}
+
+	// Create savepoint 1 (marks row with key1)
+	err = tx.Savepoint()
+	if err != nil {
+		t.Fatalf("Failed to create savepoint: %v", err)
+	}
+
+	// Add second row (after savepoint 1, should NOT be visible after rollback to savepoint 1)
+	key2, _ := uuid.NewV7()
+	data2 := TestData{Name: "Second", Value: 200}
+	jsonData2, _ := json.Marshal(data2)
+	err = tx.AddRow(key2, json.RawMessage(jsonData2))
+	if err != nil {
+		t.Fatalf("Failed to add second row: %v", err)
+	}
+
+	// Create savepoint 2
+	err = tx.Savepoint()
+	if err != nil {
+		t.Fatalf("Failed to create savepoint 2: %v", err)
+	}
+
+	// Add third row (after savepoint 2, should NOT be visible after rollback to savepoint 1)
+	key3, _ := uuid.NewV7()
+	data3 := TestData{Name: "Third", Value: 300}
+	jsonData3, _ := json.Marshal(data3)
+	err = tx.AddRow(key3, json.RawMessage(jsonData3))
+	if err != nil {
+		t.Fatalf("Failed to add third row: %v", err)
+	}
+
+	// Rollback to savepoint 1 (keeps first row only, discards second and third)
+	// Per v1_file_format.md section 2.4: "Result: k1 committed; k2 and k3 invalidated"
+	err = tx.Rollback(1)
+	if err != nil {
+		t.Fatalf("Failed to rollback to savepoint 1: %v", err)
+	}
+
+	// Close and reopen in read mode to test retrieval
+	db.Close()
+	db, err = NewFrozenDB(testPath, MODE_READ)
+	if err != nil {
+		t.Fatalf("Failed to reopen database: %v", err)
+	}
+	defer db.Close()
+
+	// Test Get method for key1 (at savepoint 1, should be visible)
+	var retrievedData1 TestData
+	err = db.Get(key1, &retrievedData1)
+	if err != nil {
+		t.Fatalf("Get failed for key1 (at savepoint 1): %v", err)
+	}
+	if retrievedData1.Name != data1.Name || retrievedData1.Value != data1.Value {
+		t.Errorf("Key1 data mismatch: expected %+v, got %+v", data1, retrievedData1)
+	}
+
+	// Test Get method for key2 (after savepoint 1, should NOT be visible)
+	var retrievedData2 TestData
+	err = db.Get(key2, &retrievedData2)
+	if err == nil {
+		t.Fatal("Expected KeyNotFoundError for key2 (after savepoint 1), got nil")
+	}
+	var keyNotFoundErr *KeyNotFoundError
+	if !errors.As(err, &keyNotFoundErr) {
+		t.Errorf("Expected KeyNotFoundError for key2, got: %T", err)
+	}
+
+	// Test Get method for key3 (after savepoint 1, should NOT be visible)
+	var retrievedData3 TestData
+	err = db.Get(key3, &retrievedData3)
+	if err == nil {
+		t.Fatal("Expected KeyNotFoundError for key3 (after savepoint 1), got nil")
+	}
+	if !errors.As(err, &keyNotFoundErr) {
+		t.Errorf("Expected KeyNotFoundError for key3, got: %T", err)
+	}
+}
+
+// Test_S_020_FR_003_KeyNotFoundForNonexistentKey tests FR-003: System MUST return KeyNotFound error when key does not exist anywhere in the database file
+func Test_S_020_FR_003_KeyNotFoundForNonexistentKey(t *testing.T) {
+	// Create test database with header + checksum row
+	testPath := filepath.Join(t.TempDir(), "test.fdb")
+	createTestDatabase(t, testPath)
+
+	// Open database in read mode
+	db, err := NewFrozenDB(testPath, MODE_READ)
+	if err != nil {
+		t.Fatalf("Failed to open database: %v", err)
+	}
+	defer db.Close()
+
+	// Generate a UUID that doesn't exist in the database
+	nonexistentKey, _ := uuid.NewV7()
+
+	// Test data structure
+	type TestData struct {
+		Name string `json:"name"`
+	}
+
+	// Try to Get a key that doesn't exist
+	var data TestData
+	err = db.Get(nonexistentKey, &data)
+
+	// Should return KeyNotFoundError
+	if err == nil {
+		t.Fatal("Expected KeyNotFoundError for nonexistent key, got nil")
+	}
+
+	var keyNotFoundErr *KeyNotFoundError
+	if !errors.As(err, &keyNotFoundErr) {
+		t.Errorf("Expected KeyNotFoundError, got: %T", err)
+	}
+
+	// Verify error message contains useful information
+	if !contains(err.Error(), "key_not_found") {
+		t.Errorf("Expected error code 'key_not_found', got: %s", err.Error())
+	}
+}
+
+// Test_S_020_FR_004_KeyNotFoundForFullyRolledBackTransaction tests FR-004: System MUST return KeyNotFound error when key exists only in fully rolled back transactions (rollback to savepoint 0)
+func Test_S_020_FR_004_KeyNotFoundForFullyRolledBackTransaction(t *testing.T) {
+	// Create test database with header + checksum row
+	testPath := filepath.Join(t.TempDir(), "test.fdb")
+	createTestDatabase(t, testPath)
+
+	// Open database in write mode to create fully rolled back transaction
+	db, err := NewFrozenDB(testPath, MODE_WRITE)
+	if err != nil {
+		t.Fatalf("Failed to open database: %v", err)
+	}
+	defer db.Close()
+
+	// Begin transaction and add rows
+	tx, err := db.BeginTx()
+	if err != nil {
+		t.Fatalf("Failed to begin transaction: %v", err)
+	}
+
+	// Test data structure
+	type TestData struct {
+		Name  string `json:"name"`
+		Value int    `json:"value"`
+	}
+
+	// Add a row that will be rolled back
+	rolledBackKey, _ := uuid.NewV7()
+	data := TestData{Name: "RolledBack", Value: 999}
+	jsonData, _ := json.Marshal(data)
+	err = tx.AddRow(rolledBackKey, json.RawMessage(jsonData))
+	if err != nil {
+		t.Fatalf("Failed to add row: %v", err)
+	}
+
+	// Rollback to savepoint 0 (fully rolled back)
+	err = tx.Rollback(0)
+	if err != nil {
+		t.Fatalf("Failed to rollback to savepoint 0: %v", err)
+	}
+
+	// Close and reopen in read mode to test retrieval
+	db.Close()
+	db, err = NewFrozenDB(testPath, MODE_READ)
+	if err != nil {
+		t.Fatalf("Failed to reopen database: %v", err)
+	}
+	defer db.Close()
+
+	// Try to Get the rolled back key
+	var retrievedData TestData
+	err = db.Get(rolledBackKey, &retrievedData)
+
+	// Should return KeyNotFoundError
+	if err == nil {
+		t.Fatal("Expected KeyNotFoundError for fully rolled back key, got nil")
+	}
+
+	var keyNotFoundErr *KeyNotFoundError
+	if !errors.As(err, &keyNotFoundErr) {
+		t.Errorf("Expected KeyNotFoundError, got: %T", err)
+	}
+}
+
+// Test_S_020_FR_005_KeyNotFoundForKeysAfterSavepoint tests FR-005: System MUST return KeyNotFound error when key exists only after the savepoint in partially rolled back transactions
+func Test_S_020_FR_005_KeyNotFoundForKeysAfterSavepoint(t *testing.T) {
+	// Create test database with header + checksum row
+	testPath := filepath.Join(t.TempDir(), "test.fdb")
+	createTestDatabase(t, testPath)
+
+	// Open database in write mode to create partial rollback scenario
+	db, err := NewFrozenDB(testPath, MODE_WRITE)
+	if err != nil {
+		t.Fatalf("Failed to open database: %v", err)
+	}
+	defer db.Close()
+
+	// Begin transaction and add multiple rows
+	tx, err := db.BeginTx()
+	if err != nil {
+		t.Fatalf("Failed to begin transaction: %v", err)
+	}
+
+	// Test data structure
+	type TestData struct {
+		Name  string `json:"name"`
+		Value int    `json:"value"`
+	}
+
+	// Add first row (should be visible after rollback to savepoint 1)
+	key1, _ := uuid.NewV7()
+	data1 := TestData{Name: "First", Value: 100}
+	jsonData1, _ := json.Marshal(data1)
+	err = tx.AddRow(key1, json.RawMessage(jsonData1))
+	if err != nil {
+		t.Fatalf("Failed to add first row: %v", err)
+	}
+
+	// Create savepoint 1
+	err = tx.Savepoint()
+	if err != nil {
+		t.Fatalf("Failed to create savepoint: %v", err)
+	}
+
+	// Add second row (should NOT be visible after rollback to savepoint 1)
+	keyAfterSavepoint, _ := uuid.NewV7()
+	data2 := TestData{Name: "AfterSavepoint", Value: 200}
+	jsonData2, _ := json.Marshal(data2)
+	err = tx.AddRow(keyAfterSavepoint, json.RawMessage(jsonData2))
+	if err != nil {
+		t.Fatalf("Failed to add second row: %v", err)
+	}
+
+	// Rollback to savepoint 1 (discards second row)
+	err = tx.Rollback(1)
+	if err != nil {
+		t.Fatalf("Failed to rollback to savepoint 1: %v", err)
+	}
+
+	// Close and reopen in read mode to test retrieval
+	db.Close()
+	db, err = NewFrozenDB(testPath, MODE_READ)
+	if err != nil {
+		t.Fatalf("Failed to reopen database: %v", err)
+	}
+	defer db.Close()
+
+	// Verify first row is visible (before savepoint)
+	var retrievedData1 TestData
+	err = db.Get(key1, &retrievedData1)
+	if err != nil {
+		t.Fatalf("Get failed for key1 (before savepoint): %v", err)
+	}
+	if retrievedData1.Name != data1.Name || retrievedData1.Value != data1.Value {
+		t.Errorf("Key1 data mismatch: expected %+v, got %+v", data1, retrievedData1)
+	}
+
+	// Try to Get the key after savepoint (should not be visible)
+	var retrievedData2 TestData
+	err = db.Get(keyAfterSavepoint, &retrievedData2)
+
+	// Should return KeyNotFoundError
+	if err == nil {
+		t.Fatal("Expected KeyNotFoundError for key after savepoint, got nil")
+	}
+
+	var keyNotFoundErr *KeyNotFoundError
+	if !errors.As(err, &keyNotFoundErr) {
+		t.Errorf("Expected KeyNotFoundError, got: %T", err)
+	}
+}
+
+// Test_S_020_FR_006_KeyNotFoundForUncommittedData tests FR-006: System MUST return KeyNotFound error when key exists only in the current active (uncommitted) transaction
+func Test_S_020_FR_006_KeyNotFoundForUncommittedData(t *testing.T) {
+	// Create test database with header + checksum row
+	testPath := filepath.Join(t.TempDir(), "test.fdb")
+	createTestDatabase(t, testPath)
+
+	// Open database in write mode to add uncommitted data
+	db, err := NewFrozenDB(testPath, MODE_WRITE)
+	if err != nil {
+		t.Fatalf("Failed to open database: %v", err)
+	}
+	defer db.Close()
+
+	// Begin transaction and add a row but don't commit
+	tx, err := db.BeginTx()
+	if err != nil {
+		t.Fatalf("Failed to begin transaction: %v", err)
+	}
+
+	// Test data structure
+	type TestData struct {
+		Name  string `json:"name"`
+		Value int    `json:"value"`
+	}
+
+	// Add a row but don't commit it
+	uncommittedKey, _ := uuid.NewV7()
+	data := TestData{Name: "Uncommitted", Value: 123}
+	jsonData, _ := json.Marshal(data)
+	err = tx.AddRow(uncommittedKey, json.RawMessage(jsonData))
+	if err != nil {
+		t.Fatalf("Failed to add row: %v", err)
+	}
+
+	// Don't commit - close database with uncommitted data
+	db.Close()
+
+	// Reopen database in read mode
+	db, err = NewFrozenDB(testPath, MODE_READ)
+	if err != nil {
+		t.Fatalf("Failed to reopen database: %v", err)
+	}
+	defer db.Close()
+
+	// Try to Get the uncommitted key
+	var retrievedData TestData
+	err = db.Get(uncommittedKey, &retrievedData)
+
+	// Should return KeyNotFoundError
+	if err == nil {
+		t.Fatal("Expected KeyNotFoundError for uncommitted key, got nil")
+	}
+
+	var keyNotFoundErr *KeyNotFoundError
+	if !errors.As(err, &keyNotFoundErr) {
+		t.Errorf("Expected KeyNotFoundError, got: %T", err)
+	}
+}
+
+// Test_S_020_FR_007_InvalidDataErrorTypeMismatch tests FR-007: System MUST return InvalidData error wrapping JSON unmarshal errors when stored JSON cannot be unmarshaled into provided destination struct
+func Test_S_020_FR_007_InvalidDataErrorTypeMismatch(t *testing.T) {
+	// Create test database with header + checksum row
+	testPath := filepath.Join(t.TempDir(), "test.fdb")
+	createTestDatabase(t, testPath)
+
+	// Open database in write mode to add data with type mismatch
+	db, err := NewFrozenDB(testPath, MODE_WRITE)
+	if err != nil {
+		t.Fatalf("Failed to open database: %v", err)
+	}
+	defer db.Close()
+
+	// Begin transaction and add a row with JSON data
+	tx, err := db.BeginTx()
+	if err != nil {
+		t.Fatalf("Failed to begin transaction: %v", err)
+	}
+
+	// Store JSON data as string but try to unmarshal into struct expecting int
+	key, _ := uuid.NewV7()
+	jsonData := []byte(`{"name":"test"}`) // This has string field
+
+	err = tx.AddRow(key, json.RawMessage(jsonData))
+	if err != nil {
+		t.Fatalf("Failed to add row: %v", err)
+	}
+
+	// Commit the transaction
+	err = tx.Commit()
+	if err != nil {
+		t.Fatalf("Failed to commit transaction: %v", err)
+	}
+
+	// Close and reopen in read mode to test retrieval
+	db.Close()
+	db, err = NewFrozenDB(testPath, MODE_READ)
+	if err != nil {
+		t.Fatalf("Failed to reopen database: %v", err)
+	}
+	defer db.Close()
+
+	// Try to retrieve into incompatible struct (expecting int field for "name")
+	type WrongStruct struct {
+		Name int `json:"name"` // JSON has string, but struct expects int
+	}
+
+	var wrongData WrongStruct
+	err = db.Get(key, &wrongData)
+
+	// Should return InvalidDataError wrapping JSON unmarshal error
+	if err == nil {
+		t.Fatal("Expected InvalidDataError for type mismatch, got nil")
+	}
+
+	var invalidDataErr *InvalidDataError
+	if !errors.As(err, &invalidDataErr) {
+		t.Errorf("Expected InvalidDataError, got: %T", err)
+	}
+
+	// Verify error message contains useful information
+	if !contains(err.Error(), "invalid_data") {
+		t.Errorf("Expected error code 'invalid_data', got: %s", err.Error())
+	}
+
+	// Test another type mismatch - stored as int, retrieved as string
+	// Close and reopen database in write mode for second transaction
+	db.Close()
+	db, err = NewFrozenDB(testPath, MODE_WRITE)
+	if err != nil {
+		t.Fatalf("Failed to reopen database for second transaction: %v", err)
+	}
+	defer db.Close()
+
+	// Begin a new transaction
+	tx2, err := db.BeginTx()
+	if err != nil {
+		t.Fatalf("Failed to begin second transaction: %v", err)
+	}
+
+	key2, _ := uuid.NewV7()
+	jsonData2 := []byte(`{"age":25}`) // This has int field
+
+	err = tx2.AddRow(key2, json.RawMessage(jsonData2))
+	if err != nil {
+		t.Fatalf("Failed to add second row: %v", err)
+	}
+
+	err = tx2.Commit()
+	if err != nil {
+		t.Fatalf("Failed to commit second transaction: %v", err)
+	}
+
+	db.Close()
+	db, err = NewFrozenDB(testPath, MODE_READ)
+	if err != nil {
+		t.Fatalf("Failed to reopen database second time: %v", err)
+	}
+	defer db.Close()
+
+	type WrongStruct2 struct {
+		Age string `json:"age"` // JSON has int, but struct expects string
+	}
+
+	var wrongData2 WrongStruct2
+	err = db.Get(key2, &wrongData2)
+
+	if err == nil {
+		t.Fatal("Expected InvalidDataError for second type mismatch, got nil")
+	}
+
+	var invalidDataErr2 *InvalidDataError
+	if !errors.As(err, &invalidDataErr2) {
+		t.Errorf("Expected InvalidDataError for second case, got: %T", err)
+	}
+}
+
+// Test_S_020_FR_008_InvalidDataErrorMalformedJSON tests FR-008: System MUST return InvalidData error when stored JSON is malformed and cannot be parsed
+func Test_S_020_FR_008_InvalidDataErrorMalformedJSON(t *testing.T) {
+	// Create test database with header + checksum row
+	testPath := filepath.Join(t.TempDir(), "test.fdb")
+	createTestDatabase(t, testPath)
+
+	// Open database in write mode to add malformed JSON data
+	db, err := NewFrozenDB(testPath, MODE_WRITE)
+	if err != nil {
+		t.Fatalf("Failed to open database: %v", err)
+	}
+	defer db.Close()
+
+	// Begin transaction and add rows with various malformed JSON
+	tx, err := db.BeginTx()
+	if err != nil {
+		t.Fatalf("Failed to begin transaction: %v", err)
+	}
+
+	// Test case 1: Unclosed string
+	key1, _ := uuid.NewV7()
+	malformedJSON1 := []byte(`{"name":"unclosed string`) // Missing closing quote
+
+	err = tx.AddRow(key1, json.RawMessage(malformedJSON1))
+	if err != nil {
+		t.Fatalf("Failed to add row with unclosed string: %v", err)
+	}
+
+	// Test case 2: Missing closing brace
+	key2, _ := uuid.NewV7()
+	malformedJSON2 := []byte(`{"name":"test", "age":30`) // Missing closing brace
+
+	err = tx.AddRow(key2, json.RawMessage(malformedJSON2))
+	if err != nil {
+		t.Fatalf("Failed to add row with missing brace: %v", err)
+	}
+
+	// Test case 3: Invalid JSON syntax (comma after last element)
+	key3, _ := uuid.NewV7()
+	malformedJSON3 := []byte("{\"name\":\"test\", \"age\":30,}") // Trailing comma
+
+	err = tx.AddRow(key3, json.RawMessage(malformedJSON3))
+	if err != nil {
+		t.Fatalf("Failed to add row with trailing comma: %v", err)
+	}
+
+	// Test case 4: Completely invalid JSON
+	key4, _ := uuid.NewV7()
+	malformedJSON4 := []byte(`this is not json at all`) // Not JSON
+
+	err = tx.AddRow(key4, json.RawMessage(malformedJSON4))
+	if err != nil {
+		t.Fatalf("Failed to add row with invalid JSON: %v", err)
+	}
+
+	// Commit the transaction with malformed JSON
+	err = tx.Commit()
+	if err != nil {
+		t.Fatalf("Failed to commit transaction: %v", err)
+	}
+
+	// Close and reopen in read mode to test retrieval
+	db.Close()
+	db, err = NewFrozenDB(testPath, MODE_READ)
+	if err != nil {
+		t.Fatalf("Failed to reopen database: %v", err)
+	}
+	defer db.Close()
+
+	// Test retrieval of malformed JSON data
+	type TestData struct {
+		Name string `json:"name"`
+		Age  int    `json:"age"`
+	}
+
+	// Test case 1: Unclosed string
+	var data1 TestData
+	err = db.Get(key1, &data1)
+	if err == nil {
+		t.Fatal("Expected InvalidDataError for unclosed string, got nil")
+	}
+
+	var invalidDataErr1 *InvalidDataError
+	if !errors.As(err, &invalidDataErr1) {
+		t.Errorf("Expected InvalidDataError for unclosed string, got: %T", err)
+	}
+
+	// Test case 2: Missing closing brace
+	var data2 TestData
+	err = db.Get(key2, &data2)
+	if err == nil {
+		t.Fatal("Expected InvalidDataError for missing brace, got nil")
+	}
+
+	var invalidDataErr2 *InvalidDataError
+	if !errors.As(err, &invalidDataErr2) {
+		t.Errorf("Expected InvalidDataError for missing brace, got: %T", err)
+	}
+
+	// Test case 3: Trailing comma
+	var data3 TestData
+	err = db.Get(key3, &data3)
+	if err == nil {
+		t.Fatal("Expected InvalidDataError for trailing comma, got nil")
+	}
+
+	var invalidDataErr3 *InvalidDataError
+	if !errors.As(err, &invalidDataErr3) {
+		t.Errorf("Expected InvalidDataError for trailing comma, got: %T", err)
+	}
+
+	// Test case 4: Completely invalid JSON
+	var data4 TestData
+	err = db.Get(key4, &data4)
+	if err == nil {
+		t.Fatal("Expected InvalidDataError for invalid JSON, got nil")
+	}
+
+	var invalidDataErr4 *InvalidDataError
+	if !errors.As(err, &invalidDataErr4) {
+		t.Errorf("Expected InvalidDataError for invalid JSON, got: %T", err)
+	}
+}
+
+// Test_S_020_FR_009_ImmediateVisibilityAfterCommitRollback tests FR-009: System MUST make committed, or partially rolled back transaction data immediately visible in the next Get call after commit/rollback
+func Test_S_020_FR_009_ImmediateVisibilityAfterCommitRollback(t *testing.T) {
+	// Create test database with header + checksum row
+	testPath := filepath.Join(t.TempDir(), "test.fdb")
+	createTestDatabase(t, testPath)
+
+	// Test data structure
+	type TestData struct {
+		Name  string `json:"name"`
+		Value int    `json:"value"`
+	}
+
+	// Test case 1: Immediate visibility after commit (within same FrozenDB instance)
+	db, err := NewFrozenDB(testPath, MODE_WRITE)
+	if err != nil {
+		t.Fatalf("Failed to open database: %v", err)
+	}
+
+	tx, err := db.BeginTx()
+	if err != nil {
+		t.Fatalf("Failed to begin transaction: %v", err)
+	}
+
+	key1, _ := uuid.NewV7()
+	data1 := TestData{Name: "TestCommit", Value: 100}
+	jsonData1, _ := json.Marshal(data1)
+	err = tx.AddRow(key1, json.RawMessage(jsonData1))
+	if err != nil {
+		t.Fatalf("Failed to add row: %v", err)
+	}
+
+	// Commit the transaction
+	err = tx.Commit()
+	if err != nil {
+		t.Fatalf("Failed to commit transaction: %v", err)
+	}
+
+	// Immediately try to Get the committed value from SAME database instance
+	var retrievedData1 TestData
+	err = db.Get(key1, &retrievedData1)
+	if err != nil {
+		t.Fatalf("Get failed immediately after commit in same FrozenDB instance: %v", err)
+	}
+	if retrievedData1.Name != data1.Name || retrievedData1.Value != data1.Value {
+		t.Errorf("Data mismatch after commit: expected %+v, got %+v", data1, retrievedData1)
+	}
+
+	db.Close()
+
+	// Test case 2: Immediate visibility after rollback (key should not be found, within same instance)
+	db, err = NewFrozenDB(testPath, MODE_WRITE)
+	if err != nil {
+		t.Fatalf("Failed to open database for rollback test: %v", err)
+	}
+
+	tx, err = db.BeginTx()
+	if err != nil {
+		t.Fatalf("Failed to begin transaction for rollback test: %v", err)
+	}
+
+	key2, _ := uuid.NewV7()
+	data2 := TestData{Name: "TestRollback", Value: 200}
+	jsonData2, _ := json.Marshal(data2)
+	err = tx.AddRow(key2, json.RawMessage(jsonData2))
+	if err != nil {
+		t.Fatalf("Failed to add row for rollback test: %v", err)
+	}
+
+	// Rollback to savepoint 0 (full rollback)
+	err = tx.Rollback(0)
+	if err != nil {
+		t.Fatalf("Failed to rollback: %v", err)
+	}
+
+	// Immediately try to Get the rolled back key from SAME database instance (should not be found)
+	var retrievedData2 TestData
+	err = db.Get(key2, &retrievedData2)
+	if err == nil {
+		t.Fatal("Expected KeyNotFoundError immediately after rollback in same FrozenDB instance, got nil")
+	}
+
+	var keyNotFoundErr *KeyNotFoundError
+	if !errors.As(err, &keyNotFoundErr) {
+		t.Errorf("Expected KeyNotFoundError after rollback, got: %T", err)
+	}
+
+	db.Close()
+
+	// Test case 3: Immediate visibility after partial rollback (within same instance)
+	db, err = NewFrozenDB(testPath, MODE_WRITE)
+	if err != nil {
+		t.Fatalf("Failed to open database for partial rollback test: %v", err)
+	}
+	defer db.Close()
+
+	tx, err = db.BeginTx()
+	if err != nil {
+		t.Fatalf("Failed to begin transaction for partial rollback test: %v", err)
+	}
+
+	// Add first row before savepoint
+	key3, _ := uuid.NewV7()
+	data3 := TestData{Name: "BeforeSavepoint", Value: 300}
+	jsonData3, _ := json.Marshal(data3)
+	err = tx.AddRow(key3, json.RawMessage(jsonData3))
+	if err != nil {
+		t.Fatalf("Failed to add first row for partial rollback test: %v", err)
+	}
+
+	// Create savepoint
+	err = tx.Savepoint()
+	if err != nil {
+		t.Fatalf("Failed to create savepoint: %v", err)
+	}
+
+	// Add second row after savepoint
+	key4, _ := uuid.NewV7()
+	data4 := TestData{Name: "AfterSavepoint", Value: 400}
+	jsonData4, _ := json.Marshal(data4)
+	err = tx.AddRow(key4, json.RawMessage(jsonData4))
+	if err != nil {
+		t.Fatalf("Failed to add second row for partial rollback test: %v", err)
+	}
+
+	// Partial rollback to savepoint 1
+	err = tx.Rollback(1)
+	if err != nil {
+		t.Fatalf("Failed to partial rollback: %v", err)
+	}
+
+	// Immediately verify first key (before savepoint) is visible in SAME database instance
+	var retrievedData3 TestData
+	err = db.Get(key3, &retrievedData3)
+	if err != nil {
+		t.Fatalf("Get failed for key before savepoint immediately after partial rollback in same FrozenDB instance: %v", err)
+	}
+	if retrievedData3.Name != data3.Name || retrievedData3.Value != data3.Value {
+		t.Errorf("Data mismatch for key before savepoint: expected %+v, got %+v", data3, retrievedData3)
+	}
+
+	// Immediately verify second key (after savepoint) is not visible in SAME database instance
+	var retrievedData4 TestData
+	err = db.Get(key4, &retrievedData4)
+	if err == nil {
+		t.Fatal("Expected KeyNotFoundError for key after savepoint immediately after partial rollback in same FrozenDB instance, got nil")
+	}
+
+	var keyNotFoundErr2 *KeyNotFoundError
+	if !errors.As(err, &keyNotFoundErr2) {
+		t.Errorf("Expected KeyNotFoundError for key after savepoint, got: %T", err)
+	}
+}
+
 func Test_S_007_FR_002_ComprehensiveValidation(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -2354,7 +3180,7 @@ func Test_S_018_FR_001_ScanLastRowForTransactionState(t *testing.T) {
 		}
 		defer db.Close()
 
-		tx, err := NewTransaction(db.file, db.header)
+		tx, err := NewTransaction(db.file, db.header, nil)
 		if err != nil {
 			t.Fatalf("Failed to create transaction: %v", err)
 		}
@@ -2406,7 +3232,7 @@ func Test_S_018_FR_001_ScanLastRowForTransactionState(t *testing.T) {
 		}
 		defer db.Close()
 
-		tx, err := NewTransaction(db.file, db.header)
+		tx, err := NewTransaction(db.file, db.header, nil)
 		if err != nil {
 			t.Fatalf("Failed to create transaction: %v", err)
 		}
@@ -2461,7 +3287,7 @@ func Test_S_018_FR_002_CreateTransactionForInProgressState(t *testing.T) {
 		}
 		defer db.Close()
 
-		tx, err := NewTransaction(db.file, db.header)
+		tx, err := NewTransaction(db.file, db.header, nil)
 		if err != nil {
 			t.Fatalf("Failed to create transaction: %v", err)
 		}
@@ -2555,7 +3381,7 @@ func Test_S_018_FR_008_DetectTransactionByEndControlCharacter(t *testing.T) {
 			}
 			defer db.Close()
 
-			tx, err := NewTransaction(db.file, db.header)
+			tx, err := NewTransaction(db.file, db.header, nil)
 			if err != nil {
 				t.Fatalf("Failed to create transaction: %v", err)
 			}
@@ -2691,7 +3517,7 @@ func Test_S_018_FR_009_HandlePartialDataRowDuringRecovery(t *testing.T) {
 		}
 		defer db.Close()
 
-		tx, err := NewTransaction(db.file, db.header)
+		tx, err := NewTransaction(db.file, db.header, nil)
 		if err != nil {
 			t.Fatalf("Failed to create transaction: %v", err)
 		}
@@ -2735,7 +3561,7 @@ func Test_S_018_FR_009_HandlePartialDataRowDuringRecovery(t *testing.T) {
 		}
 		defer db.Close()
 
-		tx, err := NewTransaction(db.file, db.header)
+		tx, err := NewTransaction(db.file, db.header, nil)
 		if err != nil {
 			t.Fatalf("Failed to create transaction: %v", err)
 		}
@@ -2783,7 +3609,7 @@ func Test_S_018_FR_009_HandlePartialDataRowDuringRecovery(t *testing.T) {
 		}
 		defer db.Close()
 
-		tx, err := NewTransaction(db.file, db.header)
+		tx, err := NewTransaction(db.file, db.header, nil)
 		if err != nil {
 			t.Fatalf("Failed to create transaction: %v", err)
 		}
@@ -2955,7 +3781,7 @@ func Test_S_018_FR_010_DetectAllValidTransactionEndings(t *testing.T) {
 			}
 			defer db.Close()
 
-			tx, err := NewTransaction(db.file, db.header)
+			tx, err := NewTransaction(db.file, db.header, nil)
 			if err != nil {
 				t.Fatalf("Failed to create transaction: %v", err)
 			}
@@ -3010,7 +3836,7 @@ func Test_S_018_FR_003_GetActiveTxReturnsCurrentTransaction(t *testing.T) {
 		}
 		defer db.Close()
 
-		tx, err := NewTransaction(db.file, db.header)
+		tx, err := NewTransaction(db.file, db.header, nil)
 		if err != nil {
 			t.Fatalf("Failed to create transaction: %v", err)
 		}
@@ -3094,7 +3920,7 @@ func Test_S_018_FR_004_GetActiveTxReturnsNilForCommittedTransaction(t *testing.T
 		}
 		defer db.Close()
 
-		tx, err := NewTransaction(db.file, db.header)
+		tx, err := NewTransaction(db.file, db.header, nil)
 		if err != nil {
 			t.Fatalf("Failed to create transaction: %v", err)
 		}
@@ -3149,7 +3975,7 @@ func Test_S_018_FR_005_GetActiveTxReturnsNilForRolledBackTransaction(t *testing.
 		}
 		defer db.Close()
 
-		tx, err := NewTransaction(db.file, db.header)
+		tx, err := NewTransaction(db.file, db.header, nil)
 		if err != nil {
 			t.Fatalf("Failed to create transaction: %v", err)
 		}
@@ -3253,7 +4079,7 @@ func Test_S_018_FR_007_BeginTxReturnsErrorForActiveTransaction(t *testing.T) {
 		}
 		defer db.Close()
 
-		tx, err := NewTransaction(db.file, db.header)
+		tx, err := NewTransaction(db.file, db.header, nil)
 		if err != nil {
 			t.Fatalf("Failed to create transaction: %v", err)
 		}
@@ -3303,7 +4129,7 @@ func Test_S_018_FR_007_BeginTxReturnsErrorForActiveTransaction(t *testing.T) {
 		}
 		defer db.Close()
 
-		tx, err := NewTransaction(db.file, db.header)
+		tx, err := NewTransaction(db.file, db.header, nil)
 		if err != nil {
 			t.Fatalf("Failed to create transaction: %v", err)
 		}
