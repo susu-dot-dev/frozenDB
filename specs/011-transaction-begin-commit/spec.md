@@ -61,7 +61,7 @@ A user needs protection against invalid state transitions that would corrupt the
 
 - **Transaction**: Container for database rows with state management capabilities, supports Begin() and Commit() operations
 - **PartialDataRow**: Incomplete data row with three progressive states (WithStartControl, WithPayload, WithSavepoint)
-- **NullRow**: Complete row representing null operation with uuid.Nil key and NR end control
+- **NullRow**: Complete row representing null operation with UUIDv7 key (timestamp equals max_timestamp, other fields zero) and NR end control
 - **InvalidActionError**: Error type returned for invalid state transitions and prohibited operations
 
 ### Spec Testing Requirements

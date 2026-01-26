@@ -36,7 +36,7 @@ Implementation of a NullRow struct that provides validation, marshaling, and unm
 - [x] **Immutability First**: NullRow struct is immutable with fixed fields following append-only pattern
 - [x] **Data Integrity**: Parity bytes and validation ensure corruption detection for NullRows
 - [x] **Correctness Over Performance**: Validation prioritized over speed, <1ms target is achievable without sacrificing correctness
-- [x] **Chronological Ordering**: NullRows use uuid.Nil and are excluded from timestamp ordering validation
+- [x] **Chronological Ordering**: NullRows use UUIDv7 with timestamp equal to max_timestamp and follow timestamp ordering requirements
 - [x] **Concurrent Read-Write Safety**: NullRow operations are thread-safe and don't interfere with concurrent reads
 - [x] **Single-File Architecture**: NullRows integrate with existing single-file database format
 - [x] **Spec Test Compliance**: All 13 functional requirements have corresponding spec tests in null_row_spec_test.go

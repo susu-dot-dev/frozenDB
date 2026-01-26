@@ -60,7 +60,7 @@ Base entity for all row types in frozenDB.
 **Common Fields:**
 - `startControl`: Single byte (`T`, `R`, `C`, `N`)
 - `endControl`: Two bytes per EndControl specification
-- `uuid`: UUIDv7 key (except NullRow uses uuid.Nil)
+- `uuid`: UUIDv7 key (NullRow uses UUIDv7 with timestamp equal to max_timestamp, other fields zero)
 - `value`: JSON string value (empty for NullRow)
 - `sentinels`: ROW_START (0x1F) and ROW_END (0x0A)
 

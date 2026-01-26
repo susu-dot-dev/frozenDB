@@ -16,13 +16,13 @@ Represents the UUID-only payload for NullRows following the RowPayload interface
 
 ```go
 type NullRowPayload struct {
-    Key uuid.UUID // Always uuid.Nil for null rows
+    Key uuid.UUID // UUIDv7 with timestamp = max_timestamp, other fields zero
 }
 ```
 
 **Methods:**
-- `MarshalText() ([]byte, error)`: Returns Base64-encoded uuid.Nil
-- `UnmarshalText([]byte) error`: Validates UUID equals uuid.Nil
+- `MarshalText() ([]byte, error)`: Returns Base64-encoded UUIDv7 with timestamp = max_timestamp, other fields zero
+- `UnmarshalText([]byte) error`: Validates UUID timestamp equals max_timestamp and other fields are zero
 
 ## Usage Pattern
 
@@ -45,7 +45,7 @@ nullRow := &frozendb.NullRow{
 **Requirements:**
 - Must set StartControl to START_TRANSACTION ('T')
 - Must set EndControl to EndControl{'N', 'R'} (null row)
-- Must create NullRowPayload with Key = uuid.Nil
+- Must create NullRowPayload with Key having timestamp = max_timestamp, other fields zero
 - baseRow handles row_size validation automatically
 
 ## Validation Methods
@@ -65,7 +65,7 @@ func (nr *NullRow) Validate() error
 
 **Validation Rules:**
 - start_control must equal 'T'
-- uuid_base64 must equal "AAAAAAAAAAAAAAAAAAAAAA=="
+- uuid_base64 must be a UUIDv7 with timestamp equal to max_timestamp, all other fields zero
 - end_control must equal []byte{'N', 'R'}
 
 ## Serialization Methods
@@ -96,7 +96,7 @@ Position:  [0]    [1]    [2..25]         [26..N-6]        [N-5..N-4]    [N-3..N-
 Note: baseRow automatically handles:
 - ROW_START (0x1F) and ROW_END (0x0A) sentinels
 - StartControl and EndControl placement
-- Payload marshaling (uuid.Nil Base64-encoded for NullRow)
+- Payload marshaling (UUIDv7 with timestamp = max_timestamp, other fields zero, Base64-encoded for NullRow)
 - Padding calculation and application
 - Parity byte calculation
 
@@ -120,7 +120,7 @@ func (nr *NullRow) UnmarshalText(text []byte) error
 - baseRow.UnmarshalText() automatically verifies:
   - ROW_START (0x1F) and ROW_END (0x0A) sentinels
   - StartControl and EndControl values
-  - Payload structure (UUID must equal uuid.Nil for NullRow)
+  - Payload structure (UUID timestamp must equal max_timestamp, other fields must be zero for NullRow)
   - Parity byte calculations
 - Additional NullRow-specific validation performed afterward
 

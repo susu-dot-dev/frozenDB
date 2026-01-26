@@ -13,9 +13,9 @@ Represents a null operation row in frozenDB file format. NullRows are single-row
 
 ```go
 // NullRowPayload contains the payload data for a NullRow.
-// NullRows have UUID (always nil) but no user value data.
+// NullRows have UUID with timestamp equal to max_timestamp, other fields zero, but no user value data.
 type NullRowPayload struct {
-    Key uuid.UUID // Always uuid.Nil for null rows
+    Key uuid.UUID // UUIDv7 with timestamp = max_timestamp, other fields zero
 }
 
 // NullRow represents a null operation row using baseRow for common functionality.
@@ -35,9 +35,9 @@ The NullRow uses the baseRow[T] generic foundation with these components:
 ### NullRowPayload Behavior
 
 Since NullRows represent null operations with UUID only:
-- **MarshalText()**: Returns Base64-encoded uuid.Nil ("AAAAAAAAAAAAAAAAAAAAAA==")
-- **UnmarshalText()**: Validates UUID is uuid.Nil
-- **Validation**: Key must equal uuid.Nil
+- **MarshalText()**: Returns Base64-encoded UUIDv7 with timestamp = max_timestamp, other fields zero
+- **UnmarshalText()**: Validates UUID timestamp equals max_timestamp and other fields are zero
+- **Validation**: Key timestamp must equal max_timestamp, all other UUID fields must be zero
 
 ### Relationships
 
@@ -49,7 +49,7 @@ Since NullRows represent null operations with UUID only:
 
 1. **Start Control Validation**: Must be START_TRANSACTION ('T')
 2. **End Control Validation**: Must be EndControl{'N', 'R'} (null row)
-3. **Payload Validation**: NullRowPayload.Key must equal uuid.Nil
+3. **Payload Validation**: NullRowPayload.Key must have timestamp equal to max_timestamp, with all other UUID fields set to zero
 4. **Parity Validation**: LRC calculated automatically by baseRow
 5. **Row Size Validation**: Handled automatically by baseRow with proper padding
 
@@ -67,7 +67,7 @@ NullRow has no state transitions - it's an immutable structure once created. The
 - **Fixed Width**: baseRow handles exact row_size matching
 - **Single Transaction**: Each NullRow represents one complete transaction
 - **Position**: Can only appear where new transactions are allowed
-- **Nil UUID Payload**: NullRowPayload contains uuid.Nil but no value data
+- **Timestamp UUID Payload**: NullRowPayload contains UUIDv7 with timestamp = max_timestamp, other fields zero, but no value data
 
 ### API Methods
 

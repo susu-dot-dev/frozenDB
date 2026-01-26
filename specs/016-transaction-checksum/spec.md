@@ -65,7 +65,7 @@ When the database automatically inserts checksum rows during transaction writes,
 ### Key Entities
 
 - **DataRow**: Complete, fixed-width row containing a key-value pair with start_control 'T' or 'R'
-- **NullRow**: Complete, fixed-width row with start_control 'T', uuid.Nil, and end_control 'NR'
+- **NullRow**: Complete, fixed-width row with start_control 'T', UUIDv7 (timestamp equals max_timestamp, other fields zero), and end_control 'NR'
 - **PartialDataRow**: Incomplete row that exists only as the last row in the file, excluded from checksum counting
 - **ChecksumRow**: Fixed-width integrity-checking row with start_control 'C' and end_control 'CS' written at 10,000-row intervals
 

@@ -28,7 +28,7 @@ This document consolidates research findings for implementing the Finder interfa
 
 ### Row Types and Control Bytes
 - **DataRow**: Start control `'T'` or `'R'`, end controls `TC`, `RE`, `SC`, `SE`, `R0-R9`, `S0-S9`
-- **NullRow**: Start control `'T'`, end control `'NR'`, UUID is always `uuid.Nil`
+- **NullRow**: Start control `'T'`, end control `'NR'`, UUID is UUIDv7 with timestamp equal to max_timestamp, other fields zero
 - **ChecksumRow**: Start control `'C'`, end control `'CS'`, never in transactions
 - **PartialDataRow**: Only at file end, progressive states
 
