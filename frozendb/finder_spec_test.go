@@ -67,7 +67,6 @@ func Test_S_023_FR_002_O1_Time_Complexity(t *testing.T) {
 	}
 
 	// Add many rows to ensure we're testing with a non-trivial database
-	// Close and reopen between transactions to avoid writer conflicts
 	for i := 0; i < 100; i++ {
 		tx, err := db.BeginTx()
 		if err != nil {
@@ -82,14 +81,6 @@ func Test_S_023_FR_002_O1_Time_Complexity(t *testing.T) {
 		if err := tx.Commit(); err != nil {
 			db.Close()
 			t.Fatalf("Failed to commit: %v", err)
-		}
-		// Close and reopen to avoid writer conflicts
-		if err := db.Close(); err != nil {
-			t.Fatalf("Failed to close database: %v", err)
-		}
-		db, err = NewFrozenDB(dbPath, MODE_WRITE, FinderStrategySimple)
-		if err != nil {
-			t.Fatalf("Failed to reopen database: %v", err)
 		}
 	}
 
@@ -240,70 +231,41 @@ func Test_S_023_FR_004_Updates_On_Commit(t *testing.T) {
 		t.Errorf("MaxTimestamp after commit: got %d, want %d", maxTsAfter, expectedTs)
 	}
 
-	// Close database before reopening
-	if err := db.Close(); err != nil {
-		t.Fatalf("Failed to close database: %v", err)
-	}
-
-	// Close and reopen to get updated finder
-	if err := db.Close(); err != nil {
-		t.Fatalf("Failed to close database: %v", err)
-	}
-
-	// Reopen database to get updated finder
-	db2, err := NewFrozenDB(dbPath, MODE_WRITE, FinderStrategySimple)
-	if err != nil {
-		t.Fatalf("Failed to reopen database: %v", err)
-	}
-	finder2 := db2.finder
-
 	// Add another row with a newer timestamp
-	tx2, err := db2.BeginTx()
+	tx2, err := db.BeginTx()
 	if err != nil {
-		db2.Close()
+		db.Close()
 		t.Fatalf("Failed to begin second transaction: %v", err)
 	}
 
 	key2 := uuid.Must(uuid.NewV7())
 	if err := tx2.AddRow(key2, json.RawMessage(`{"value":"test2"}`)); err != nil {
 		tx2.Rollback(0)
-		db2.Close()
+		db.Close()
 		t.Fatalf("Failed to add second row: %v", err)
 	}
 
 	if err := tx2.Commit(); err != nil {
-		db2.Close()
+		db.Close()
 		t.Fatalf("Failed to commit second transaction: %v", err)
 	}
 
 	// MaxTimestamp should update to the newer timestamp
-	maxTsAfter2 := finder2.MaxTimestamp()
+	maxTsAfter2 := finder.MaxTimestamp()
 	expectedTs2 := extractUUIDv7Timestamp(key2)
 	if maxTsAfter2 < expectedTs2 {
 		t.Errorf("MaxTimestamp after second commit: got %d, want at least %d", maxTsAfter2, expectedTs2)
 	}
 
-	// Close and reopen for third transaction
-	if err := db2.Close(); err != nil {
-		t.Fatalf("Failed to close database: %v", err)
-	}
-
-	// Reopen database for third transaction
-	db3, err := NewFrozenDB(dbPath, MODE_WRITE, FinderStrategySimple)
-	if err != nil {
-		t.Fatalf("Failed to reopen database: %v", err)
-	}
-	finder3 := db3.finder
-
 	// Test with null row (empty transaction commit)
-	tx3, err := db3.BeginTx()
+	tx3, err := db.BeginTx()
 	if err != nil {
-		db3.Close()
+		db.Close()
 		t.Fatalf("Failed to begin third transaction: %v", err)
 	}
 
 	if err := tx3.Commit(); err != nil {
-		db3.Close()
+		db.Close()
 		t.Fatalf("Failed to commit empty transaction: %v", err)
 	}
 
@@ -311,12 +273,12 @@ func Test_S_023_FR_004_Updates_On_Commit(t *testing.T) {
 	// Actually, null rows might have a timestamp from when they were created
 	// But according to the spec, null rows contribute to MaxTimestamp
 	// Let's check that MaxTimestamp doesn't decrease
-	maxTsAfter3 := finder3.MaxTimestamp()
+	maxTsAfter3 := finder.MaxTimestamp()
 	if maxTsAfter3 < maxTsAfter2 {
 		t.Errorf("MaxTimestamp after null row commit decreased: got %d, was %d", maxTsAfter3, maxTsAfter2)
 	}
 
-	if err := db3.Close(); err != nil {
+	if err := db.Close(); err != nil {
 		t.Fatalf("Failed to close database: %v", err)
 	}
 

@@ -2144,13 +2144,12 @@ func Test_S_020_FR_007_InvalidDataErrorTypeMismatch(t *testing.T) {
 	}
 
 	// Test another type mismatch - stored as int, retrieved as string
-	// Close and reopen database in write mode for second transaction
+	// Close read connection and reopen in write mode for second transaction
 	db.Close()
 	db, err = NewFrozenDB(testPath, MODE_WRITE, FinderStrategySimple)
 	if err != nil {
 		t.Fatalf("Failed to reopen database for second transaction: %v", err)
 	}
-	defer db.Close()
 
 	// Begin a new transaction
 	tx2, err := db.BeginTx()
@@ -2331,12 +2330,14 @@ func Test_S_020_FR_009_ImmediateVisibilityAfterCommitRollback(t *testing.T) {
 		Value int    `json:"value"`
 	}
 
-	// Test case 1: Immediate visibility after commit (within same FrozenDB instance)
+	// Open database once for all test cases
 	db, err := NewFrozenDB(testPath, MODE_WRITE, FinderStrategySimple)
 	if err != nil {
 		t.Fatalf("Failed to open database: %v", err)
 	}
+	defer db.Close()
 
+	// Test case 1: Immediate visibility after commit (within same FrozenDB instance)
 	tx, err := db.BeginTx()
 	if err != nil {
 		t.Fatalf("Failed to begin transaction: %v", err)
@@ -2366,14 +2367,7 @@ func Test_S_020_FR_009_ImmediateVisibilityAfterCommitRollback(t *testing.T) {
 		t.Errorf("Data mismatch after commit: expected %+v, got %+v", data1, retrievedData1)
 	}
 
-	db.Close()
-
 	// Test case 2: Immediate visibility after rollback (key should not be found, within same instance)
-	db, err = NewFrozenDB(testPath, MODE_WRITE, FinderStrategySimple)
-	if err != nil {
-		t.Fatalf("Failed to open database for rollback test: %v", err)
-	}
-
 	tx, err = db.BeginTx()
 	if err != nil {
 		t.Fatalf("Failed to begin transaction for rollback test: %v", err)
@@ -2405,15 +2399,7 @@ func Test_S_020_FR_009_ImmediateVisibilityAfterCommitRollback(t *testing.T) {
 		t.Errorf("Expected KeyNotFoundError after rollback, got: %T", err)
 	}
 
-	db.Close()
-
 	// Test case 3: Immediate visibility after partial rollback (within same instance)
-	db, err = NewFrozenDB(testPath, MODE_WRITE, FinderStrategySimple)
-	if err != nil {
-		t.Fatalf("Failed to open database for partial rollback test: %v", err)
-	}
-	defer db.Close()
-
 	tx, err = db.BeginTx()
 	if err != nil {
 		t.Fatalf("Failed to begin transaction for partial rollback test: %v", err)
