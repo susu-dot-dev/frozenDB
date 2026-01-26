@@ -24,12 +24,14 @@ type Data struct {
 //   - Close: Closes the file
 //   - SetWriter: Sets write channel for appending data
 //   - GetMode: Returns the access mode ("read" or "write")
+//   - WriterClosed: Waits for writer goroutine to complete (returns immediately in read mode)
 type DBFile interface {
 	Read(start int64, size int32) ([]byte, error)
 	Size() int64
 	Close() error
 	SetWriter(dataChan <-chan Data) error
 	GetMode() string
+	WriterClosed()
 }
 
 type FileManager struct {
@@ -169,6 +171,20 @@ func (fm *FileManager) Size() int64 {
 
 func (fm *FileManager) GetMode() string {
 	return fm.mode
+}
+
+// WriterClosed waits for the writer goroutine to complete.
+// This method blocks until the writer finishes processing all queued writes and clears
+// the writer state, ensuring transaction completion is atomic.
+// If the DBFile is in read mode, returns immediately without waiting.
+func (fm *FileManager) WriterClosed() {
+	// If in read mode, return immediately (no writer to wait for)
+	if fm.mode == MODE_READ {
+		return
+	}
+
+	// Wait for writer goroutine to complete
+	fm.writerWg.Wait()
 }
 
 func (fm *FileManager) Close() error {

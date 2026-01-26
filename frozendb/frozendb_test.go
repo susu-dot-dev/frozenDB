@@ -87,6 +87,10 @@ func (m *mockGetDBFile) GetMode() string {
 	return m.mode
 }
 
+func (m *mockGetDBFile) WriterClosed() {
+	// Mock implementation - return immediately (no writer to wait for)
+}
+
 // Simulate closing the file mid-operation
 func (m *mockGetDBFile) simulateClose() {
 	m.mu.Lock()

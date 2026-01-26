@@ -47,6 +47,10 @@ func (m *mockSimpleFinderDBFile) GetMode() string {
 	return MODE_READ
 }
 
+func (m *mockSimpleFinderDBFile) WriterClosed() {
+	// Mock implementation - return immediately (no writer to wait for)
+}
+
 // Helper to create a mock DBFile with given data
 func newMockDBFile(data []byte) *mockSimpleFinderDBFile {
 	return &mockSimpleFinderDBFile{

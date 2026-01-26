@@ -291,16 +291,8 @@ func Test_S_019_FR_003_GetTransactionStartReturnsCorrectIndex(t *testing.T) {
 		t.Fatalf("Failed to commit transaction 1: %v", err)
 	}
 
-	db.Close()
-
-	// Reopen for Transaction 2
-	db2, err := NewFrozenDB(dbPath, MODE_WRITE, FinderStrategySimple)
-	if err != nil {
-		t.Fatalf("Failed to reopen database: %v", err)
-	}
-
 	// Transaction 2: 2 rows
-	tx2, err := db2.BeginTx()
+	tx2, err := db.BeginTx()
 	if err != nil {
 		t.Fatalf("Failed to begin transaction 2: %v", err)
 	}
@@ -313,7 +305,9 @@ func Test_S_019_FR_003_GetTransactionStartReturnsCorrectIndex(t *testing.T) {
 		t.Fatalf("Failed to commit transaction 2: %v", err)
 	}
 
-	db2.Close()
+	if err := db.Close(); err != nil {
+		t.Fatalf("Failed to close database: %v", err)
+	}
 
 	// Open database and create finder
 	dbFile, err := NewDBFile(dbPath, MODE_READ)
@@ -385,16 +379,8 @@ func Test_S_019_FR_004_GetTransactionEndReturnsCorrectIndex(t *testing.T) {
 		t.Fatalf("Failed to commit transaction 1: %v", err)
 	}
 
-	db2.Close() // Close after first transaction
-
-	// Reopen for Transaction 2
-	db3, err := NewFrozenDB(dbPath, MODE_WRITE, FinderStrategySimple)
-	if err != nil {
-		t.Fatalf("Failed to reopen database: %v", err)
-	}
-
 	// Transaction 2: 2 rows
-	tx2, err := db3.BeginTx()
+	tx2, err := db2.BeginTx()
 	if err != nil {
 		t.Fatalf("Failed to begin transaction 2: %v", err)
 	}
@@ -407,7 +393,9 @@ func Test_S_019_FR_004_GetTransactionEndReturnsCorrectIndex(t *testing.T) {
 		t.Fatalf("Failed to commit transaction 2: %v", err)
 	}
 
-	db3.Close() // Close after second transaction
+	if err := db2.Close(); err != nil {
+		t.Fatalf("Failed to close database: %v", err)
+	}
 
 	// Open database and create finder
 	dbFile, err := NewDBFile(dbPath, MODE_READ)
@@ -748,16 +736,8 @@ func Test_S_019_FR_009_HandlesAllRowTypes(t *testing.T) {
 		t.Fatalf("Failed to commit transaction 1: %v", err)
 	}
 
-	db.Close() // Close after first transaction
-
-	// Reopen for transaction 2
-	db2, err := NewFrozenDB(dbPath, MODE_WRITE, FinderStrategySimple)
-	if err != nil {
-		t.Fatalf("Failed to reopen database for tx2: %v", err)
-	}
-
 	// Add null row (empty transaction)
-	tx2, err := db2.BeginTx()
+	tx2, err := db.BeginTx()
 	if err != nil {
 		t.Fatalf("Failed to begin transaction 2: %v", err)
 	}
@@ -765,16 +745,8 @@ func Test_S_019_FR_009_HandlesAllRowTypes(t *testing.T) {
 		t.Fatalf("Failed to commit transaction 2: %v", err)
 	}
 
-	db2.Close() // Close after second transaction
-
-	// Reopen for transaction 3
-	db3, err := NewFrozenDB(dbPath, MODE_WRITE, FinderStrategySimple)
-	if err != nil {
-		t.Fatalf("Failed to reopen database for tx3: %v", err)
-	}
-
 	// Add more data rows
-	tx3, err := db3.BeginTx()
+	tx3, err := db.BeginTx()
 	if err != nil {
 		t.Fatalf("Failed to begin transaction 3: %v", err)
 	}
@@ -788,7 +760,9 @@ func Test_S_019_FR_009_HandlesAllRowTypes(t *testing.T) {
 		t.Fatalf("Failed to commit transaction 3: %v", err)
 	}
 
-	db3.Close() // Close after third transaction
+	if err := db.Close(); err != nil {
+		t.Fatalf("Failed to close database: %v", err)
+	}
 
 	// Open database and create finder
 	dbFile, err := NewDBFile(dbPath, MODE_READ)
@@ -887,16 +861,8 @@ func Test_S_019_FR_010_TransactionBoundaryDetection(t *testing.T) {
 		t.Fatalf("Failed to commit transaction 1: %v", err)
 	}
 
-	db.Close() // Close after first transaction
-
-	// Reopen for transaction 2
-	db2, err := NewFrozenDB(dbPath, MODE_WRITE, FinderStrategySimple)
-	if err != nil {
-		t.Fatalf("Failed to reopen database for tx2: %v", err)
-	}
-
 	// Multi-row transaction with continuation (RE) and commit (TC)
-	tx2, err := db2.BeginTx()
+	tx2, err := db.BeginTx()
 	if err != nil {
 		t.Fatalf("Failed to begin transaction 2: %v", err)
 	}
@@ -910,16 +876,8 @@ func Test_S_019_FR_010_TransactionBoundaryDetection(t *testing.T) {
 		t.Fatalf("Failed to commit transaction 2: %v", err)
 	}
 
-	db2.Close() // Close after second transaction
-
-	// Reopen for transaction 3
-	db3, err := NewFrozenDB(dbPath, MODE_WRITE, FinderStrategySimple)
-	if err != nil {
-		t.Fatalf("Failed to reopen database for tx3: %v", err)
-	}
-
 	// Transaction with savepoint and commit (SE -> SC)
-	tx3, err := db3.BeginTx()
+	tx3, err := db.BeginTx()
 	if err != nil {
 		t.Fatalf("Failed to begin transaction 3: %v", err)
 	}
@@ -933,7 +891,9 @@ func Test_S_019_FR_010_TransactionBoundaryDetection(t *testing.T) {
 		t.Fatalf("Failed to commit transaction 3: %v", err)
 	}
 
-	db3.Close() // Close after third transaction
+	if err := db.Close(); err != nil {
+		t.Fatalf("Failed to close database: %v", err)
+	}
 
 	// Open database and create finder
 	dbFile, err := NewDBFile(dbPath, MODE_READ)

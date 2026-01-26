@@ -683,6 +683,9 @@ func (tx *Transaction) Commit() error {
 			tx.writeChan = nil
 		}
 
+		// Wait for writer to complete before returning to eliminate race condition
+		tx.db.WriterClosed()
+
 		return nil
 	}
 
@@ -732,6 +735,9 @@ func (tx *Transaction) Commit() error {
 		close(tx.writeChan)
 		tx.writeChan = nil
 	}
+
+	// Wait for writer to complete before returning to eliminate race condition
+	tx.db.WriterClosed()
 
 	return nil
 }
@@ -966,6 +972,9 @@ func (tx *Transaction) Rollback(savepointId int) error {
 			tx.writeChan = nil
 		}
 
+		// Wait for writer to complete before returning to eliminate race condition
+		tx.db.WriterClosed()
+
 		return nil
 	}
 
@@ -1008,6 +1017,9 @@ func (tx *Transaction) Rollback(savepointId int) error {
 		close(tx.writeChan)
 		tx.writeChan = nil
 	}
+
+	// Wait for writer to complete before returning to eliminate race condition
+	tx.db.WriterClosed()
 
 	return nil
 }
