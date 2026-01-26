@@ -24,7 +24,7 @@ type Transaction struct {
 	empty           *NullRow        // Empty null row after successful commit
 	last            *PartialDataRow // Current partial data row being built
 	Header          *Header         // Header reference for row creation
-	maxTimestamp    int64           // Maximum timestamp seen in this transaction for UUID ordering
+	maxTimestamp    int64           // Maximum timestamp within current transaction (for ordering validation)
 	mu              sync.RWMutex    // Mutex for thread safety
 	writeChan       chan<- Data     // Write channel for sending Data structs to FileManager
 	rowBytesWritten int             // Tracks how many bytes of current PartialDataRow have been written (internal, not initialized by caller)
@@ -43,7 +43,7 @@ const (
 // Parameters:
 //   - db: DBFile interface for reading rows and calculating checksums
 //   - header: Validated header reference containing row_size and configuration
-//   - finder: Optional Finder interface for notifying of new rows (can be nil)
+//   - finder: Finder interface for notifying of new rows (required, cannot be nil)
 //
 // Returns:
 //   - *Transaction: New transaction instance
@@ -55,6 +55,9 @@ const (
 func NewTransaction(db DBFile, header *Header, finder Finder) (*Transaction, error) {
 	if db == nil {
 		return nil, NewInvalidInputError("DBFile cannot be nil", nil)
+	}
+	if finder == nil {
+		return nil, NewInvalidInputError("Finder cannot be nil", nil)
 	}
 	// Create write channel internally
 	writeChan := make(chan Data, 100)
@@ -102,14 +105,6 @@ func (tx *Transaction) GetEmptyRow() *NullRow {
 		return nil
 	}
 	return tx.empty
-}
-
-// GetMaxTimestamp returns the current maximum timestamp seen in this transaction.
-// This value is used for UUID timestamp ordering validation.
-func (tx *Transaction) GetMaxTimestamp() int64 {
-	tx.mu.RLock()
-	defer tx.mu.RUnlock()
-	return tx.maxTimestamp
 }
 
 // IsTombstoned returns true if the transaction has been tombstoned due to a write failure.
@@ -338,10 +333,6 @@ func (tx *Transaction) writeBytes(fullBytes []byte) error {
 // notifyFinderRowAdded notifies the finder that a complete row was added, if finder is set.
 // Should be called after a complete row (DataRow, NullRow, or ChecksumRow) is successfully written.
 func (tx *Transaction) notifyFinderRowAdded(row *RowUnion) error {
-	if tx.finder == nil {
-		return nil
-	}
-
 	// Calculate the row index based on current file size
 	fileSize := tx.db.Size()
 	rowSize := tx.Header.GetRowSize()
@@ -484,8 +475,15 @@ func (tx *Transaction) AddRow(key uuid.UUID, value json.RawMessage) error {
 	newTimestamp := extractUUIDv7Timestamp(key)
 	skewMs := int64(tx.Header.GetSkewMs())
 
+	// Get maxTimestamp (max of finder's committed rows and transaction's uncommitted rows)
+	finderMax := tx.finder.MaxTimestamp()
+	maxTimestamp := finderMax
+	if tx.maxTimestamp > finderMax {
+		maxTimestamp = tx.maxTimestamp
+	}
+
 	// Validate: new_timestamp + skew_ms > max_timestamp
-	if newTimestamp+skewMs <= tx.maxTimestamp {
+	if newTimestamp+skewMs <= maxTimestamp {
 		return NewKeyOrderingError("UUID timestamp violates ordering constraint: new_timestamp + skew_ms must be > max_timestamp", nil)
 	}
 
@@ -576,7 +574,8 @@ func (tx *Transaction) AddRow(key uuid.UUID, value json.RawMessage) error {
 		tx.last = newPdr
 	}
 
-	// FR-015: Update max_timestamp
+	// Update transaction's maxTimestamp for ordering validation
+	// This tracks the max within the current transaction (uncommitted rows)
 	if newTimestamp > tx.maxTimestamp {
 		tx.maxTimestamp = newTimestamp
 	}
@@ -1174,6 +1173,10 @@ func (tx *Transaction) Validate() error {
 
 	if tx.writeChan == nil {
 		return NewInvalidInputError("Write channel cannot be nil", nil)
+	}
+
+	if tx.finder == nil {
+		return NewInvalidInputError("Finder cannot be nil", nil)
 	}
 
 	if len(tx.rows) != 0 || tx.empty != nil || tx.last != nil {

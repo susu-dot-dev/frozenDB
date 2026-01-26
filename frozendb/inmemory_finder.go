@@ -22,6 +22,7 @@ type InMemoryFinder struct {
 	rowSize          int32
 	size             int64
 	lastTxStart      int64
+	maxTimestamp     int64
 }
 
 // NewInMemoryFinder builds an InMemoryFinder by scanning the database and
@@ -52,6 +53,7 @@ func NewInMemoryFinder(dbFile DBFile, rowSize int32) (*InMemoryFinder, error) {
 func (imf *InMemoryFinder) buildIndex() error {
 	totalRows := (imf.size - int64(HEADER_SIZE)) / int64(imf.rowSize)
 	var currentTxStart int64 = -1
+	imf.maxTimestamp = 0
 	for i := int64(0); i < totalRows; i++ {
 		offset := int64(HEADER_SIZE) + i*int64(imf.rowSize)
 		rowBytes, err := imf.dbFile.Read(offset, imf.rowSize)
@@ -79,12 +81,23 @@ func (imf *InMemoryFinder) buildIndex() error {
 			if key != uuid.Nil {
 				if err := ValidateUUIDv7(key); err == nil {
 					imf.uuidIndex[key] = i
+					// Update maxTimestamp for complete DataRow
+					timestamp := extractUUIDv7Timestamp(key)
+					if timestamp > imf.maxTimestamp {
+						imf.maxTimestamp = timestamp
+					}
 				}
 			}
 		} else if ru.NullRow != nil {
 			currentTxStart = i
 			imf.transactionStart[i] = i
 			imf.transactionEnd[i] = i
+			// Update maxTimestamp for NullRow - extract timestamp and compare, same as DataRow
+			key := ru.NullRow.GetKey()
+			timestamp := extractUUIDv7Timestamp(key)
+			if timestamp > imf.maxTimestamp {
+				imf.maxTimestamp = timestamp
+			}
 		}
 	}
 	imf.lastTxStart = currentTxStart
@@ -188,15 +201,34 @@ func (imf *InMemoryFinder) OnRowAdded(index int64, row *RowUnion) error {
 		if key != uuid.Nil {
 			if err := ValidateUUIDv7(key); err == nil {
 				imf.uuidIndex[key] = index
+				// Update maxTimestamp for complete DataRow
+				timestamp := extractUUIDv7Timestamp(key)
+				if timestamp > imf.maxTimestamp {
+					imf.maxTimestamp = timestamp
+				}
 			}
 		}
 	} else if row.NullRow != nil {
 		imf.lastTxStart = index
 		imf.transactionStart[index] = index
 		imf.transactionEnd[index] = index
+		// Update maxTimestamp for NullRow - extract timestamp and compare, same as DataRow
+		key := row.NullRow.GetKey()
+		timestamp := extractUUIDv7Timestamp(key)
+		if timestamp > imf.maxTimestamp {
+			imf.maxTimestamp = timestamp
+		}
 	}
 	imf.size += int64(imf.rowSize)
 	return nil
+}
+
+// MaxTimestamp returns the maximum timestamp among all complete data and null rows.
+// Implements O(1) time complexity by returning the cached maxTimestamp value.
+func (imf *InMemoryFinder) MaxTimestamp() int64 {
+	imf.mu.RLock()
+	defer imf.mu.RUnlock()
+	return imf.maxTimestamp
 }
 
 func (imf *InMemoryFinder) validateIndex(index int64) error {

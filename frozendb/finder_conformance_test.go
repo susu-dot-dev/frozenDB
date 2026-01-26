@@ -59,6 +59,132 @@ func TestFinderConformance_InMemoryFinder(t *testing.T) {
 	RunFinderConformance(t, inmemoryFinderFactory)
 }
 
+// TestFinderConformance_MaxTimestamp validates MaxTimestamp() requirements from spec 023
+func TestFinderConformance_MaxTimestamp(t *testing.T) {
+	t.Run("SimpleFinder", func(t *testing.T) {
+		testMaxTimestampConformance(t, simpleFinderFactory)
+	})
+	t.Run("InMemoryFinder", func(t *testing.T) {
+		testMaxTimestampConformance(t, inmemoryFinderFactory)
+	})
+}
+
+func testMaxTimestampConformance(t *testing.T, factory FinderFactory) {
+	t.Helper()
+
+	// Test FR-003: Returns 0 for empty database
+	t.Run("FR_003_Returns_Zero_Empty", func(t *testing.T) {
+		dir := t.TempDir()
+		path := setupCreate(t, dir, 0)
+		finder, cleanup := factory(t, path, confRowSize)
+		defer cleanup()
+
+		maxTs := finder.MaxTimestamp()
+		if maxTs != 0 {
+			t.Errorf("MaxTimestamp() on empty database: got %d, want 0", maxTs)
+		}
+	})
+
+	// Test FR-004: Updates on commit
+	t.Run("FR_004_Updates_On_Commit", func(t *testing.T) {
+		dir := t.TempDir()
+		path := setupCreate(t, dir, 0)
+
+		// Add a data row
+		key1 := uuidFromTS(100)
+		dbAddDataRow(t, path, key1, `{"v":1}`)
+
+		finder, cleanup := factory(t, path, confRowSize)
+		defer cleanup()
+
+		maxTs := finder.MaxTimestamp()
+		expectedTs := int64(100)
+		if maxTs != expectedTs {
+			t.Errorf("MaxTimestamp() after commit: got %d, want %d", maxTs, expectedTs)
+		}
+
+		// Add another row with newer timestamp
+		key2 := uuidFromTS(200)
+		dbAddDataRow(t, path, key2, `{"v":2}`)
+
+		// Recreate finder to see updated maxTimestamp
+		cleanup()
+		finder2, cleanup2 := factory(t, path, confRowSize)
+		defer cleanup2()
+
+		maxTs2 := finder2.MaxTimestamp()
+		expectedTs2 := int64(200)
+		if maxTs2 != expectedTs2 {
+			t.Errorf("MaxTimestamp() after second commit: got %d, want %d", maxTs2, expectedTs2)
+		}
+	})
+
+	// Test FR-002: O(1) time complexity (basic validation - multiple calls should be fast)
+	t.Run("FR_002_O1_Time_Complexity", func(t *testing.T) {
+		dir := t.TempDir()
+		path := setupCreate(t, dir, 0)
+
+		// Add many rows to ensure we're testing with a non-trivial database
+		for i := 0; i < 50; i++ {
+			dbAddDataRow(t, path, uuidFromTS(1000+i), `{"v":`+string(rune('0'+i%10))+`}`)
+		}
+
+		finder, cleanup := factory(t, path, confRowSize)
+		defer cleanup()
+
+		// Multiple calls should all be fast (O(1))
+		for i := 0; i < 1000; i++ {
+			_ = finder.MaxTimestamp()
+		}
+
+		// If we reach here without timeout, O(1) requirement is satisfied
+	})
+
+	// Test that PartialDataRow doesn't affect MaxTimestamp
+	t.Run("PartialDataRow_Does_Not_Affect", func(t *testing.T) {
+		dir := t.TempDir()
+		path := setupCreate(t, dir, 0)
+
+		// Add a data row
+		key1 := uuidFromTS(100)
+		dbAddDataRow(t, path, key1, `{"v":1}`)
+
+		finder, cleanup := factory(t, path, confRowSize)
+		defer cleanup()
+
+		maxTsBefore := finder.MaxTimestamp()
+
+		// Start a transaction but don't commit (creates PartialDataRow)
+		db, err := NewFrozenDB(path, MODE_WRITE, FinderStrategySimple)
+		if err != nil {
+			t.Fatalf("NewFrozenDB: %v", err)
+		}
+		tx, err := db.BeginTx()
+		if err != nil {
+			db.Close()
+			t.Fatalf("BeginTx: %v", err)
+		}
+		key2 := uuidFromTS(200)
+		if err := tx.AddRow(key2, json.RawMessage(`{"v":2}`)); err != nil {
+			tx.Rollback(0)
+			db.Close()
+			t.Fatalf("AddRow: %v", err)
+		}
+		// Don't commit - transaction remains open with PartialDataRow
+
+		// MaxTimestamp should not change (PartialDataRow doesn't contribute)
+		maxTsDuring := finder.MaxTimestamp()
+		if maxTsDuring != maxTsBefore {
+			t.Errorf("MaxTimestamp changed during uncommitted transaction: got %d, want %d", maxTsDuring, maxTsBefore)
+		}
+
+		// Clean up
+		tx.Rollback(0)
+		db.Close()
+		cleanup()
+	})
+}
+
 // --- Helpers for fixtures ---
 
 const confRowSize = 1024

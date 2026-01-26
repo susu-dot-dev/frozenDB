@@ -3180,7 +3180,8 @@ func Test_S_018_FR_001_ScanLastRowForTransactionState(t *testing.T) {
 		}
 		defer db.Close()
 
-		tx, err := NewTransaction(db.file, db.header, nil)
+		mockFinder := &mockFinderWithMaxTimestamp{maxTs: 0}
+		tx, err := NewTransaction(db.file, db.header, mockFinder)
 		if err != nil {
 			t.Fatalf("Failed to create transaction: %v", err)
 		}
@@ -3232,7 +3233,8 @@ func Test_S_018_FR_001_ScanLastRowForTransactionState(t *testing.T) {
 		}
 		defer db.Close()
 
-		tx, err := NewTransaction(db.file, db.header, nil)
+		mockFinder := &mockFinderWithMaxTimestamp{maxTs: 0}
+		tx, err := NewTransaction(db.file, db.header, mockFinder)
 		if err != nil {
 			t.Fatalf("Failed to create transaction: %v", err)
 		}
@@ -3287,7 +3289,8 @@ func Test_S_018_FR_002_CreateTransactionForInProgressState(t *testing.T) {
 		}
 		defer db.Close()
 
-		tx, err := NewTransaction(db.file, db.header, nil)
+		mockFinder := &mockFinderWithMaxTimestamp{maxTs: 0}
+		tx, err := NewTransaction(db.file, db.header, mockFinder)
 		if err != nil {
 			t.Fatalf("Failed to create transaction: %v", err)
 		}
@@ -3381,7 +3384,8 @@ func Test_S_018_FR_008_DetectTransactionByEndControlCharacter(t *testing.T) {
 			}
 			defer db.Close()
 
-			tx, err := NewTransaction(db.file, db.header, nil)
+			mockFinder := &mockFinderWithMaxTimestamp{maxTs: 0}
+			tx, err := NewTransaction(db.file, db.header, mockFinder)
 			if err != nil {
 				t.Fatalf("Failed to create transaction: %v", err)
 			}
@@ -3517,7 +3521,8 @@ func Test_S_018_FR_009_HandlePartialDataRowDuringRecovery(t *testing.T) {
 		}
 		defer db.Close()
 
-		tx, err := NewTransaction(db.file, db.header, nil)
+		mockFinder := &mockFinderWithMaxTimestamp{maxTs: 0}
+		tx, err := NewTransaction(db.file, db.header, mockFinder)
 		if err != nil {
 			t.Fatalf("Failed to create transaction: %v", err)
 		}
@@ -3561,7 +3566,8 @@ func Test_S_018_FR_009_HandlePartialDataRowDuringRecovery(t *testing.T) {
 		}
 		defer db.Close()
 
-		tx, err := NewTransaction(db.file, db.header, nil)
+		mockFinder := &mockFinderWithMaxTimestamp{maxTs: 0}
+		tx, err := NewTransaction(db.file, db.header, mockFinder)
 		if err != nil {
 			t.Fatalf("Failed to create transaction: %v", err)
 		}
@@ -3609,7 +3615,8 @@ func Test_S_018_FR_009_HandlePartialDataRowDuringRecovery(t *testing.T) {
 		}
 		defer db.Close()
 
-		tx, err := NewTransaction(db.file, db.header, nil)
+		mockFinder := &mockFinderWithMaxTimestamp{maxTs: 0}
+		tx, err := NewTransaction(db.file, db.header, mockFinder)
 		if err != nil {
 			t.Fatalf("Failed to create transaction: %v", err)
 		}
@@ -3781,7 +3788,8 @@ func Test_S_018_FR_010_DetectAllValidTransactionEndings(t *testing.T) {
 			}
 			defer db.Close()
 
-			tx, err := NewTransaction(db.file, db.header, nil)
+			mockFinder := &mockFinderWithMaxTimestamp{maxTs: 0}
+			tx, err := NewTransaction(db.file, db.header, mockFinder)
 			if err != nil {
 				t.Fatalf("Failed to create transaction: %v", err)
 			}
@@ -3836,7 +3844,8 @@ func Test_S_018_FR_003_GetActiveTxReturnsCurrentTransaction(t *testing.T) {
 		}
 		defer db.Close()
 
-		tx, err := NewTransaction(db.file, db.header, nil)
+		mockFinder := &mockFinderWithMaxTimestamp{maxTs: 0}
+		tx, err := NewTransaction(db.file, db.header, mockFinder)
 		if err != nil {
 			t.Fatalf("Failed to create transaction: %v", err)
 		}
@@ -3920,7 +3929,8 @@ func Test_S_018_FR_004_GetActiveTxReturnsNilForCommittedTransaction(t *testing.T
 		}
 		defer db.Close()
 
-		tx, err := NewTransaction(db.file, db.header, nil)
+		mockFinder := &mockFinderWithMaxTimestamp{maxTs: 0}
+		tx, err := NewTransaction(db.file, db.header, mockFinder)
 		if err != nil {
 			t.Fatalf("Failed to create transaction: %v", err)
 		}
@@ -3975,7 +3985,8 @@ func Test_S_018_FR_005_GetActiveTxReturnsNilForRolledBackTransaction(t *testing.
 		}
 		defer db.Close()
 
-		tx, err := NewTransaction(db.file, db.header, nil)
+		mockFinder := &mockFinderWithMaxTimestamp{maxTs: 0}
+		tx, err := NewTransaction(db.file, db.header, mockFinder)
 		if err != nil {
 			t.Fatalf("Failed to create transaction: %v", err)
 		}
@@ -4079,7 +4090,8 @@ func Test_S_018_FR_007_BeginTxReturnsErrorForActiveTransaction(t *testing.T) {
 		}
 		defer db.Close()
 
-		tx, err := NewTransaction(db.file, db.header, nil)
+		mockFinder := &mockFinderWithMaxTimestamp{maxTs: 0}
+		tx, err := NewTransaction(db.file, db.header, mockFinder)
 		if err != nil {
 			t.Fatalf("Failed to create transaction: %v", err)
 		}
@@ -4129,7 +4141,8 @@ func Test_S_018_FR_007_BeginTxReturnsErrorForActiveTransaction(t *testing.T) {
 		}
 		defer db.Close()
 
-		tx, err := NewTransaction(db.file, db.header, nil)
+		mockFinder := &mockFinderWithMaxTimestamp{maxTs: 0}
+		tx, err := NewTransaction(db.file, db.header, mockFinder)
 		if err != nil {
 			t.Fatalf("Failed to create transaction: %v", err)
 		}
