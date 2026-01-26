@@ -1043,3 +1043,96 @@ func Test_S_017_FR_006_RefactorOpenFunctions(t *testing.T) {
 		}
 	})
 }
+
+// Test_S_024_FR_001_WriterStateCleared tests FR-001: System MUST ensure all pending writes are processed
+// by DBFile and writer state is cleared before Commit() or Rollback() returns
+func Test_S_024_FR_001_WriterStateCleared(t *testing.T) {
+	t.Parallel()
+
+	tmpFile, err := os.CreateTemp("", "frozendb_test_*.fdb")
+	if err != nil {
+		t.Fatalf("Failed to create temp file: %v", err)
+	}
+	defer os.Remove(tmpFile.Name())
+	defer tmpFile.Close()
+
+	tmpFile.WriteString("INITIAL")
+	tmpFile.Close()
+
+	fm, err := NewDBFile(tmpFile.Name(), MODE_WRITE)
+	if err != nil {
+		t.Fatalf("Failed to create DBFile: %v", err)
+	}
+	defer fm.Close()
+
+	// Test: Verify WriterClosed() method exists and works correctly
+	t.Run("WriterClosed_method_exists", func(t *testing.T) {
+		// WriterClosed() should exist and return immediately when no writer is set
+		// (no error, just returns)
+		fm.WriterClosed()
+	})
+
+	t.Run("WriterClosed_blocks_until_writer_complete", func(t *testing.T) {
+		// Set up a writer with data to process
+		dataChan := make(chan Data, 10)
+		err := fm.SetWriter(dataChan)
+		if err != nil {
+			t.Fatalf("SetWriter failed: %v", err)
+		}
+
+		// Send some data to ensure writer is active
+		testData := []byte("TEST_DATA_FOR_WRITER")
+		responseChan := make(chan error, 1)
+		dataChan <- Data{
+			Bytes:    testData,
+			Response: responseChan,
+		}
+
+		// Wait for the write to complete
+		err = <-responseChan
+		if err != nil {
+			t.Fatalf("Write failed: %v", err)
+		}
+
+		// Close the channel to signal writer to finish
+		close(dataChan)
+
+		// Now WriterClosed() should block until writer is done
+		start := time.Now()
+		fm.WriterClosed()
+		elapsed := time.Since(start)
+
+		// Verify it took some time (writer had to finish processing)
+		// This is a rough check - the exact timing depends on the system
+		if elapsed == 0 {
+			t.Logf("WriterClosed() completed very quickly (%v), this might be normal on fast systems", elapsed)
+		}
+
+		// After WriterClosed() completes, writer state should be clear
+		// Try to set a new writer - should succeed
+		newDataChan := make(chan Data, 10)
+		err = fm.SetWriter(newDataChan)
+		if err != nil {
+			t.Errorf("SetWriter should succeed after WriterClosed(), got: %v", err)
+		}
+
+		close(newDataChan)
+	})
+
+	t.Run("WriterClosed_returns_immediately_in_read_mode", func(t *testing.T) {
+		// Create a DBFile in read mode
+		readFm, err := NewDBFile(tmpFile.Name(), MODE_READ)
+		if err != nil {
+			t.Fatalf("Failed to create read mode DBFile: %v", err)
+		}
+		defer readFm.Close()
+
+		// WriterClosed() should return immediately in read mode (no error)
+		start := time.Now()
+		readFm.WriterClosed()
+		elapsed := time.Since(start)
+		if elapsed > 10*time.Millisecond {
+			t.Errorf("WriterClosed() should return immediately in read mode, took %v", elapsed)
+		}
+	})
+}

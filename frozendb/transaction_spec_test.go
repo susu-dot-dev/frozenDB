@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -46,6 +47,10 @@ func (m *mockDBFile) GetMode() string {
 		return MODE_WRITE // Default to write mode for backward compatibility
 	}
 	return m.mode
+}
+
+func (m *mockDBFile) WriterClosed() {
+	// Mock implementation - return immediately (no writer to wait for)
 }
 
 // Helper function to create a transaction with mock write channel for spec tests
@@ -5109,5 +5114,148 @@ func Test_S_016_US2_RollbackAfterChecksum(t *testing.T) {
 	// Should have 1 row (the one before savepoint)
 	if count != 1 {
 		t.Errorf("Expected 1 committed row after rollback, got %d", count)
+	}
+}
+
+// Test_S_024_FR_002_ImmediateBeginTxAfterCommit tests FR-002: System MUST allow immediate
+// BeginTx() call after successful transaction completion (Commit()) without encountering writer state conflicts
+func Test_S_024_FR_002_ImmediateBeginTxAfterCommit(t *testing.T) {
+	// Create a test database file
+	testPath := t.TempDir() + "/test.fdb"
+	createTestDatabase(t, testPath)
+
+	// Open database in write mode
+	db, err := NewFrozenDB(testPath, MODE_WRITE, FinderStrategySimple)
+	if err != nil {
+		t.Fatalf("Failed to open database: %v", err)
+	}
+	defer db.Close()
+
+	// Create and complete first transaction
+	tx1, err := db.BeginTx()
+	if err != nil {
+		t.Fatalf("Failed to begin first transaction: %v", err)
+	}
+
+	// Add some data
+	key1, err := uuid.NewV7()
+	if err != nil {
+		t.Fatalf("Failed to generate UUIDv7: %v", err)
+	}
+
+	err = tx1.AddRow(key1, json.RawMessage(`{"test":"data1"}`))
+	if err != nil {
+		t.Fatalf("Failed to add row: %v", err)
+	}
+
+	// Commit the transaction
+	err = tx1.Commit()
+	if err != nil {
+		t.Fatalf("Failed to commit transaction: %v", err)
+	}
+
+	// Immediately try to begin a second transaction - should succeed without race condition
+	tx2, err := db.BeginTx()
+	if err != nil {
+		t.Errorf("BeginTx() failed immediately after Commit(): %v", err)
+
+		// Check if it's the specific writer state error we're trying to fix
+		if strings.Contains(err.Error(), "writer already active") ||
+			strings.Contains(err.Error(), "writer already set") {
+			t.Errorf("This appears to be the race condition bug we're trying to fix: %v", err)
+		}
+		return
+	}
+	defer tx2.Rollback(0) // Clean up
+
+	// Verify second transaction is functional
+	key2, err := uuid.NewV7()
+	if err != nil {
+		t.Fatalf("Failed to generate UUIDv7: %v", err)
+	}
+
+	err = tx2.AddRow(key2, json.RawMessage(`{"test":"data2"}`))
+	if err != nil {
+		t.Errorf("Second transaction AddRow() failed: %v", err)
+	}
+
+	// Verify data from first transaction is readable
+	var value json.RawMessage
+	err = db.Get(key1, &value)
+	if err != nil {
+		t.Errorf("Failed to read data from first transaction: %v", err)
+	}
+	if string(value) != `{"test":"data1"}` {
+		t.Errorf("Read wrong value: got %q, want %q", string(value), `{"test":"data1"}`)
+	}
+}
+
+// Test_S_024_FR_002_ImmediateBeginTxAfterRollback tests FR-002: System MUST allow immediate
+// BeginTx() call after successful transaction completion (Rollback()) without encountering writer state conflicts
+func Test_S_024_FR_002_ImmediateBeginTxAfterRollback(t *testing.T) {
+	// Create a test database file
+	testPath := t.TempDir() + "/test.fdb"
+	createTestDatabase(t, testPath)
+
+	// Open database in write mode
+	db, err := NewFrozenDB(testPath, MODE_WRITE, FinderStrategySimple)
+	if err != nil {
+		t.Fatalf("Failed to open database: %v", err)
+	}
+	defer db.Close()
+
+	// Create and complete first transaction
+	tx1, err := db.BeginTx()
+	if err != nil {
+		t.Fatalf("Failed to begin first transaction: %v", err)
+	}
+
+	// Add some data
+	key1, err := uuid.NewV7()
+	if err != nil {
+		t.Fatalf("Failed to generate UUIDv7: %v", err)
+	}
+
+	err = tx1.AddRow(key1, json.RawMessage(`{"test":"data1"}`))
+	if err != nil {
+		t.Fatalf("Failed to add row: %v", err)
+	}
+
+	// Rollback the transaction
+	err = tx1.Rollback(0)
+	if err != nil {
+		t.Fatalf("Failed to rollback transaction: %v", err)
+	}
+
+	// Immediately try to begin a second transaction - should succeed without race condition
+	tx2, err := db.BeginTx()
+	if err != nil {
+		t.Errorf("BeginTx() failed immediately after Rollback(): %v", err)
+
+		// Check if it's the specific writer state error we're trying to fix
+		if strings.Contains(err.Error(), "writer already active") ||
+			strings.Contains(err.Error(), "writer already set") {
+			t.Errorf("This appears to be the race condition bug we're trying to fix: %v", err)
+		}
+		return
+	}
+	defer tx2.Rollback(0) // Clean up
+
+	// Verify second transaction is functional
+	key2, err := uuid.NewV7()
+	if err != nil {
+		t.Fatalf("Failed to generate UUIDv7: %v", err)
+	}
+
+	err = tx2.AddRow(key2, json.RawMessage(`{"test":"data2"}`))
+	if err != nil {
+		t.Errorf("Second transaction AddRow() failed: %v", err)
+	}
+
+	// Verify data from first transaction is NOT readable (it was rolled back)
+	var value2 json.RawMessage
+	err = db.Get(key1, &value2)
+	if err == nil {
+		t.Error("Data from rolled back transaction should not be readable")
 	}
 }

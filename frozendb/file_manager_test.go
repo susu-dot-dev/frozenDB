@@ -1492,3 +1492,174 @@ func TestFileManager_ZeroSizeFile(t *testing.T) {
 		t.Errorf("Size after write = %d, want 5", fm.Size())
 	}
 }
+
+func TestFileManager_WriterClosed(t *testing.T) {
+	t.Parallel()
+
+	t.Run("returns_immediately_when_no_writer_set", func(t *testing.T) {
+		tmpFile, err := os.CreateTemp("", "frozendb_test_*.fdb")
+		if err != nil {
+			t.Fatalf("Failed to create temp file: %v", err)
+		}
+		defer os.Remove(tmpFile.Name())
+		tmpFile.Close()
+
+		fm, err := NewFileManager(tmpFile.Name())
+		if err != nil {
+			t.Fatalf("Failed to create FileManager: %v", err)
+		}
+		defer fm.Close()
+
+		// WriterClosed() should return immediately without error when no writer is set
+		fm.WriterClosed()
+	})
+
+	t.Run("returns_immediately_in_read_mode", func(t *testing.T) {
+		tmpFile, err := os.CreateTemp("", "frozendb_test_*.fdb")
+		if err != nil {
+			t.Fatalf("Failed to create temp file: %v", err)
+		}
+		defer os.Remove(tmpFile.Name())
+		tmpFile.Close()
+
+		fm, err := NewDBFile(tmpFile.Name(), MODE_READ)
+		if err != nil {
+			t.Fatalf("Failed to create DBFile in read mode: %v", err)
+		}
+		defer fm.Close()
+
+		// WriterClosed() should return immediately in read mode without error
+		start := time.Now()
+		fm.WriterClosed()
+		elapsed := time.Since(start)
+		if elapsed > 10*time.Millisecond {
+			t.Errorf("WriterClosed() should return immediately in read mode, took %v", elapsed)
+		}
+	})
+
+	t.Run("waits_for_writer_completion", func(t *testing.T) {
+		tmpFile, err := os.CreateTemp("", "frozendb_test_*.fdb")
+		if err != nil {
+			t.Fatalf("Failed to create temp file: %v", err)
+		}
+		defer os.Remove(tmpFile.Name())
+		tmpFile.Close()
+
+		fm, err := NewDBFile(tmpFile.Name(), MODE_WRITE)
+		if err != nil {
+			t.Fatalf("Failed to create DBFile: %v", err)
+		}
+		defer fm.Close()
+
+		// Set up writer
+		dataChan := make(chan Data, 10)
+		err = fm.SetWriter(dataChan)
+		if err != nil {
+			t.Fatalf("SetWriter failed: %v", err)
+		}
+
+		// Send data to ensure writer is active
+		responseChan := make(chan error, 1)
+		dataChan <- Data{
+			Bytes:    []byte("TEST_DATA"),
+			Response: responseChan,
+		}
+
+		// Wait for write to complete
+		err = <-responseChan
+		if err != nil {
+			t.Fatalf("Write failed: %v", err)
+		}
+
+		// Track when writer finishes
+		writerDone := make(chan bool, 1)
+		go func() {
+			// Close the channel to trigger writer completion
+			close(dataChan)
+			// Call WriterClosed() which should wait
+			fm.WriterClosed()
+			writerDone <- true
+		}()
+
+		// Should receive signal after reasonable time
+		select {
+		case <-writerDone:
+			// Success - writer completed
+		case <-time.After(5 * time.Second):
+			t.Error("WriterClosed() timed out waiting for writer to complete")
+		}
+	})
+
+	t.Run("verifies_writer_state_after_completion", func(t *testing.T) {
+		tmpFile, err := os.CreateTemp("", "frozendb_test_*.fdb")
+		if err != nil {
+			t.Fatalf("Failed to create temp file: %v", err)
+		}
+		defer os.Remove(tmpFile.Name())
+		tmpFile.Close()
+
+		fm, err := NewDBFile(tmpFile.Name(), MODE_WRITE)
+		if err != nil {
+			t.Fatalf("Failed to create DBFile: %v", err)
+		}
+		defer fm.Close()
+
+		// Set up writer and complete it
+		dataChan := make(chan Data, 10)
+		err = fm.SetWriter(dataChan)
+		if err != nil {
+			t.Fatalf("SetWriter failed: %v", err)
+		}
+		close(dataChan)
+
+		// Wait for writer to complete
+		fm.WriterClosed()
+
+		// Should be able to set a new writer
+		newDataChan := make(chan Data, 10)
+		err = fm.SetWriter(newDataChan)
+		if err != nil {
+			t.Errorf("SetWriter should succeed after WriterClosed(), got: %v", err)
+		}
+		close(newDataChan)
+	})
+
+	t.Run("concurrent_calls_safety", func(t *testing.T) {
+		tmpFile, err := os.CreateTemp("", "frozendb_test_*.fdb")
+		if err != nil {
+			t.Fatalf("Failed to create temp file: %v", err)
+		}
+		defer os.Remove(tmpFile.Name())
+		tmpFile.Close()
+
+		fm, err := NewDBFile(tmpFile.Name(), MODE_WRITE)
+		if err != nil {
+			t.Fatalf("Failed to create DBFile: %v", err)
+		}
+		defer fm.Close()
+
+		// Set up writer
+		dataChan := make(chan Data, 10)
+		err = fm.SetWriter(dataChan)
+		if err != nil {
+			t.Fatalf("SetWriter failed: %v", err)
+		}
+
+		// Test concurrent WriterClosed() calls
+		const numGoroutines = 10
+		var wg sync.WaitGroup
+
+		// Close the channel to start writer completion
+		close(dataChan)
+
+		for i := 0; i < numGoroutines; i++ {
+			wg.Add(1)
+			go func(id int) {
+				defer wg.Done()
+				fm.WriterClosed()
+			}(i)
+		}
+
+		wg.Wait()
+	})
+}
