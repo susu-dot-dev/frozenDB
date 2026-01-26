@@ -269,11 +269,42 @@ Finders must propagate underlying database errors while maintaining finder-speci
 - Preserve original error information for debugging
 - Provide clear error messages for invalid usage scenarios
 
-## 8. Implementation Considerations
+## 8. Maximum Timestamp Tracking
 
-## 8. Implementation Considerations
+### 8.1. MaxTimestamp() Method Requirements
 
-### 8.1. Finder Implementation Strategies
+The `MaxTimestamp()` method returns the maximum timestamp among all complete data rows in the database. This method is required for all Finder implementations and MUST execute in O(1) time complexity.
+
+**Method Signature:**
+```go
+func (f *Finder) MaxTimestamp() int64
+```
+
+**Definition of Complete Data Rows:**
+- **Data Rows**: Complete DataRow entries with UUID keys and JSON values
+- **Null Rows**: Single-row transactions with uuid.Nil as key
+- **Excluded**: Checksum rows, PartialDataRow entries (incomplete transactions)
+
+**Return Value Behavior:**
+- **Non-zero**: Returns the timestamp from the most recent complete data or null row
+- **Zero**: Returns 0 when the database contains no complete data or null rows (only checksum/PartialDataRow entries)
+
+**Return Value Behavior:**
+- **Non-zero**: Returns the timestamp from the most recent complete data or null row
+- **Zero**: Returns 0 when the database contains no complete data or null rows (only checksum/PartialDataRow entries)
+
+**Time Complexity Requirement:**
+All Finder implementations MUST provide O(1) time complexity for MaxTimestamp() calls. The specific algorithm for maintaining this value is implementation-dependent but must meet the performance requirement.
+
+**Integration with Transaction Lifecycle:**
+- MaxTimestamp updates only when complete DataRow or NullRow entries are added
+- PartialDataRow entries (incomplete transactions) do not affect MaxTimestamp
+- Updates occur during Transaction.Commit() or Transaction.Rollback() operations
+- The method must be safe to call concurrently with other Finder operations
+
+## 9. Implementation Considerations
+
+### 9.1. Finder Implementation Strategies
 
 Finder implementations may use various strategies while maintaining protocol compliance:
 

@@ -22,13 +22,19 @@ The SimpleFinder operates on fundamental principles:
 
 ## 2. In-Memory State Management
 
-### 2.1. Size Tracking
+### 2.1. Size and MaxTimestamp Tracking
 
-The SimpleFinder maintains only one piece of in-memory state:
+The SimpleFinder maintains two pieces of in-memory state:
 
-**Row Starts Transaction**: Parse row as RowUnion and check if it has start_control = 'T' and is a DataRow or NullRow. ChecksumRows are never in transactions.
+**Size Tracking**: Tracks the extent of data confirmed via `OnRowAdded()` callbacks. When created, SimpleFinder initializes `size` to the current database file size from `dbFile.Size()`.
 
-**Initialization**: When created, SimpleFinder initializes `size` to the current database file size from `dbFile.Size()`. This represents the extent of data that has been confirmed via `OnRowAdded()` callbacks.
+**MaxTimestamp Tracking**: Tracks the maximum timestamp among all complete data rows.
+
+**Initialization**: During creation, SimpleFinder performs a linear scan to initialize max_timestamp:
+- Start from the last complete row and scan backwards to the first row
+- Look for DataRow or NullRow entries
+- If found, set max_timestamp to the timestamp of that row
+- If no data or null rows are found, set max_timestamp to 0
 
 ### 2.2. Memory Constraints
 
@@ -133,19 +139,71 @@ func (sf *SimpleFinder) readRow(index int64) ([]byte, error) {
 
 Validate that index is non-negative, within file bounds, and does not point to a checksum row. Parse the row to verify it is not a ChecksumRow type.
 
-## 7. OnRowAdded() Implementation
+## 7. MaxTimestamp() Implementation
 
 ### 7.1. Algorithm
+
+The SimpleFinder implements MaxTimestamp() with O(1) time complexity using the cached max_timestamp value.
+
+**Method Implementation:**
+```go
+func (sf *SimpleFinder) MaxTimestamp() int64 {
+    return sf.maxTimestamp
+}
+```
+
+**Initialization Algorithm:**
+1. Calculate total number of complete rows in database by dividing available bytes by row_size
+2. Get skew_ms from database header (time skew window in milliseconds)
+3. Initialize max_timestamp to 0 and rows_scanned to 0
+4. Start from the last complete row (index: totalRows-1) and scan backwards towards index 0
+5. For each row during backward scan:
+   - Read row bytes from disk
+   - Parse row as RowUnion to determine row type
+   - Increment rows_scanned counter
+   - If row is a DataRow or NullRow:
+     - If row's timestamp > current max_timestamp, update max_timestamp to the row's timestamp
+   - Continue scanning backwards until either:
+     - rows_scanned >= skew_ms (ensuring we've scanned enough rows from the end to account for clock skew), OR
+     - index reaches 0 (beginning of database)
+6. After scan completes, max_timestamp contains the true maximum timestamp accounting for clock skew
+
+### 7.2. Performance Characteristics
+
+- **Initialization**: O(min(n, skew_ms)) where n is number of rows and skew_ms is the time skew window from the database header. The algorithm scans backwards from the end for at least skew_ms rows (or until reaching the beginning of the database), ensuring correct max_timestamp calculation while accounting for clock skew.
+- **Queries**: O(1) time complexity for MaxTimestamp() calls
+- **Memory**: Additional 8 bytes for max_timestamp field
+- **Disk I/O**: During initialization only - subsequent queries are memory-based. The backward scan reads at most min(totalRows, skew_ms) rows from disk.
+
+## 8. OnRowAdded() Implementation
+
+### 8.1. Algorithm
 
 1. Calculate expected next row index by dividing current size by row_size
 2. If input index equals expected next index:
    - Update internal size by adding one row_size (confirming the new row)
+   - **MaxTimestamp Update**: If the added row is a DataRow or NullRow, update max_timestamp with the row's timestamp if it's greater than current max_timestamp
    - Return success
 3. If input index is less than expected (existing data position):
    - Return error indicating row index does not match expected position
 4. If input index is greater than expected (skipped positions):
    - Return error indicating row index skips positions in database
 5. The size tracking ensures Finder only reads as far as the last confirmed row
+
+### 8.2. MaxTimestamp Update Logic
+
+When OnRowAdded() is called with a new row:
+
+**Row Type Analysis:**
+- **DataRow**: Compare row timestamp with current max_timestamp, update if greater
+- **NullRow**: Compare row timestamp with current max_timestamp, update if greater  
+- **ChecksumRow**: Do not update max_timestamp (checksum rows have no relevant timestamp)
+- **PartialDataRow**: Do not update max_timestamp (incomplete transaction data)
+
+**Timestamp Comparison:**
+- Extract timestamp from row's UUIDv7 time component
+- If timestamp > current max_timestamp, update max_timestamp
+- Ensure atomic update to maintain consistency
 
 ### 7.2. Size Update Logic
 
@@ -156,9 +214,9 @@ The SimpleFinder only tracks the confirmed file size via `OnRowAdded()` callback
 - **Increment**: Size increases by exactly one `rowSize` per confirmed row
 - **Validation**: Ensures no gaps in confirmed row indices
 
-## 8. Error Handling
+## 9. Error Handling
 
-### 8.1. Error Types
+### 9.1. Error Types
 
 SimpleFinder returns specific error types for different failure conditions:
 
@@ -169,27 +227,27 @@ SimpleFinder returns specific error types for different failure conditions:
 - **TransactionActiveError**: When transaction is still open (no end found)
 - **ReadError**: When disk read operations fail
 
-## 9. Production Considerations
+## 10. Production Considerations
 
-### 9.1. Limitations
+### 10.1. Limitations
 
 - **Performance**: Not optimized for large databases or frequent queries
 - **Concurrency**: No caching - each operation re-reads from disk
 - **Memory Usage**: Minimal but at cost of repeated I/O operations
 - **Use Case**: Reference implementation and correctness validation only
 
-### 9.2. When to Use
+### 10.2. When to Use
 
 - **Testing**: Validate optimized finder implementations against SimpleFinder results
-- **Development**: Debugging transaction boundary issues
+- **Development**: Debugging transaction boundary issues and MaxTimestamp behavior
 - **Small Databases**: Where simplicity outweighs performance needs
-- **Specification Compliance**: Demonstrating protocol requirements
+- **Specification Compliance**: Demonstrating protocol requirements including O(1) MaxTimestamp()
 
-### 9.3. When NOT to Use
+### 10.3. When NOT to Use
 
-- **Production Systems**: Where performance is critical
-- **Large Databases**: With millions of rows requiring frequent queries
+- **Production Systems**: Where performance is critical (initialization O(n) scan)
+- **Large Databases**: With millions of rows where initialization time is significant
 - **High Concurrency**: Scenarios with many concurrent readers
 - **Performance-Sensitive Applications**: Where query latency matters
 
-The SimpleFinder provides a clean, predictable baseline that prioritizes correctness over performance, making it ideal for specification validation and development scenarios.
+The SimpleFinder provides a clean, predictable baseline that prioritizes correctness over performance, making it ideal for specification validation and development scenarios. The MaxTimestamp() implementation demonstrates how to achieve O(1) query performance while maintaining protocol compliance.
