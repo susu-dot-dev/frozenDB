@@ -77,6 +77,60 @@ You **MUST** consider the user input before proceeding (if not empty).
 
 **Output**: data-model.md, /contracts/*
 
+## Document Content Guidelines
+
+Use these when generating Phase 0 and Phase 1 artifacts.
+
+### research.md (Phase 0 Output)
+**Purpose**: Research findings that resolve technical unknowns from the specification.
+
+**What to Include**:
+- Analysis of existing codebase patterns and protocols
+- Research on external libraries or technologies
+- Decision rationale for technical choices with alternatives considered
+- Existing function usage patterns and integration approaches
+- Performance and constraint analysis from current architecture
+
+**What to Exclude**:
+- Prescriptive code examples for new functions that don't exist yet
+- API specifications or method signatures (go in api.md)
+- Implementation details that limit implementation flexibility
+- Redundant documentation of existing codebase structure
+
+### data-model.md (Phase 1 Output)
+**Purpose**: New data entities, validation rules, and state changes introduced by the feature.
+
+**What to Include**:
+- New entity definitions and attributes
+- Changes to existing data structures or relationships
+- New validation rules specific to the feature
+- State transitions and flow logic for new operations
+- Error condition mappings for new error types
+- Data flow relationships between components
+
+**What to Exclude**:
+- API specifications, method signatures, or implementation details
+- Error handling patterns or usage examples (go in api.md)
+- Existing codebase documentation or redundant information
+- General project structure or integration details
+
+### contracts/api.md (Phase 1 Output)
+**Purpose**: Complete API specification for the feature.
+
+**What to Include**:
+- Method signatures and parameter descriptions
+- Return values and error conditions
+- Success/failure behavior documentation
+- Basic usage examples without complex error handling
+- Performance characteristics and thread safety information
+- Integration notes and compatibility details
+
+**What to Exclude**:
+- Complex error handling patterns or implementation guidance
+- Internal data model details or state transitions
+- Redundant codebase documentation
+- Prescriptive implementation details
+
 ## Key rules
 
 - Use absolute paths
