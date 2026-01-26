@@ -208,3 +208,22 @@ func NewInvalidDataError(message string, err error) *InvalidDataError {
 type InvalidDataError struct {
 	FrozenDBError
 }
+
+// NewSkipIndexError creates a new SkipIndexError.
+func NewSkipIndexError(message string, err error) *SkipIndexError {
+	return &SkipIndexError{
+		FrozenDBError: FrozenDBError{
+			Code:    "skip_index",
+			Message: message,
+			Err:     err,
+		},
+	}
+}
+
+// SkipIndexError is returned by the get() callback in FuzzyBinarySearch to indicate
+// that an index should be skipped during binary search. The algorithm will retry
+// with an adjacent index (one below or above). Consecutive indices will not both
+// return SkipIndexError, ensuring the retry will succeed.
+type SkipIndexError struct {
+	FrozenDBError
+}

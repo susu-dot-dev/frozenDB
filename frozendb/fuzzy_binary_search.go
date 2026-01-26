@@ -30,13 +30,31 @@ func FuzzyBinarySearch(target, skewMs, numKeys int64, get func(int64) (int64, er
 	lower := target - skewMs
 	upper := target + skewMs
 	lo, hi := int64(0), numKeys-1
+	skipOffset := int64(0)
 
 	for lo <= hi {
 		mid := lo + (hi-lo)/2
+		if skipOffset != 0 {
+			mid = mid + skipOffset
+			skipOffset = 0
+		}
+
 		v, err := get(mid)
 		if err != nil {
+			var skipErr *SkipIndexError
+			if errors.As(err, &skipErr) {
+				if mid > lo {
+					skipOffset = -1
+				} else if mid < hi {
+					skipOffset = 1
+				} else {
+					return -1, NewKeyNotFoundError("target not found", nil)
+				}
+				continue
+			}
 			return -1, propagateGetError(err)
 		}
+
 		if v < lower {
 			lo = mid + 1
 			continue
@@ -51,6 +69,10 @@ func FuzzyBinarySearch(target, skewMs, numKeys int64, get func(int64) (int64, er
 		for i := mid - 1; i >= 0; i-- {
 			v, err := get(i)
 			if err != nil {
+				var skipErr *SkipIndexError
+				if errors.As(err, &skipErr) {
+					continue
+				}
 				return -1, propagateGetError(err)
 			}
 			if v < lower-skewMs {
@@ -63,6 +85,10 @@ func FuzzyBinarySearch(target, skewMs, numKeys int64, get func(int64) (int64, er
 		for i := mid + 1; i < numKeys; i++ {
 			v, err := get(i)
 			if err != nil {
+				var skipErr *SkipIndexError
+				if errors.As(err, &skipErr) {
+					continue
+				}
 				return -1, propagateGetError(err)
 			}
 			if v > upper+skewMs {
@@ -79,7 +105,11 @@ func FuzzyBinarySearch(target, skewMs, numKeys int64, get func(int64) (int64, er
 
 func propagateGetError(err error) error {
 	var keyErr *KeyNotFoundError
+	var skipErr *SkipIndexError
 	if errors.As(err, &keyErr) {
+		return err
+	}
+	if errors.As(err, &skipErr) {
 		return err
 	}
 	return NewReadError("get callback failed", err)

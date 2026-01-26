@@ -49,6 +49,7 @@ The FuzzyBinarySearch algorithm must meet specific performance characteristics a
 - Correct handling of empty arrays and single-element arrays  
 - Validation of input parameters with appropriate error responses
 - Graceful handling of timestamps outside the array's range
+- Handling of SkipIndexError from get() callback by trying adjacent indices, with guarantee that consecutive indices will not both return SkipIndexError
 
 **Integration Requirements**:
 - Must work with the existing frozenDB error handling patterns
@@ -61,9 +62,10 @@ The FuzzyBinarySearch algorithm must meet specific performance characteristics a
 
 ### Edge Cases
 
-- What happens when the callback function returns errors for some indices but not others? [Answer: Errors should be properly propagated]
+- What happens when the callback function returns errors for some indices but not others? [Answer: Errors should be properly propagated, except SkipIndexError which triggers retry with adjacent index]
 - How does system handle arrays where all entries are within the skew window of each other? [Answer: Algorithm degrades to linear search within valid bounds]
 - What happens when the target timestamp is outside the range of all entries in the array? [Answer: Returns KeyNotFoundError]
+- What happens when get() returns SkipIndexError? [Answer: Algorithm skips that index and tries an adjacent index (one below or above). The guarantee that consecutive indices won't both return SkipIndexError ensures the retry will succeed]
 
 ## Requirements *(mandatory)*
 
@@ -73,6 +75,7 @@ The FuzzyBinarySearch algorithm must meet specific performance characteristics a
 - **FR-002**: The algorithm MUST perform at most O(logn) + k Get() function calls where k is the number of entries within ±skew of the target
 - **FR-003**: FuzzyBinarySearch MUST handle datasets where entries may be out of order due to clock skew up to the configured skew_ms value
 - **FR-004**: The algorithm MUST properly propagate KeyNotFoundError from the timestamp access function
+- **FR-005**: When the get() callback returns SkipIndexError for an index, the algorithm MUST skip that index and try an adjacent index (one below or one above). The algorithm MUST guarantee that get() will not return SkipIndexError for consecutive indices in either direction, ensuring that +1 or -1 adjustments will always find a valid index to check. SkipIndexError MUST be consistent: an index that returns SkipIndexError will always return SkipIndexError on subsequent calls, and an index that was previously retrieved successfully will NEVER throw SkipIndexError
 
 ### Key Entities *(include if feature involves data)*
 

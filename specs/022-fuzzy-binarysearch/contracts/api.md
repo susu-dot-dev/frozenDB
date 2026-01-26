@@ -30,7 +30,7 @@ type TimestampGetter func(index int64) (int64, error)
 | Type | Description |
 |------|-------------|
 | int64 | Unix millisecond timestamp at specified index |
-| error | KeyNotFoundError if key doesn't exist, or other errors |
+| error | KeyNotFoundError if key doesn't exist, SkipIndexError if index should be skipped, or other errors |
 
 ## Return Values
 
@@ -47,6 +47,7 @@ type TimestampGetter func(index int64) (int64, error)
 | KeyNotFoundError | "key_not_found" | Target timestamp not found in array |
 | ReadError | "read_error" | Callback function failure |
 | CorruptDatabaseError | "corrupt_database" | Data integrity issues discovered during search |
+| SkipIndexError | "skip_index" | Returned by get() callback to indicate an index should be skipped during binary search. Algorithm will retry with adjacent index. Consecutive indices will not both return SkipIndexError. SkipIndexError MUST be consistent: an index that returns SkipIndexError will always return it, and an index that was previously retrieved will never throw SkipIndexError. |
 
 ## Performance Guarantees
 

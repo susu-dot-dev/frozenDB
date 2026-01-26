@@ -206,3 +206,113 @@ func Test_S_022_FR_004_ErrorPropagation(t *testing.T) {
 		}
 	})
 }
+
+// Test_S_022_FR_005_SkipIndexHandling verifies that when get() returns
+// SkipIndexError, the algorithm skips that index and tries an adjacent index
+// (one below or above), with the guarantee that consecutive indices will not
+// both return SkipIndexError. SkipIndexError MUST be consistent: an index that
+// returns SkipIndexError will always return it, and an index that was previously
+// retrieved will never throw SkipIndexError.
+func Test_S_022_FR_005_SkipIndexHandling(t *testing.T) {
+	t.Run("skip_index_during_binary_search_retries_adjacent", func(t *testing.T) {
+		// Array: [100, 200, 300, 400, 500], target 400 at index 3
+		// Mid calculation may hit index 2, but we skip it consistently
+		// Algorithm should retry with adjacent index and continue search
+		// Target is at index 3 which is not skipped, so should find it
+		ts := []int64{100, 200, 300, 400, 500}
+		get := func(i int64) (int64, error) {
+			if i < 0 || i >= int64(len(ts)) {
+				return 0, NewKeyNotFoundError("index out of range", nil)
+			}
+			// Consistently skip index 2 (not the target)
+			if i == 2 {
+				return 0, NewSkipIndexError("skip index 2", nil)
+			}
+			return ts[i], nil
+		}
+		idx, err := FuzzyBinarySearch(400, 0, int64(len(ts)), get)
+		if err != nil {
+			t.Fatalf("FuzzyBinarySearch(400): %v", err)
+		}
+		// Should find target at index 3 (not skipped)
+		if idx != 3 {
+			t.Errorf("FuzzyBinarySearch(400) = index %d, want 3", idx)
+		}
+	})
+
+	t.Run("skip_index_during_linear_scan_retries_adjacent", func(t *testing.T) {
+		// Array with skew: [98, 99, 100, 101, 102], target 101 at index 3
+		// Mid may hit index 2, we consistently skip it
+		// Linear scan will check adjacent indices and find target at index 3
+		ts := []int64{98, 99, 100, 101, 102}
+		get := func(i int64) (int64, error) {
+			if i < 0 || i >= int64(len(ts)) {
+				return 0, NewKeyNotFoundError("index out of range", nil)
+			}
+			// Consistently skip index 2 (not the target)
+			if i == 2 {
+				return 0, NewSkipIndexError("skip index 2", nil)
+			}
+			return ts[i], nil
+		}
+		idx, err := FuzzyBinarySearch(101, 5, int64(len(ts)), get)
+		if err != nil {
+			t.Fatalf("FuzzyBinarySearch(101, skew=5): %v", err)
+		}
+		// Should find target at index 3 (not skipped)
+		if idx != 3 || ts[idx] != 101 {
+			t.Errorf("FuzzyBinarySearch found index %d with value %d, want 3 and 101", idx, ts[idx])
+		}
+	})
+
+	t.Run("skip_index_at_boundary_retries_other_direction", func(t *testing.T) {
+		// Array: [100, 200, 300], target 100 at index 0
+		// If we skip index 1 (mid), algorithm should retry with index 0 or 2
+		// Target is at index 0 which is not skipped, so should find it
+		ts := []int64{100, 200, 300}
+		get := func(i int64) (int64, error) {
+			if i < 0 || i >= int64(len(ts)) {
+				return 0, NewKeyNotFoundError("index out of range", nil)
+			}
+			// Consistently skip index 1 (mid point, not the target)
+			if i == 1 {
+				return 0, NewSkipIndexError("skip index 1", nil)
+			}
+			return ts[i], nil
+		}
+		idx, err := FuzzyBinarySearch(100, 0, int64(len(ts)), get)
+		if err != nil {
+			t.Fatalf("FuzzyBinarySearch(100): %v", err)
+		}
+		// Should find target at index 0 (not skipped)
+		if idx != 0 {
+			t.Errorf("FuzzyBinarySearch(100) = index %d, want 0", idx)
+		}
+	})
+
+	t.Run("consecutive_indices_guarantee_no_double_skip", func(t *testing.T) {
+		// This test verifies the guarantee: consecutive indices won't both skip
+		// Array: [100, 200, 300, 400, 500], target 400 at index 3
+		// If index 2 is skipped, index 1 or 3 must work (guarantee)
+		// Target is at index 3 which is not skipped, so should find it
+		ts := []int64{100, 200, 300, 400, 500}
+		get := func(i int64) (int64, error) {
+			if i < 0 || i >= int64(len(ts)) {
+				return 0, NewKeyNotFoundError("index out of range", nil)
+			}
+			// Consistently skip index 2, never skip consecutive indices (1 or 3)
+			if i == 2 {
+				return 0, NewSkipIndexError("skip index 2", nil)
+			}
+			return ts[i], nil
+		}
+		idx, err := FuzzyBinarySearch(400, 0, int64(len(ts)), get)
+		if err != nil {
+			t.Fatalf("FuzzyBinarySearch(400): %v", err)
+		}
+		// Should find target at index 3 (not skipped, guarantee ensures retry works)
+		if idx != 3 {
+			t.Errorf("FuzzyBinarySearch(400) = index %d, want 3", idx)
+		}
+	})
+}
