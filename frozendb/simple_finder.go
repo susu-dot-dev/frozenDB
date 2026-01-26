@@ -21,10 +21,11 @@ import (
 // Memory Usage: O(row_size) - constant regardless of database size
 // Performance: O(n) for GetIndex, O(k) for transaction boundary methods where k <= 101
 type SimpleFinder struct {
-	dbFile  DBFile     // Database file interface for reading rows
-	rowSize int32      // Size of each row in bytes from header
-	size    int64      // Confirmed file size (updated via OnRowAdded)
-	mu      sync.Mutex // Protects size field for concurrent access
+	dbFile       DBFile     // Database file interface for reading rows
+	rowSize      int32      // Size of each row in bytes from header
+	size         int64      // Confirmed file size (updated via OnRowAdded)
+	maxTimestamp int64      // Maximum timestamp among all complete data and null rows
+	mu           sync.Mutex // Protects size and maxTimestamp fields for concurrent access
 }
 
 // NewSimpleFinder creates a new SimpleFinder instance.
@@ -48,12 +49,68 @@ func NewSimpleFinder(dbFile DBFile, rowSize int32) (*SimpleFinder, error) {
 	}
 
 	sf := &SimpleFinder{
-		dbFile:  dbFile,
-		rowSize: rowSize,
-		size:    dbFile.Size(),
+		dbFile:       dbFile,
+		rowSize:      rowSize,
+		size:         dbFile.Size(),
+		maxTimestamp: 0,
+	}
+
+	// Initialize maxTimestamp by scanning existing rows
+	if err := sf.initializeMaxTimestamp(); err != nil {
+		return nil, err
 	}
 
 	return sf, nil
+}
+
+// initializeMaxTimestamp scans all existing rows to find the maximum timestamp.
+// This is called once during initialization to establish the baseline maxTimestamp.
+func (sf *SimpleFinder) initializeMaxTimestamp() error {
+	sf.mu.Lock()
+	defer sf.mu.Unlock()
+
+	confirmedSize := sf.size
+	totalRows := (confirmedSize - HEADER_SIZE) / int64(sf.rowSize)
+
+	sf.maxTimestamp = 0
+
+	// Scan all rows to find maximum timestamp
+	for i := int64(0); i < totalRows; i++ {
+		rowBytes, err := sf.readRow(i)
+		if err != nil {
+			// Read error during initialization - fail immediately
+			return err
+		}
+
+		var rowUnion RowUnion
+		if err := rowUnion.UnmarshalText(rowBytes); err != nil {
+			// Skip corrupted rows
+			continue
+		}
+
+		// Only consider complete DataRow and NullRow entries
+		if rowUnion.DataRow != nil {
+			key := rowUnion.DataRow.GetKey()
+			if key != uuid.Nil {
+				if err := ValidateUUIDv7(key); err == nil {
+					timestamp := extractUUIDv7Timestamp(key)
+					if timestamp > sf.maxTimestamp {
+						sf.maxTimestamp = timestamp
+					}
+				}
+			}
+		} else if rowUnion.NullRow != nil {
+			// Extract timestamp from NullRow key (uuid.Nil) and compare, same as DataRow
+			key := rowUnion.NullRow.GetKey()
+			timestamp := extractUUIDv7Timestamp(key)
+			if timestamp > sf.maxTimestamp {
+				sf.maxTimestamp = timestamp
+			}
+		}
+		// Skip ChecksumRow and PartialDataRow
+	}
+
+	return nil
 }
 
 // GetIndex returns the index of the first row containing the specified UUID key.
@@ -242,7 +299,8 @@ func (sf *SimpleFinder) GetTransactionEnd(index int64) (int64, error) {
 //  1. Calculate expected next row index from current size
 //  2. Verify input index matches expected index
 //  3. Update internal size by adding one row_size
-//  4. Return success
+//  4. Update maxTimestamp if the row is a complete DataRow or NullRow
+//  5. Return success
 //
 // Time Complexity: O(1) constant time
 // Space Complexity: O(1) memory update
@@ -265,10 +323,39 @@ func (sf *SimpleFinder) OnRowAdded(index int64, row *RowUnion) error {
 		return NewInvalidInputError(fmt.Sprintf("row index %d skips positions (expected %d)", index, expectedIndex), nil)
 	}
 
+	// Update maxTimestamp for complete DataRow or NullRow entries
+	if row.DataRow != nil {
+		key := row.DataRow.GetKey()
+		if key != uuid.Nil {
+			if err := ValidateUUIDv7(key); err == nil {
+				timestamp := extractUUIDv7Timestamp(key)
+				if timestamp > sf.maxTimestamp {
+					sf.maxTimestamp = timestamp
+				}
+			}
+		}
+	} else if row.NullRow != nil {
+		// Extract timestamp from NullRow key (uuid.Nil) and compare, same as DataRow
+		key := row.NullRow.GetKey()
+		timestamp := extractUUIDv7Timestamp(key)
+		if timestamp > sf.maxTimestamp {
+			sf.maxTimestamp = timestamp
+		}
+	}
+	// Skip ChecksumRow and PartialDataRow
+
 	// Update confirmed size
 	sf.size += int64(sf.rowSize)
 
 	return nil
+}
+
+// MaxTimestamp returns the maximum timestamp among all complete data and null rows.
+// Implements O(1) time complexity by returning the cached maxTimestamp value.
+func (sf *SimpleFinder) MaxTimestamp() int64 {
+	sf.mu.Lock()
+	defer sf.mu.Unlock()
+	return sf.maxTimestamp
 }
 
 // readRow reads a single row from disk at the specified index.

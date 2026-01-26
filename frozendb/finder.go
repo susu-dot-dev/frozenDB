@@ -106,4 +106,14 @@ type Finder interface {
 	// Not thread-safe with itself: Calls are guaranteed sequential (no self-racing)
 	// Blocks until completion before returning to caller
 	OnRowAdded(index int64, row *RowUnion) error
+
+	// MaxTimestamp returns the maximum timestamp among all complete data and null rows
+	// in O(1) time. Returns 0 if no complete data or null rows exist.
+	//
+	// Returns:
+	//   - int64: Maximum timestamp value, or 0 if no complete data/null rows exist
+	//
+	// Time Complexity: O(1) - must execute in constant time
+	// Thread-safe: Safe for concurrent read access
+	MaxTimestamp() int64
 }

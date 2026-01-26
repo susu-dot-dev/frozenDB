@@ -246,19 +246,7 @@ func (db *FrozenDB) recoverTransaction() error {
 			rowBytesWritten: len(partialBytes), // Track how much of partial row is written
 		}
 
-		// Calculate max timestamp from recovered rows
-		for _, row := range txRows {
-			timestamp := extractUUIDv7Timestamp(row.RowPayload.Key)
-			if timestamp > tx.maxTimestamp {
-				tx.maxTimestamp = timestamp
-			}
-		}
-		if partialRow.d.RowPayload != nil {
-			timestamp := extractUUIDv7Timestamp(partialRow.d.RowPayload.Key)
-			if timestamp > tx.maxTimestamp {
-				tx.maxTimestamp = timestamp
-			}
-		}
+		// Note: maxTimestamp is now maintained by the finder, not the transaction
 
 		db.txMu.Lock()
 		db.activeTx = tx
@@ -364,13 +352,7 @@ func (db *FrozenDB) recoverTransaction() error {
 				db:        db.file,
 			}
 
-			// Calculate max timestamp from recovered rows
-			for _, row := range txRows {
-				timestamp := extractUUIDv7Timestamp(row.RowPayload.Key)
-				if timestamp > tx.maxTimestamp {
-					tx.maxTimestamp = timestamp
-				}
-			}
+			// Note: maxTimestamp is now maintained by the finder, not the transaction
 
 			db.txMu.Lock()
 			db.activeTx = tx

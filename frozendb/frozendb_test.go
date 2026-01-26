@@ -858,10 +858,16 @@ func TestGet_ErrorHandling(t *testing.T) {
 		data, keys, header := buildTestDatabase(rowSize, rows)
 
 		dbFile := newMockGetDBFile(data, MODE_READ)
-		// Inject read error on 2nd read (first read is GetIndex, second is readRowAtIndex)
-		dbFile.injectReadError(2, NewReadError("simulated disk failure", nil))
+		// Inject read error on 2nd read (first read is during initialization, second is GetIndex)
+		// Initialization reads: row 0 (checksum) = read #1, row 1 (data) = read #2
+		// Get() will do: GetIndex reads row 1 = read #3, readRowAtIndex reads row 1 = read #4
+		// So inject error on read #3 (during GetIndex in Get())
+		dbFile.injectReadError(3, NewReadError("simulated disk failure", nil))
 
-		finder, _ := NewSimpleFinder(dbFile, rowSize)
+		finder, finderErr := NewSimpleFinder(dbFile, rowSize)
+		if finderErr != nil {
+			t.Fatalf("NewSimpleFinder failed: %v", finderErr)
+		}
 
 		db := &FrozenDB{
 			file:   dbFile,
