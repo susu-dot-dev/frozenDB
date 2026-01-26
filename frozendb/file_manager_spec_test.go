@@ -1025,7 +1025,7 @@ func Test_S_017_FR_006_RefactorOpenFunctions(t *testing.T) {
 	// Test: NewFrozenDB should use DBFile internally (indirect test via behavior)
 	t.Run("NewFrozenDB_uses_DBFile", func(t *testing.T) {
 		// Open in read mode
-		db, err := NewFrozenDB(testPath, MODE_READ)
+		db, err := NewFrozenDB(testPath, MODE_READ, FinderStrategySimple)
 		if err != nil {
 			t.Fatalf("NewFrozenDB failed: %v", err)
 		}

@@ -39,24 +39,31 @@ type FrozenDB struct {
 }
 
 // NewFrozenDB opens an existing frozenDB database file with specified access mode
+// and finder strategy.
+//
 // Parameters:
 //   - path: Filesystem path to existing frozenDB database file (.fdb extension required)
 //   - mode: Access mode - MODE_READ for read-only, MODE_WRITE for read-write
+//   - strategy: FinderStrategySimple (fixed memory, O(n) GetIndex) or
+//     FinderStrategyInMemory (~40 bytes/row, O(1) Get*)
 //
 // Returns:
 //   - *FrozenDB: Database instance ready for operations
-//   - error: InvalidInputError, PathError, CorruptDatabaseError, or WriteError
+//   - error: InvalidInputError (invalid strategy), PathError, CorruptDatabaseError, or WriteError
 //
 // Thread Safety: Safe for concurrent calls on different files
-func NewFrozenDB(path string, mode string) (*FrozenDB, error) {
-	// Validate input parameters
-	// Open database file using DBFile interface
+func NewFrozenDB(path string, mode string, strategy FinderStrategy) (*FrozenDB, error) {
+	if strategy != FinderStrategySimple && strategy != FinderStrategyInMemory {
+		return nil, NewInvalidInputError(
+			fmt.Sprintf("Invalid finder strategy: %q. Supported strategies: simple, inmemory", strategy),
+			nil,
+		)
+	}
 	dbFile, err := NewDBFile(path, mode)
 	if err != nil {
 		return nil, err
 	}
 
-	// Setup cleanup on error
 	var cleanupErr error
 	defer func() {
 		if cleanupErr != nil {
@@ -70,8 +77,14 @@ func NewFrozenDB(path string, mode string) (*FrozenDB, error) {
 		return nil, err
 	}
 
-	// Create finder for row lookups
-	finder, err := NewSimpleFinder(dbFile, int32(header.GetRowSize()))
+	rowSize := int32(header.GetRowSize())
+	var finder Finder
+	switch strategy {
+	case FinderStrategySimple:
+		finder, err = NewSimpleFinder(dbFile, rowSize)
+	case FinderStrategyInMemory:
+		finder, err = NewInMemoryFinder(dbFile, rowSize)
+	}
 	if err != nil {
 		cleanupErr = err
 		return nil, err

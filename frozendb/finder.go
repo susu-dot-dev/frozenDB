@@ -2,6 +2,21 @@ package frozendb
 
 import "github.com/google/uuid"
 
+// FinderStrategy selects the finder implementation when creating a FrozenDB.
+//
+// Memory-performance trade-offs:
+//   - FinderStrategySimple: O(row_size) fixed memory regardless of DB size; GetIndex O(n),
+//     GetTransactionStart/End O(k) where k ≤ 101. Use when DB is large or memory is bounded.
+//   - FinderStrategyInMemory: ~40 bytes per row (uuid map + tx boundary maps); GetIndex,
+//     GetTransactionStart, GetTransactionEnd all O(1). Use when DB fits in memory and
+//     read-heavy workloads need low latency.
+type FinderStrategy string
+
+const (
+	FinderStrategySimple   FinderStrategy = "simple"
+	FinderStrategyInMemory FinderStrategy = "inmemory"
+)
+
 // Finder defines methods for locating rows and transaction boundaries in frozenDB files.
 // This interface enables different finder implementations with varying performance characteristics
 // while maintaining identical functional behavior.

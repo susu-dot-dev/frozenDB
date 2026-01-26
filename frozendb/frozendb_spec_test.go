@@ -54,7 +54,7 @@ func Test_S_002_FR_001_NewFrozenDBFunctionSignature(t *testing.T) {
 	createTestDatabase(t, testPath)
 
 	// Call NewFrozenDB with valid parameters
-	db, err := NewFrozenDB(testPath, MODE_READ)
+	db, err := NewFrozenDB(testPath, MODE_READ, FinderStrategySimple)
 
 	// Verify return types
 	if err != nil {
@@ -133,7 +133,7 @@ func Test_S_002_FR_003_ModeParameterValidation(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			db, err := NewFrozenDB(testPath, tt.mode)
+			db, err := NewFrozenDB(testPath, tt.mode, FinderStrategySimple)
 
 			if tt.expectError {
 				if err == nil {
@@ -239,7 +239,7 @@ func Test_S_002_FR_004_FileDescriptorAndHeaderValidation(t *testing.T) {
 			testPath := filepath.Join(t.TempDir(), "test.fdb")
 			tt.setupFile(t, testPath)
 
-			db, err := NewFrozenDB(testPath, MODE_READ)
+			db, err := NewFrozenDB(testPath, MODE_READ, FinderStrategySimple)
 
 			if tt.expectError {
 				if err == nil {
@@ -294,7 +294,7 @@ func Test_S_002_FR_008_MultipleConcurrentReaders(t *testing.T) {
 			defer wg.Done()
 
 			// Open database in read mode
-			db, err := NewFrozenDB(testPath, MODE_READ)
+			db, err := NewFrozenDB(testPath, MODE_READ, FinderStrategySimple)
 			if err != nil {
 				errors <- fmt.Errorf("reader %d failed to open: %w", readerID, err)
 				return
@@ -339,7 +339,7 @@ func Test_S_002_FR_011_FixedMemoryUsage(t *testing.T) {
 	var m1 runtime.MemStats
 	runtime.ReadMemStats(&m1)
 
-	db1, err := NewFrozenDB(smallPath, MODE_READ)
+	db1, err := NewFrozenDB(smallPath, MODE_READ, FinderStrategySimple)
 	if err != nil {
 		t.Fatalf("Failed to open small database: %v", err)
 	}
@@ -355,7 +355,7 @@ func Test_S_002_FR_011_FixedMemoryUsage(t *testing.T) {
 	var m3 runtime.MemStats
 	runtime.ReadMemStats(&m3)
 
-	db2, err := NewFrozenDB(largePath, MODE_READ)
+	db2, err := NewFrozenDB(largePath, MODE_READ, FinderStrategySimple)
 	if err != nil {
 		t.Fatalf("Failed to open large database: %v", err)
 	}
@@ -410,7 +410,7 @@ func Test_S_002_FR_015_InvalidInputErrorHandling(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			db, err := NewFrozenDB(tt.path, tt.mode)
+			db, err := NewFrozenDB(tt.path, tt.mode, FinderStrategySimple)
 
 			if err == nil {
 				t.Fatal("Expected error, got nil")
@@ -452,7 +452,7 @@ func Test_S_002_FR_016_PathErrorHandling(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			path := tt.setupPath(t)
-			db, err := NewFrozenDB(path, MODE_READ)
+			db, err := NewFrozenDB(path, MODE_READ, FinderStrategySimple)
 
 			if err == nil {
 				t.Fatal("Expected error, got nil")
@@ -477,7 +477,7 @@ func Test_S_002_FR_005_ExclusiveLockAfterValidation(t *testing.T) {
 	createTestDatabase(t, testPath)
 
 	// Open database in write mode
-	db, err := NewFrozenDB(testPath, MODE_WRITE)
+	db, err := NewFrozenDB(testPath, MODE_WRITE, FinderStrategySimple)
 	if err != nil {
 		t.Fatalf("Failed to open database in write mode: %v", err)
 	}
@@ -489,7 +489,7 @@ func Test_S_002_FR_005_ExclusiveLockAfterValidation(t *testing.T) {
 	}
 
 	// Try to acquire another write lock (should fail)
-	db2, err := NewFrozenDB(testPath, MODE_WRITE)
+	db2, err := NewFrozenDB(testPath, MODE_WRITE, FinderStrategySimple)
 	if err == nil {
 		db2.Close()
 		t.Fatal("Expected lock acquisition to fail for second writer")
@@ -508,13 +508,13 @@ func Test_S_002_FR_006_MaintainDescriptorAndLock(t *testing.T) {
 	createTestDatabase(t, testPath)
 
 	// Open database in write mode
-	db, err := NewFrozenDB(testPath, MODE_WRITE)
+	db, err := NewFrozenDB(testPath, MODE_WRITE, FinderStrategySimple)
 	if err != nil {
 		t.Fatalf("Failed to open database in write mode: %v", err)
 	}
 
 	// Try to acquire another write lock while first is open (should fail)
-	db2, err := NewFrozenDB(testPath, MODE_WRITE)
+	db2, err := NewFrozenDB(testPath, MODE_WRITE, FinderStrategySimple)
 	if err == nil {
 		db2.Close()
 		t.Fatal("Expected lock to be held by first database instance")
@@ -526,7 +526,7 @@ func Test_S_002_FR_006_MaintainDescriptorAndLock(t *testing.T) {
 	}
 
 	// Now second writer should succeed
-	db3, err := NewFrozenDB(testPath, MODE_WRITE)
+	db3, err := NewFrozenDB(testPath, MODE_WRITE, FinderStrategySimple)
 	if err != nil {
 		t.Fatalf("Expected lock acquisition to succeed after Close(), got: %v", err)
 	}
@@ -540,14 +540,14 @@ func Test_S_002_FR_009_WriteErrorMultipleWriters(t *testing.T) {
 	createTestDatabase(t, testPath)
 
 	// First writer opens successfully
-	db1, err := NewFrozenDB(testPath, MODE_WRITE)
+	db1, err := NewFrozenDB(testPath, MODE_WRITE, FinderStrategySimple)
 	if err != nil {
 		t.Fatalf("First writer failed to open: %v", err)
 	}
 	defer db1.Close()
 
 	// Second writer should fail with WriteError
-	db2, err := NewFrozenDB(testPath, MODE_WRITE)
+	db2, err := NewFrozenDB(testPath, MODE_WRITE, FinderStrategySimple)
 	if err == nil {
 		db2.Close()
 		t.Fatal("Expected WriteError for second writer, got nil")
@@ -573,13 +573,13 @@ func Test_S_002_FR_010_DifferentFileIndependence(t *testing.T) {
 	createTestDatabase(t, db2Path)
 
 	// Open both in write mode (should succeed since different files)
-	db1, err := NewFrozenDB(db1Path, MODE_WRITE)
+	db1, err := NewFrozenDB(db1Path, MODE_WRITE, FinderStrategySimple)
 	if err != nil {
 		t.Fatalf("Failed to open first database: %v", err)
 	}
 	defer db1.Close()
 
-	db2, err := NewFrozenDB(db2Path, MODE_WRITE)
+	db2, err := NewFrozenDB(db2Path, MODE_WRITE, FinderStrategySimple)
 	if err != nil {
 		t.Fatalf("Failed to open second database: %v", err)
 	}
@@ -591,13 +591,13 @@ func Test_S_002_FR_010_DifferentFileIndependence(t *testing.T) {
 	}
 
 	// Verify we can also open readers on different files
-	db1Reader, err := NewFrozenDB(db1Path, MODE_READ)
+	db1Reader, err := NewFrozenDB(db1Path, MODE_READ, FinderStrategySimple)
 	if err != nil {
 		t.Fatalf("Failed to open reader on first database: %v", err)
 	}
 	defer db1Reader.Close()
 
-	db2Reader, err := NewFrozenDB(db2Path, MODE_READ)
+	db2Reader, err := NewFrozenDB(db2Path, MODE_READ, FinderStrategySimple)
 	if err != nil {
 		t.Fatalf("Failed to open reader on second database: %v", err)
 	}
@@ -611,14 +611,14 @@ func Test_S_002_FR_014_WriteErrorLockFailures(t *testing.T) {
 	createTestDatabase(t, testPath)
 
 	// Acquire write lock with first instance
-	db1, err := NewFrozenDB(testPath, MODE_WRITE)
+	db1, err := NewFrozenDB(testPath, MODE_WRITE, FinderStrategySimple)
 	if err != nil {
 		t.Fatalf("First writer failed to open: %v", err)
 	}
 	defer db1.Close()
 
 	// Try to acquire write lock with second instance (should fail)
-	db2, err := NewFrozenDB(testPath, MODE_WRITE)
+	db2, err := NewFrozenDB(testPath, MODE_WRITE, FinderStrategySimple)
 	if err == nil {
 		db2.Close()
 		t.Fatal("Expected error for lock acquisition failure")
@@ -792,7 +792,7 @@ func Test_S_002_FR_013_CorruptDatabaseErrorForHeaderValidationFailures(t *testin
 			testPath := filepath.Join(t.TempDir(), "test.fdb")
 			tt.setupFile(t, testPath)
 
-			db, err := NewFrozenDB(testPath, MODE_READ)
+			db, err := NewFrozenDB(testPath, MODE_READ, FinderStrategySimple)
 
 			if err == nil {
 				if db != nil {
@@ -841,7 +841,7 @@ func Test_S_002_FR_007_IdempotentCloseMethod(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			db, err := NewFrozenDB(testPath, tt.mode)
+			db, err := NewFrozenDB(testPath, tt.mode, FinderStrategySimple)
 			if err != nil {
 				t.Fatalf("Failed to open database: %v", err)
 			}
@@ -865,7 +865,7 @@ func Test_S_002_FR_007_IdempotentCloseMethod(t *testing.T) {
 
 	// Test concurrent Close() calls (thread safety)
 	t.Run("Concurrent close calls", func(t *testing.T) {
-		db, err := NewFrozenDB(testPath, MODE_READ)
+		db, err := NewFrozenDB(testPath, MODE_READ, FinderStrategySimple)
 		if err != nil {
 			t.Fatalf("Failed to open database: %v", err)
 		}
@@ -946,7 +946,7 @@ func Test_S_002_FR_012_ResourceCleanupOnErrors(t *testing.T) {
 			initialFDs := countOpenFileDescriptors(t)
 
 			// Attempt to open database (should fail)
-			db, err := NewFrozenDB(testPath, tt.mode)
+			db, err := NewFrozenDB(testPath, tt.mode, FinderStrategySimple)
 			if err == nil {
 				db.Close()
 				t.Fatal("Expected error opening database")
@@ -973,7 +973,7 @@ func Test_S_002_FR_012_ResourceCleanupOnErrors(t *testing.T) {
 		createTestDatabase(t, testPath)
 
 		// First writer acquires lock
-		db1, err := NewFrozenDB(testPath, MODE_WRITE)
+		db1, err := NewFrozenDB(testPath, MODE_WRITE, FinderStrategySimple)
 		if err != nil {
 			t.Fatalf("First writer failed: %v", err)
 		}
@@ -983,7 +983,7 @@ func Test_S_002_FR_012_ResourceCleanupOnErrors(t *testing.T) {
 		initialFDs := countOpenFileDescriptors(t)
 
 		// Second writer fails to acquire lock
-		db2, err := NewFrozenDB(testPath, MODE_WRITE)
+		db2, err := NewFrozenDB(testPath, MODE_WRITE, FinderStrategySimple)
 		if err == nil {
 			db2.Close()
 			t.Fatal("Expected lock acquisition to fail")
@@ -1028,7 +1028,7 @@ func Test_S_004_FR_001_ValidateMethodExists(t *testing.T) {
 	// Test FrozenDB has Validate() method
 	testPath := filepath.Join(t.TempDir(), "test.fdb")
 	createTestDatabase(t, testPath)
-	db, err := NewFrozenDB(testPath, MODE_READ)
+	db, err := NewFrozenDB(testPath, MODE_READ, FinderStrategySimple)
 	if err != nil {
 		t.Fatalf("Failed to create FrozenDB: %v", err)
 	}
@@ -1147,7 +1147,7 @@ func Test_S_004_FR_006_ParentAssumesChildValid(t *testing.T) {
 	// Create a valid header first (validated during construction)
 	testPath := filepath.Join(t.TempDir(), "test.fdb")
 	createTestDatabase(t, testPath)
-	db, err := NewFrozenDB(testPath, MODE_READ)
+	db, err := NewFrozenDB(testPath, MODE_READ, FinderStrategySimple)
 	if err != nil {
 		t.Fatalf("Failed to create FrozenDB: %v", err)
 	}
@@ -1653,7 +1653,7 @@ func Test_S_020_FR_001_CommittedTransactionDataRetrieval(t *testing.T) {
 	createTestDatabase(t, testPath)
 
 	// Open database in write mode to add committed transaction
-	db, err := NewFrozenDB(testPath, MODE_WRITE)
+	db, err := NewFrozenDB(testPath, MODE_WRITE, FinderStrategySimple)
 	if err != nil {
 		t.Fatalf("Failed to open database: %v", err)
 	}
@@ -1692,7 +1692,7 @@ func Test_S_020_FR_001_CommittedTransactionDataRetrieval(t *testing.T) {
 
 	// Close and reopen in read mode to test retrieval
 	db.Close()
-	db, err = NewFrozenDB(testPath, MODE_READ)
+	db, err = NewFrozenDB(testPath, MODE_READ, FinderStrategySimple)
 	if err != nil {
 		t.Fatalf("Failed to reopen database: %v", err)
 	}
@@ -1723,7 +1723,7 @@ func Test_S_020_FR_002_PartialRollbackDataRetrieval(t *testing.T) {
 	createTestDatabase(t, testPath)
 
 	// Open database in write mode to create partial rollback scenario
-	db, err := NewFrozenDB(testPath, MODE_WRITE)
+	db, err := NewFrozenDB(testPath, MODE_WRITE, FinderStrategySimple)
 	if err != nil {
 		t.Fatalf("Failed to open database: %v", err)
 	}
@@ -1789,7 +1789,7 @@ func Test_S_020_FR_002_PartialRollbackDataRetrieval(t *testing.T) {
 
 	// Close and reopen in read mode to test retrieval
 	db.Close()
-	db, err = NewFrozenDB(testPath, MODE_READ)
+	db, err = NewFrozenDB(testPath, MODE_READ, FinderStrategySimple)
 	if err != nil {
 		t.Fatalf("Failed to reopen database: %v", err)
 	}
@@ -1834,7 +1834,7 @@ func Test_S_020_FR_003_KeyNotFoundForNonexistentKey(t *testing.T) {
 	createTestDatabase(t, testPath)
 
 	// Open database in read mode
-	db, err := NewFrozenDB(testPath, MODE_READ)
+	db, err := NewFrozenDB(testPath, MODE_READ, FinderStrategySimple)
 	if err != nil {
 		t.Fatalf("Failed to open database: %v", err)
 	}
@@ -1875,7 +1875,7 @@ func Test_S_020_FR_004_KeyNotFoundForFullyRolledBackTransaction(t *testing.T) {
 	createTestDatabase(t, testPath)
 
 	// Open database in write mode to create fully rolled back transaction
-	db, err := NewFrozenDB(testPath, MODE_WRITE)
+	db, err := NewFrozenDB(testPath, MODE_WRITE, FinderStrategySimple)
 	if err != nil {
 		t.Fatalf("Failed to open database: %v", err)
 	}
@@ -1910,7 +1910,7 @@ func Test_S_020_FR_004_KeyNotFoundForFullyRolledBackTransaction(t *testing.T) {
 
 	// Close and reopen in read mode to test retrieval
 	db.Close()
-	db, err = NewFrozenDB(testPath, MODE_READ)
+	db, err = NewFrozenDB(testPath, MODE_READ, FinderStrategySimple)
 	if err != nil {
 		t.Fatalf("Failed to reopen database: %v", err)
 	}
@@ -1938,7 +1938,7 @@ func Test_S_020_FR_005_KeyNotFoundForKeysAfterSavepoint(t *testing.T) {
 	createTestDatabase(t, testPath)
 
 	// Open database in write mode to create partial rollback scenario
-	db, err := NewFrozenDB(testPath, MODE_WRITE)
+	db, err := NewFrozenDB(testPath, MODE_WRITE, FinderStrategySimple)
 	if err != nil {
 		t.Fatalf("Failed to open database: %v", err)
 	}
@@ -1988,7 +1988,7 @@ func Test_S_020_FR_005_KeyNotFoundForKeysAfterSavepoint(t *testing.T) {
 
 	// Close and reopen in read mode to test retrieval
 	db.Close()
-	db, err = NewFrozenDB(testPath, MODE_READ)
+	db, err = NewFrozenDB(testPath, MODE_READ, FinderStrategySimple)
 	if err != nil {
 		t.Fatalf("Failed to reopen database: %v", err)
 	}
@@ -2026,7 +2026,7 @@ func Test_S_020_FR_006_KeyNotFoundForUncommittedData(t *testing.T) {
 	createTestDatabase(t, testPath)
 
 	// Open database in write mode to add uncommitted data
-	db, err := NewFrozenDB(testPath, MODE_WRITE)
+	db, err := NewFrozenDB(testPath, MODE_WRITE, FinderStrategySimple)
 	if err != nil {
 		t.Fatalf("Failed to open database: %v", err)
 	}
@@ -2057,7 +2057,7 @@ func Test_S_020_FR_006_KeyNotFoundForUncommittedData(t *testing.T) {
 	db.Close()
 
 	// Reopen database in read mode
-	db, err = NewFrozenDB(testPath, MODE_READ)
+	db, err = NewFrozenDB(testPath, MODE_READ, FinderStrategySimple)
 	if err != nil {
 		t.Fatalf("Failed to reopen database: %v", err)
 	}
@@ -2085,7 +2085,7 @@ func Test_S_020_FR_007_InvalidDataErrorTypeMismatch(t *testing.T) {
 	createTestDatabase(t, testPath)
 
 	// Open database in write mode to add data with type mismatch
-	db, err := NewFrozenDB(testPath, MODE_WRITE)
+	db, err := NewFrozenDB(testPath, MODE_WRITE, FinderStrategySimple)
 	if err != nil {
 		t.Fatalf("Failed to open database: %v", err)
 	}
@@ -2114,7 +2114,7 @@ func Test_S_020_FR_007_InvalidDataErrorTypeMismatch(t *testing.T) {
 
 	// Close and reopen in read mode to test retrieval
 	db.Close()
-	db, err = NewFrozenDB(testPath, MODE_READ)
+	db, err = NewFrozenDB(testPath, MODE_READ, FinderStrategySimple)
 	if err != nil {
 		t.Fatalf("Failed to reopen database: %v", err)
 	}
@@ -2146,7 +2146,7 @@ func Test_S_020_FR_007_InvalidDataErrorTypeMismatch(t *testing.T) {
 	// Test another type mismatch - stored as int, retrieved as string
 	// Close and reopen database in write mode for second transaction
 	db.Close()
-	db, err = NewFrozenDB(testPath, MODE_WRITE)
+	db, err = NewFrozenDB(testPath, MODE_WRITE, FinderStrategySimple)
 	if err != nil {
 		t.Fatalf("Failed to reopen database for second transaction: %v", err)
 	}
@@ -2172,7 +2172,7 @@ func Test_S_020_FR_007_InvalidDataErrorTypeMismatch(t *testing.T) {
 	}
 
 	db.Close()
-	db, err = NewFrozenDB(testPath, MODE_READ)
+	db, err = NewFrozenDB(testPath, MODE_READ, FinderStrategySimple)
 	if err != nil {
 		t.Fatalf("Failed to reopen database second time: %v", err)
 	}
@@ -2202,7 +2202,7 @@ func Test_S_020_FR_008_InvalidDataErrorMalformedJSON(t *testing.T) {
 	createTestDatabase(t, testPath)
 
 	// Open database in write mode to add malformed JSON data
-	db, err := NewFrozenDB(testPath, MODE_WRITE)
+	db, err := NewFrozenDB(testPath, MODE_WRITE, FinderStrategySimple)
 	if err != nil {
 		t.Fatalf("Failed to open database: %v", err)
 	}
@@ -2258,7 +2258,7 @@ func Test_S_020_FR_008_InvalidDataErrorMalformedJSON(t *testing.T) {
 
 	// Close and reopen in read mode to test retrieval
 	db.Close()
-	db, err = NewFrozenDB(testPath, MODE_READ)
+	db, err = NewFrozenDB(testPath, MODE_READ, FinderStrategySimple)
 	if err != nil {
 		t.Fatalf("Failed to reopen database: %v", err)
 	}
@@ -2332,7 +2332,7 @@ func Test_S_020_FR_009_ImmediateVisibilityAfterCommitRollback(t *testing.T) {
 	}
 
 	// Test case 1: Immediate visibility after commit (within same FrozenDB instance)
-	db, err := NewFrozenDB(testPath, MODE_WRITE)
+	db, err := NewFrozenDB(testPath, MODE_WRITE, FinderStrategySimple)
 	if err != nil {
 		t.Fatalf("Failed to open database: %v", err)
 	}
@@ -2369,7 +2369,7 @@ func Test_S_020_FR_009_ImmediateVisibilityAfterCommitRollback(t *testing.T) {
 	db.Close()
 
 	// Test case 2: Immediate visibility after rollback (key should not be found, within same instance)
-	db, err = NewFrozenDB(testPath, MODE_WRITE)
+	db, err = NewFrozenDB(testPath, MODE_WRITE, FinderStrategySimple)
 	if err != nil {
 		t.Fatalf("Failed to open database for rollback test: %v", err)
 	}
@@ -2408,7 +2408,7 @@ func Test_S_020_FR_009_ImmediateVisibilityAfterCommitRollback(t *testing.T) {
 	db.Close()
 
 	// Test case 3: Immediate visibility after partial rollback (within same instance)
-	db, err = NewFrozenDB(testPath, MODE_WRITE)
+	db, err = NewFrozenDB(testPath, MODE_WRITE, FinderStrategySimple)
 	if err != nil {
 		t.Fatalf("Failed to open database for partial rollback test: %v", err)
 	}
@@ -2611,7 +2611,7 @@ func Test_S_007_FR_002_ComprehensiveValidation(t *testing.T) {
 				return
 			}
 
-			db, err := NewFrozenDB(testPath, MODE_READ)
+			db, err := NewFrozenDB(testPath, MODE_READ, FinderStrategySimple)
 			if tt.wantErr {
 				if err == nil {
 					t.Error("Expected error from NewFrozenDB, got nil")
@@ -2716,7 +2716,7 @@ func Test_S_007_FR_005_CRC32Verification(t *testing.T) {
 				return
 			}
 
-			_, err = NewFrozenDB(testPath, MODE_READ)
+			_, err = NewFrozenDB(testPath, MODE_READ, FinderStrategySimple)
 			if tt.expectErr && err == nil {
 				t.Error("Expected error for corrupted file, got nil")
 			}
@@ -2854,7 +2854,7 @@ func Test_S_007_FR_007_ChecksumRowStructureValidation(t *testing.T) {
 				return
 			}
 
-			_, err = NewFrozenDB(testPath, MODE_READ)
+			_, err = NewFrozenDB(testPath, MODE_READ, FinderStrategySimple)
 			if tt.wantErr {
 				if err == nil {
 					t.Error("Expected error, got nil")
@@ -2962,7 +2962,7 @@ func Test_S_007_FR_003_BufferOverflowProtection(t *testing.T) {
 				return
 			}
 
-			_, err = NewFrozenDB(testPath, MODE_READ)
+			_, err = NewFrozenDB(testPath, MODE_READ, FinderStrategySimple)
 			if tt.wantErr {
 				if err == nil {
 					t.Error("Expected error for buffer overflow scenario, got nil")
@@ -3132,7 +3132,7 @@ func Test_S_007_FR_004_rowSizeSecurityValidation(t *testing.T) {
 				return
 			}
 
-			_, err = NewFrozenDB(testPath, MODE_READ)
+			_, err = NewFrozenDB(testPath, MODE_READ, FinderStrategySimple)
 			if tt.wantErr {
 				if err == nil {
 					t.Error("Expected error for row size security violation, got nil")
@@ -3174,7 +3174,7 @@ func Test_S_018_FR_001_ScanLastRowForTransactionState(t *testing.T) {
 		createMinimalTestDatabase(t, tmpPath, header)
 
 		// Add a committed transaction
-		db, err := NewFrozenDB(tmpPath, MODE_WRITE)
+		db, err := NewFrozenDB(tmpPath, MODE_WRITE, FinderStrategySimple)
 		if err != nil {
 			t.Fatalf("Failed to open database: %v", err)
 		}
@@ -3200,7 +3200,7 @@ func Test_S_018_FR_001_ScanLastRowForTransactionState(t *testing.T) {
 		db.Close()
 
 		// Reopen database - should detect closed transaction
-		db2, err := NewFrozenDB(tmpPath, MODE_READ)
+		db2, err := NewFrozenDB(tmpPath, MODE_READ, FinderStrategySimple)
 		if err != nil {
 			t.Fatalf("Failed to reopen database: %v", err)
 		}
@@ -3226,7 +3226,7 @@ func Test_S_018_FR_001_ScanLastRowForTransactionState(t *testing.T) {
 		createMinimalTestDatabase(t, tmpPath, header)
 
 		// Add an open transaction (Begin + AddRow but no Commit)
-		db, err := NewFrozenDB(tmpPath, MODE_WRITE)
+		db, err := NewFrozenDB(tmpPath, MODE_WRITE, FinderStrategySimple)
 		if err != nil {
 			t.Fatalf("Failed to open database: %v", err)
 		}
@@ -3250,7 +3250,7 @@ func Test_S_018_FR_001_ScanLastRowForTransactionState(t *testing.T) {
 		db.Close()
 
 		// Reopen database - should detect open transaction
-		db2, err := NewFrozenDB(tmpPath, MODE_READ)
+		db2, err := NewFrozenDB(tmpPath, MODE_READ, FinderStrategySimple)
 		if err != nil {
 			t.Fatalf("Failed to reopen database: %v", err)
 		}
@@ -3281,7 +3281,7 @@ func Test_S_018_FR_002_CreateTransactionForInProgressState(t *testing.T) {
 		createMinimalTestDatabase(t, tmpPath, header)
 
 		// Create open transaction
-		db, err := NewFrozenDB(tmpPath, MODE_WRITE)
+		db, err := NewFrozenDB(tmpPath, MODE_WRITE, FinderStrategySimple)
 		if err != nil {
 			t.Fatalf("Failed to open database: %v", err)
 		}
@@ -3308,7 +3308,7 @@ func Test_S_018_FR_002_CreateTransactionForInProgressState(t *testing.T) {
 		db.Close()
 
 		// Reopen and verify transaction is recovered
-		db2, err := NewFrozenDB(tmpPath, MODE_READ)
+		db2, err := NewFrozenDB(tmpPath, MODE_READ, FinderStrategySimple)
 		if err != nil {
 			t.Fatalf("Failed to reopen database: %v", err)
 		}
@@ -3375,7 +3375,7 @@ func Test_S_018_FR_008_DetectTransactionByEndControlCharacter(t *testing.T) {
 			createMinimalTestDatabase(t, tmpPath, header)
 
 			// Create a transaction with the specified end control
-			db, err := NewFrozenDB(tmpPath, MODE_WRITE)
+			db, err := NewFrozenDB(tmpPath, MODE_WRITE, FinderStrategySimple)
 			if err != nil {
 				t.Fatalf("Failed to open database: %v", err)
 			}
@@ -3473,7 +3473,7 @@ func Test_S_018_FR_008_DetectTransactionByEndControlCharacter(t *testing.T) {
 			db.Close()
 
 			// Reopen and check transaction state
-			db2, err := NewFrozenDB(tmpPath, MODE_READ)
+			db2, err := NewFrozenDB(tmpPath, MODE_READ, FinderStrategySimple)
 			if err != nil {
 				t.Fatalf("Failed to reopen database: %v", err)
 			}
@@ -3511,7 +3511,7 @@ func Test_S_018_FR_009_HandlePartialDataRowDuringRecovery(t *testing.T) {
 		createMinimalTestDatabase(t, tmpPath, header)
 
 		// Create transaction and begin (writes state 1 PartialDataRow)
-		db, err := NewFrozenDB(tmpPath, MODE_WRITE)
+		db, err := NewFrozenDB(tmpPath, MODE_WRITE, FinderStrategySimple)
 		if err != nil {
 			t.Fatalf("Failed to open database: %v", err)
 		}
@@ -3530,7 +3530,7 @@ func Test_S_018_FR_009_HandlePartialDataRowDuringRecovery(t *testing.T) {
 		db.Close()
 
 		// Reopen and verify recovery
-		db2, err := NewFrozenDB(tmpPath, MODE_READ)
+		db2, err := NewFrozenDB(tmpPath, MODE_READ, FinderStrategySimple)
 		if err != nil {
 			t.Fatalf("Failed to reopen database: %v", err)
 		}
@@ -3555,7 +3555,7 @@ func Test_S_018_FR_009_HandlePartialDataRowDuringRecovery(t *testing.T) {
 		createMinimalTestDatabase(t, tmpPath, header)
 
 		// Create transaction, begin, and add row (writes state 2 PartialDataRow)
-		db, err := NewFrozenDB(tmpPath, MODE_WRITE)
+		db, err := NewFrozenDB(tmpPath, MODE_WRITE, FinderStrategySimple)
 		if err != nil {
 			t.Fatalf("Failed to open database: %v", err)
 		}
@@ -3578,7 +3578,7 @@ func Test_S_018_FR_009_HandlePartialDataRowDuringRecovery(t *testing.T) {
 		db.Close()
 
 		// Reopen and verify recovery
-		db2, err := NewFrozenDB(tmpPath, MODE_READ)
+		db2, err := NewFrozenDB(tmpPath, MODE_READ, FinderStrategySimple)
 		if err != nil {
 			t.Fatalf("Failed to reopen database: %v", err)
 		}
@@ -3603,7 +3603,7 @@ func Test_S_018_FR_009_HandlePartialDataRowDuringRecovery(t *testing.T) {
 		createMinimalTestDatabase(t, tmpPath, header)
 
 		// Create transaction, begin, add row, and savepoint (writes state 3 PartialDataRow)
-		db, err := NewFrozenDB(tmpPath, MODE_WRITE)
+		db, err := NewFrozenDB(tmpPath, MODE_WRITE, FinderStrategySimple)
 		if err != nil {
 			t.Fatalf("Failed to open database: %v", err)
 		}
@@ -3629,7 +3629,7 @@ func Test_S_018_FR_009_HandlePartialDataRowDuringRecovery(t *testing.T) {
 		db.Close()
 
 		// Reopen and verify recovery
-		db2, err := NewFrozenDB(tmpPath, MODE_READ)
+		db2, err := NewFrozenDB(tmpPath, MODE_READ, FinderStrategySimple)
 		if err != nil {
 			t.Fatalf("Failed to reopen database: %v", err)
 		}
@@ -3775,7 +3775,7 @@ func Test_S_018_FR_010_DetectAllValidTransactionEndings(t *testing.T) {
 
 			createMinimalTestDatabase(t, tmpPath, header)
 
-			db, err := NewFrozenDB(tmpPath, MODE_WRITE)
+			db, err := NewFrozenDB(tmpPath, MODE_WRITE, FinderStrategySimple)
 			if err != nil {
 				t.Fatalf("Failed to open database: %v", err)
 			}
@@ -3793,7 +3793,7 @@ func Test_S_018_FR_010_DetectAllValidTransactionEndings(t *testing.T) {
 			db.Close()
 
 			// Reopen and verify detection
-			db2, err := NewFrozenDB(tmpPath, MODE_READ)
+			db2, err := NewFrozenDB(tmpPath, MODE_READ, FinderStrategySimple)
 			if err != nil {
 				t.Fatalf("Failed to reopen database: %v", err)
 			}
@@ -3830,7 +3830,7 @@ func Test_S_018_FR_003_GetActiveTxReturnsCurrentTransaction(t *testing.T) {
 		createMinimalTestDatabase(t, tmpPath, header)
 
 		// Create open transaction
-		db, err := NewFrozenDB(tmpPath, MODE_WRITE)
+		db, err := NewFrozenDB(tmpPath, MODE_WRITE, FinderStrategySimple)
 		if err != nil {
 			t.Fatalf("Failed to open database: %v", err)
 		}
@@ -3853,7 +3853,7 @@ func Test_S_018_FR_003_GetActiveTxReturnsCurrentTransaction(t *testing.T) {
 		db.Close()
 
 		// Reopen and verify GetActiveTx returns the transaction
-		db2, err := NewFrozenDB(tmpPath, MODE_READ)
+		db2, err := NewFrozenDB(tmpPath, MODE_READ, FinderStrategySimple)
 		if err != nil {
 			t.Fatalf("Failed to reopen database: %v", err)
 		}
@@ -3884,7 +3884,7 @@ func Test_S_018_FR_003_GetActiveTxReturnsCurrentTransaction(t *testing.T) {
 		createMinimalTestDatabase(t, tmpPath, header)
 
 		// Open database with no transaction
-		db, err := NewFrozenDB(tmpPath, MODE_READ)
+		db, err := NewFrozenDB(tmpPath, MODE_READ, FinderStrategySimple)
 		if err != nil {
 			t.Fatalf("Failed to open database: %v", err)
 		}
@@ -3914,7 +3914,7 @@ func Test_S_018_FR_004_GetActiveTxReturnsNilForCommittedTransaction(t *testing.T
 		createMinimalTestDatabase(t, tmpPath, header)
 
 		// Create and commit transaction
-		db, err := NewFrozenDB(tmpPath, MODE_WRITE)
+		db, err := NewFrozenDB(tmpPath, MODE_WRITE, FinderStrategySimple)
 		if err != nil {
 			t.Fatalf("Failed to open database: %v", err)
 		}
@@ -3939,7 +3939,7 @@ func Test_S_018_FR_004_GetActiveTxReturnsNilForCommittedTransaction(t *testing.T
 		db.Close()
 
 		// Reopen and verify GetActiveTx returns nil for committed transaction
-		db2, err := NewFrozenDB(tmpPath, MODE_READ)
+		db2, err := NewFrozenDB(tmpPath, MODE_READ, FinderStrategySimple)
 		if err != nil {
 			t.Fatalf("Failed to reopen database: %v", err)
 		}
@@ -3969,7 +3969,7 @@ func Test_S_018_FR_005_GetActiveTxReturnsNilForRolledBackTransaction(t *testing.
 		createMinimalTestDatabase(t, tmpPath, header)
 
 		// Create and rollback transaction
-		db, err := NewFrozenDB(tmpPath, MODE_WRITE)
+		db, err := NewFrozenDB(tmpPath, MODE_WRITE, FinderStrategySimple)
 		if err != nil {
 			t.Fatalf("Failed to open database: %v", err)
 		}
@@ -3994,7 +3994,7 @@ func Test_S_018_FR_005_GetActiveTxReturnsNilForRolledBackTransaction(t *testing.
 		db.Close()
 
 		// Reopen and verify GetActiveTx returns nil for rolled back transaction
-		db2, err := NewFrozenDB(tmpPath, MODE_READ)
+		db2, err := NewFrozenDB(tmpPath, MODE_READ, FinderStrategySimple)
 		if err != nil {
 			t.Fatalf("Failed to reopen database: %v", err)
 		}
@@ -4023,7 +4023,7 @@ func Test_S_018_FR_006_BeginTxCreatesNewTransaction(t *testing.T) {
 
 		createMinimalTestDatabase(t, tmpPath, header)
 
-		db, err := NewFrozenDB(tmpPath, MODE_WRITE)
+		db, err := NewFrozenDB(tmpPath, MODE_WRITE, FinderStrategySimple)
 		if err != nil {
 			t.Fatalf("Failed to open database: %v", err)
 		}
@@ -4073,7 +4073,7 @@ func Test_S_018_FR_007_BeginTxReturnsErrorForActiveTransaction(t *testing.T) {
 		createMinimalTestDatabase(t, tmpPath, header)
 
 		// Create open transaction
-		db, err := NewFrozenDB(tmpPath, MODE_WRITE)
+		db, err := NewFrozenDB(tmpPath, MODE_WRITE, FinderStrategySimple)
 		if err != nil {
 			t.Fatalf("Failed to open database: %v", err)
 		}
@@ -4123,7 +4123,7 @@ func Test_S_018_FR_007_BeginTxReturnsErrorForActiveTransaction(t *testing.T) {
 		createMinimalTestDatabase(t, tmpPath, header)
 
 		// Create open transaction
-		db, err := NewFrozenDB(tmpPath, MODE_WRITE)
+		db, err := NewFrozenDB(tmpPath, MODE_WRITE, FinderStrategySimple)
 		if err != nil {
 			t.Fatalf("Failed to open database: %v", err)
 		}
@@ -4146,7 +4146,7 @@ func Test_S_018_FR_007_BeginTxReturnsErrorForActiveTransaction(t *testing.T) {
 		db.Close()
 
 		// Reopen - transaction should be recovered
-		db2, err := NewFrozenDB(tmpPath, MODE_WRITE)
+		db2, err := NewFrozenDB(tmpPath, MODE_WRITE, FinderStrategySimple)
 		if err != nil {
 			t.Fatalf("Failed to reopen database: %v", err)
 		}
@@ -4169,4 +4169,44 @@ func Test_S_018_FR_007_BeginTxReturnsErrorForActiveTransaction(t *testing.T) {
 			t.Errorf("Expected InvalidActionError, got %T", err)
 		}
 	})
+}
+
+// Test_S_021_FR_005_FinderStrategySelection verifies that users can choose finder
+// strategy when creating FrozenDB: SimpleFinder (O(n)) or InMemoryFinder (O(1)).
+func Test_S_021_FR_005_FinderStrategySelection(t *testing.T) {
+	testPath := filepath.Join(t.TempDir(), "fr005.fdb")
+	createTestDatabase(t, testPath)
+	db, err := NewFrozenDB(testPath, MODE_READ, FinderStrategySimple)
+	if err != nil {
+		t.Fatalf("NewFrozenDB(_, MODE_READ, FinderStrategySimple): %v", err)
+	}
+	_ = db.Close()
+	db, err = NewFrozenDB(testPath, MODE_READ, FinderStrategyInMemory)
+	if err != nil {
+		t.Fatalf("NewFrozenDB(_, MODE_READ, FinderStrategyInMemory): %v", err)
+	}
+	_ = db.Close()
+	_, err = NewFrozenDB(testPath, MODE_READ, FinderStrategy("invalid"))
+	if err == nil {
+		t.Fatal("NewFrozenDB with invalid strategy expected error")
+	}
+	var e *InvalidInputError
+	if !errors.As(err, &e) {
+		t.Errorf("expected InvalidInputError, got %T", err)
+	}
+}
+
+// Test_S_021_FR_009_NewFrozenDBSignatureUpdate verifies that NewFrozenDB accepts
+// three parameters: filename, mode, and finder strategy.
+func Test_S_021_FR_009_NewFrozenDBSignatureUpdate(t *testing.T) {
+	testPath := filepath.Join(t.TempDir(), "fr009.fdb")
+	createTestDatabase(t, testPath)
+	db, err := NewFrozenDB(testPath, MODE_READ, FinderStrategySimple)
+	if err != nil {
+		t.Fatalf("NewFrozenDB(path, mode, strategy): %v", err)
+	}
+	if db == nil {
+		t.Fatal("NewFrozenDB returned nil")
+	}
+	_ = db.Close()
 }

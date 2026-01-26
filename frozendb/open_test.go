@@ -32,7 +32,7 @@ func Benchmark_NewFrozenDB_ReadMode(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		db, err := NewFrozenDB(testPath, MODE_READ)
+		db, err := NewFrozenDB(testPath, MODE_READ, FinderStrategySimple)
 		if err != nil {
 			b.Fatal(err)
 		}
@@ -51,7 +51,7 @@ func Benchmark_NewFrozenDB_WriteMode(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		db, err := NewFrozenDB(testPath, MODE_WRITE)
+		db, err := NewFrozenDB(testPath, MODE_WRITE, FinderStrategySimple)
 		if err != nil {
 			b.Fatal(err)
 		}
@@ -70,7 +70,7 @@ func Benchmark_Close(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		b.StopTimer()
-		db, _ := NewFrozenDB(testPath, MODE_READ)
+		db, _ := NewFrozenDB(testPath, MODE_READ, FinderStrategySimple)
 		b.StartTimer()
 		db.Close()
 	}
@@ -87,7 +87,7 @@ func Benchmark_ConcurrentReaders(b *testing.B) {
 	b.ResetTimer()
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
-			db, err := NewFrozenDB(testPath, MODE_READ)
+			db, err := NewFrozenDB(testPath, MODE_READ, FinderStrategySimple)
 			if err != nil {
 				b.Error(err)
 				return
@@ -190,7 +190,7 @@ func TestConcurrentStress(t *testing.T) {
 		go func(readerID int) {
 			defer wg.Done()
 			for j := 0; j < iterations; j++ {
-				db, err := NewFrozenDB(testPath, MODE_READ)
+				db, err := NewFrozenDB(testPath, MODE_READ, FinderStrategySimple)
 				if err != nil {
 					errors <- err
 					return
@@ -232,7 +232,7 @@ func TestFileDescriptorLeaks(t *testing.T) {
 
 	// Open and close database many times
 	for i := 0; i < 100; i++ {
-		db, err := NewFrozenDB(testPath, MODE_READ)
+		db, err := NewFrozenDB(testPath, MODE_READ, FinderStrategySimple)
 		if err != nil {
 			t.Fatalf("Failed to open database: %v", err)
 		}

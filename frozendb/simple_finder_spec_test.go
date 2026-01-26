@@ -64,7 +64,7 @@ func Test_S_019_FR_002_GetIndexReturnsCorrectIndex(t *testing.T) {
 	createTestDatabase(t, dbPath)
 
 	// Open database for writing
-	db, err := NewFrozenDB(dbPath, MODE_WRITE)
+	db, err := NewFrozenDB(dbPath, MODE_WRITE, FinderStrategySimple)
 	if err != nil {
 		t.Fatalf("Failed to open database: %v", err)
 	}
@@ -160,7 +160,7 @@ func Test_S_019_FR_007_SimpleFinderImplementation(t *testing.T) {
 	createTestDatabase(t, dbPath)
 
 	// Open database for writing
-	db, err := NewFrozenDB(dbPath, MODE_WRITE)
+	db, err := NewFrozenDB(dbPath, MODE_WRITE, FinderStrategySimple)
 	if err != nil {
 		t.Fatalf("Failed to open database: %v", err)
 	}
@@ -214,7 +214,7 @@ func Test_S_019_FR_007_SimpleFinderImplementation(t *testing.T) {
 
 	// Verify that SimpleFinder scans linearly (finds first match)
 	// Add the same UUID twice in different transactions
-	db2, err := NewFrozenDB(dbPath, MODE_WRITE)
+	db2, err := NewFrozenDB(dbPath, MODE_WRITE, FinderStrategySimple)
 	if err != nil {
 		t.Fatalf("Failed to reopen database: %v", err)
 	}
@@ -272,7 +272,7 @@ func Test_S_019_FR_003_GetTransactionStartReturnsCorrectIndex(t *testing.T) {
 	createTestDatabase(t, dbPath)
 
 	// Open database for writing - Transaction 1
-	db, err := NewFrozenDB(dbPath, MODE_WRITE)
+	db, err := NewFrozenDB(dbPath, MODE_WRITE, FinderStrategySimple)
 	if err != nil {
 		t.Fatalf("Failed to open database: %v", err)
 	}
@@ -294,7 +294,7 @@ func Test_S_019_FR_003_GetTransactionStartReturnsCorrectIndex(t *testing.T) {
 	db.Close()
 
 	// Reopen for Transaction 2
-	db2, err := NewFrozenDB(dbPath, MODE_WRITE)
+	db2, err := NewFrozenDB(dbPath, MODE_WRITE, FinderStrategySimple)
 	if err != nil {
 		t.Fatalf("Failed to reopen database: %v", err)
 	}
@@ -366,7 +366,7 @@ func Test_S_019_FR_004_GetTransactionEndReturnsCorrectIndex(t *testing.T) {
 	createTestDatabase(t, dbPath)
 
 	// Open database for writing - Transaction 1
-	db2, err := NewFrozenDB(dbPath, MODE_WRITE)
+	db2, err := NewFrozenDB(dbPath, MODE_WRITE, FinderStrategySimple)
 	if err != nil {
 		t.Fatalf("Failed to open database: %v", err)
 	}
@@ -388,7 +388,7 @@ func Test_S_019_FR_004_GetTransactionEndReturnsCorrectIndex(t *testing.T) {
 	db2.Close() // Close after first transaction
 
 	// Reopen for Transaction 2
-	db3, err := NewFrozenDB(dbPath, MODE_WRITE)
+	db3, err := NewFrozenDB(dbPath, MODE_WRITE, FinderStrategySimple)
 	if err != nil {
 		t.Fatalf("Failed to reopen database: %v", err)
 	}
@@ -460,7 +460,7 @@ func Test_S_019_FR_005_TransactionBoundaryErrors(t *testing.T) {
 	createTestDatabase(t, dbPath)
 
 	// Open database for writing
-	db, err := NewFrozenDB(dbPath, MODE_WRITE)
+	db, err := NewFrozenDB(dbPath, MODE_WRITE, FinderStrategySimple)
 	if err != nil {
 		t.Fatalf("Failed to open database: %v", err)
 	}
@@ -557,7 +557,7 @@ func Test_S_019_FR_006_OnRowAddedUpdatesState(t *testing.T) {
 	createTestDatabase(t, dbPath)
 
 	// Open in write mode
-	db2, err := NewFrozenDB(dbPath, MODE_WRITE)
+	db2, err := NewFrozenDB(dbPath, MODE_WRITE, FinderStrategySimple)
 	if err != nil {
 		t.Fatalf("Failed to open database: %v", err)
 	}
@@ -642,7 +642,7 @@ func Test_S_019_FR_008_DirectLinearScanning(t *testing.T) {
 	createTestDatabase(t, dbPath)
 
 	// Open database for writing
-	db, err := NewFrozenDB(dbPath, MODE_WRITE)
+	db, err := NewFrozenDB(dbPath, MODE_WRITE, FinderStrategySimple)
 	if err != nil {
 		t.Fatalf("Failed to open database: %v", err)
 	}
@@ -728,7 +728,7 @@ func Test_S_019_FR_009_HandlesAllRowTypes(t *testing.T) {
 	createTestDatabase(t, dbPath)
 
 	// Open database for writing
-	db, err := NewFrozenDB(dbPath, MODE_WRITE)
+	db, err := NewFrozenDB(dbPath, MODE_WRITE, FinderStrategySimple)
 	if err != nil {
 		t.Fatalf("Failed to open database: %v", err)
 	}
@@ -751,7 +751,7 @@ func Test_S_019_FR_009_HandlesAllRowTypes(t *testing.T) {
 	db.Close() // Close after first transaction
 
 	// Reopen for transaction 2
-	db2, err := NewFrozenDB(dbPath, MODE_WRITE)
+	db2, err := NewFrozenDB(dbPath, MODE_WRITE, FinderStrategySimple)
 	if err != nil {
 		t.Fatalf("Failed to reopen database for tx2: %v", err)
 	}
@@ -768,7 +768,7 @@ func Test_S_019_FR_009_HandlesAllRowTypes(t *testing.T) {
 	db2.Close() // Close after second transaction
 
 	// Reopen for transaction 3
-	db3, err := NewFrozenDB(dbPath, MODE_WRITE)
+	db3, err := NewFrozenDB(dbPath, MODE_WRITE, FinderStrategySimple)
 	if err != nil {
 		t.Fatalf("Failed to reopen database for tx3: %v", err)
 	}
@@ -870,7 +870,7 @@ func Test_S_019_FR_010_TransactionBoundaryDetection(t *testing.T) {
 	createTestDatabase(t, dbPath)
 
 	// Open database for writing
-	db, err := NewFrozenDB(dbPath, MODE_WRITE)
+	db, err := NewFrozenDB(dbPath, MODE_WRITE, FinderStrategySimple)
 	if err != nil {
 		t.Fatalf("Failed to open database: %v", err)
 	}
@@ -890,7 +890,7 @@ func Test_S_019_FR_010_TransactionBoundaryDetection(t *testing.T) {
 	db.Close() // Close after first transaction
 
 	// Reopen for transaction 2
-	db2, err := NewFrozenDB(dbPath, MODE_WRITE)
+	db2, err := NewFrozenDB(dbPath, MODE_WRITE, FinderStrategySimple)
 	if err != nil {
 		t.Fatalf("Failed to reopen database for tx2: %v", err)
 	}
@@ -913,7 +913,7 @@ func Test_S_019_FR_010_TransactionBoundaryDetection(t *testing.T) {
 	db2.Close() // Close after second transaction
 
 	// Reopen for transaction 3
-	db3, err := NewFrozenDB(dbPath, MODE_WRITE)
+	db3, err := NewFrozenDB(dbPath, MODE_WRITE, FinderStrategySimple)
 	if err != nil {
 		t.Fatalf("Failed to reopen database for tx3: %v", err)
 	}

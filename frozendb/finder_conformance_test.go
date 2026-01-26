@@ -55,6 +55,10 @@ func TestFinderConformance_SimpleFinder(t *testing.T) {
 	RunFinderConformance(t, simpleFinderFactory)
 }
 
+func TestFinderConformance_InMemoryFinder(t *testing.T) {
+	RunFinderConformance(t, inmemoryFinderFactory)
+}
+
 // --- Helpers for fixtures ---
 
 const confRowSize = 1024
@@ -103,7 +107,7 @@ func uuidFromTS(ts int) uuid.UUID {
 
 func dbAddDataRow(t *testing.T, path string, key uuid.UUID, value string) {
 	t.Helper()
-	db, err := NewFrozenDB(path, MODE_WRITE)
+	db, err := NewFrozenDB(path, MODE_WRITE, FinderStrategySimple)
 	if err != nil {
 		t.Fatalf("NewFrozenDB: %v", err)
 	}
@@ -122,7 +126,7 @@ func dbAddDataRow(t *testing.T, path string, key uuid.UUID, value string) {
 
 func dbAddNullRow(t *testing.T, path string) {
 	t.Helper()
-	db, err := NewFrozenDB(path, MODE_WRITE)
+	db, err := NewFrozenDB(path, MODE_WRITE, FinderStrategySimple)
 	if err != nil {
 		t.Fatalf("NewFrozenDB: %v", err)
 	}
@@ -346,7 +350,7 @@ func setupFor(t *testing.T, id string, dir string) (path string, rowSize int32, 
 
 func openAndBegin(t *testing.T, path string) (*Transaction, *FrozenDB) {
 	t.Helper()
-	db, err := NewFrozenDB(path, MODE_WRITE)
+	db, err := NewFrozenDB(path, MODE_WRITE, FinderStrategySimple)
 	if err != nil {
 		t.Fatalf("NewFrozenDB: %v", err)
 	}
