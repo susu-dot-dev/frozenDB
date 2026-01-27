@@ -15,7 +15,8 @@ import (
 type FinderFactory func(t *testing.T, path string, rowSize int32) (Finder, func())
 
 var finderFactories = map[string]FinderFactory{
-	"simple": simpleFinderFactory,
+	"simple":        simpleFinderFactory,
+	"binary_search": binarySearchFinderFactory,
 }
 
 // RegisterFinderFactory registers a FinderFactory by name for conformance tests.
@@ -33,6 +34,20 @@ func simpleFinderFactory(t *testing.T, path string, rowSize int32) (Finder, func
 	if err != nil {
 		dbFile.Close()
 		t.Fatalf("NewSimpleFinder: %v", err)
+	}
+	return f, func() { _ = dbFile.Close() }
+}
+
+func binarySearchFinderFactory(t *testing.T, path string, rowSize int32) (Finder, func()) {
+	t.Helper()
+	dbFile, err := NewDBFile(path, MODE_READ)
+	if err != nil {
+		t.Fatalf("NewDBFile: %v", err)
+	}
+	f, err := NewBinarySearchFinder(dbFile, int32(rowSize))
+	if err != nil {
+		dbFile.Close()
+		t.Fatalf("NewBinarySearchFinder: %v", err)
 	}
 	return f, func() { _ = dbFile.Close() }
 }
@@ -57,6 +72,10 @@ func TestFinderConformance_SimpleFinder(t *testing.T) {
 
 func TestFinderConformance_InMemoryFinder(t *testing.T) {
 	RunFinderConformance(t, inmemoryFinderFactory)
+}
+
+func TestFinderConformance_BinarySearchFinder(t *testing.T) {
+	RunFinderConformance(t, binarySearchFinderFactory)
 }
 
 // TestFinderConformance_MaxTimestamp validates MaxTimestamp() requirements from spec 023
@@ -209,6 +228,8 @@ func setupCreate(t *testing.T, dir string, skewMs int) string {
 
 // uuidFromTS produces a UUIDv7 that sorts in numeric order of ts (ts1 < ts2 => uuidFromTS(ts1) < uuidFromTS(ts2)).
 // Used for key-ordering scenarios. Must satisfy ValidateUUIDv7 and the DB's new_ts+skew > max_ts when inserting in file order.
+// CRITICAL: This function generates valid DataRow UUIDs (not NullRow UUIDs). Bytes 7, 9-15 must have at least one non-zero byte
+// to avoid matching the NullRow UUID pattern. We use a simple pattern: set byte 7 to 1 to ensure it's a valid DataRow UUID.
 func uuidFromTS(ts int) uuid.UUID {
 	var u [16]byte
 	// 48-bit big-endian ts at [0:6]
@@ -219,7 +240,7 @@ func uuidFromTS(ts int) uuid.UUID {
 	u[4] = byte(ts >> 8)
 	u[5] = byte(ts)
 	u[6] = 0x70 // version 7
-	u[7] = 0
+	u[7] = 0x01 // Set to non-zero to ensure valid DataRow UUID (not NullRow pattern)
 	u[8] = 0x80 // variant RFC 4122
 	u[9] = 0
 	u[10] = 0

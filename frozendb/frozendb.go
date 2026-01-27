@@ -53,9 +53,9 @@ type FrozenDB struct {
 //
 // Thread Safety: Safe for concurrent calls on different files
 func NewFrozenDB(path string, mode string, strategy FinderStrategy) (*FrozenDB, error) {
-	if strategy != FinderStrategySimple && strategy != FinderStrategyInMemory {
+	if strategy != FinderStrategySimple && strategy != FinderStrategyInMemory && strategy != FinderStrategyBinarySearch {
 		return nil, NewInvalidInputError(
-			fmt.Sprintf("Invalid finder strategy: %q. Supported strategies: simple, inmemory", strategy),
+			fmt.Sprintf("Invalid finder strategy: %q. Supported strategies: simple, inmemory, binary_search", strategy),
 			nil,
 		)
 	}
@@ -84,6 +84,8 @@ func NewFrozenDB(path string, mode string, strategy FinderStrategy) (*FrozenDB, 
 		finder, err = NewSimpleFinder(dbFile, rowSize)
 	case FinderStrategyInMemory:
 		finder, err = NewInMemoryFinder(dbFile, rowSize)
+	case FinderStrategyBinarySearch:
+		finder, err = NewBinarySearchFinder(dbFile, rowSize)
 	}
 	if err != nil {
 		cleanupErr = err

@@ -82,13 +82,15 @@ GetIndex() MAY assume that UUID keys are unique within the database. Since froze
 - Valid UUIDv7 keys MAY be searched for and will match DataRows
 - uuid.Nil (all zeros) MUST result in error (searching for UUID 0x0 is invalid)
 - Empty or invalid UUIDs MUST result in error
+- **NullRow UUID Rejection**: GetIndex() MUST reject search keys that are NullRow UUIDs (detected by all-zero non-timestamp parts in bytes 7, 9-15). NullRow UUIDs are invalid search keys and MUST be rejected with an InvalidInputError before performing any search operations. This ensures GetIndex() only searches for valid DataRow UUIDs.
 
 **Search Algorithm:**
-1. Skip checksum rows (no UUID key)
-2. Skip NullRows (NullRows are not user data and are excluded from query results)
-3. Skip PartialDataRows (incomplete state)
-4. Compare UUID keys for DataRows only
-5. Return the matching index, or error if not found
+1. Validate search key is not a NullRow UUID (reject if non-timestamp parts bytes 7, 9-15 are all zeros)
+2. Skip checksum rows (no UUID key)
+3. Skip NullRows (NullRows are not user data and are excluded from query results)
+4. Skip PartialDataRows (incomplete state)
+5. Compare UUID keys for DataRows only
+6. Return the matching index, or error if not found
 
 **Concurrency Considerations:**
 GetIndex() MAY be called within the context of Transaction.AddRow implementations. The method MUST NOT attempt to acquire transaction read or write locks, as this could cause deadlocks when called from within transaction operations. Implementations should use read-only locks appropriate for the finder's internal state management.
@@ -260,6 +262,7 @@ Finder methods must return appropriate errors for these conditions:
 **Search Result Errors:**
 - UUID key not found in database
 - Empty or invalid UUID parameters
+- NullRow UUID used as search key (detected by all-zero non-timestamp parts in bytes 7, 9-15)
 - TransactionActiveError: Transaction is still open when attempting to determine transaction boundaries
 
 ### 7.2. Error Propagation
