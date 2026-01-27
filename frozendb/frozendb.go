@@ -243,6 +243,7 @@ func (db *FrozenDB) recoverTransaction() error {
 			Header:          db.header,
 			writeChan:       writeChan,
 			db:              db.file,
+			finder:          db.finder,
 			rowBytesWritten: len(partialBytes), // Track how much of partial row is written
 		}
 
@@ -350,6 +351,7 @@ func (db *FrozenDB) recoverTransaction() error {
 				Header:    db.header,
 				writeChan: writeChan,
 				db:        db.file,
+				finder:    db.finder,
 			}
 
 			// Note: maxTimestamp is now maintained by the finder, not the transaction

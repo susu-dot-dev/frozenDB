@@ -1059,9 +1059,10 @@ func Test_S_011_FR_006_NullRowValidation(t *testing.T) {
 			t.Errorf("NullRow should pass validation: %v", err)
 		}
 
-		// Verify NullRow has uuid.Nil key
-		if emptyRow.GetKey() != uuid.Nil {
-			t.Errorf("NullRow should have uuid.Nil key, got %v", emptyRow.GetKey())
+		// Verify NullRow has valid NullRow UUID (with timestamp 0 for empty database)
+		expectedUUID := CreateNullRowUUID(0)
+		if emptyRow.GetKey() != expectedUUID {
+			t.Errorf("NullRow should have valid NullRow UUID %v, got %v", expectedUUID, emptyRow.GetKey())
 		}
 	})
 
@@ -2160,8 +2161,10 @@ func Test_S_013_FR_010_FullRollbackCreatesNullRowForEmptyTransaction(t *testing.
 			t.Fatal("Rollback(0) should create NullRow in empty field for empty transaction")
 		}
 
-		if emptyRow.GetKey() != uuid.Nil {
-			t.Errorf("NullRow should have uuid.Nil key, got %v", emptyRow.GetKey())
+		// Verify NullRow has valid NullRow UUID (with timestamp 0 for empty database)
+		expectedUUID := CreateNullRowUUID(0)
+		if emptyRow.GetKey() != expectedUUID {
+			t.Errorf("NullRow should have valid NullRow UUID %v, got %v", expectedUUID, emptyRow.GetKey())
 		}
 	})
 

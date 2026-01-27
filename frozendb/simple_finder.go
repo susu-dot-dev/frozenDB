@@ -93,7 +93,7 @@ func (sf *SimpleFinder) initializeMaxTimestamp() error {
 			key := rowUnion.DataRow.GetKey()
 			if key != uuid.Nil {
 				if err := ValidateUUIDv7(key); err == nil {
-					timestamp := extractUUIDv7Timestamp(key)
+					timestamp := ExtractUUIDv7Timestamp(key)
 					if timestamp > sf.maxTimestamp {
 						sf.maxTimestamp = timestamp
 					}
@@ -102,7 +102,7 @@ func (sf *SimpleFinder) initializeMaxTimestamp() error {
 		} else if rowUnion.NullRow != nil {
 			// Extract timestamp from NullRow key (uuid.Nil) and compare, same as DataRow
 			key := rowUnion.NullRow.GetKey()
-			timestamp := extractUUIDv7Timestamp(key)
+			timestamp := ExtractUUIDv7Timestamp(key)
 			if timestamp > sf.maxTimestamp {
 				sf.maxTimestamp = timestamp
 			}
@@ -328,7 +328,7 @@ func (sf *SimpleFinder) OnRowAdded(index int64, row *RowUnion) error {
 		key := row.DataRow.GetKey()
 		if key != uuid.Nil {
 			if err := ValidateUUIDv7(key); err == nil {
-				timestamp := extractUUIDv7Timestamp(key)
+				timestamp := ExtractUUIDv7Timestamp(key)
 				if timestamp > sf.maxTimestamp {
 					sf.maxTimestamp = timestamp
 				}
@@ -337,7 +337,7 @@ func (sf *SimpleFinder) OnRowAdded(index int64, row *RowUnion) error {
 	} else if row.NullRow != nil {
 		// Extract timestamp from NullRow key (uuid.Nil) and compare, same as DataRow
 		key := row.NullRow.GetKey()
-		timestamp := extractUUIDv7Timestamp(key)
+		timestamp := ExtractUUIDv7Timestamp(key)
 		if timestamp > sf.maxTimestamp {
 			sf.maxTimestamp = timestamp
 		}

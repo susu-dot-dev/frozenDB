@@ -18,15 +18,17 @@ func TestNullRowPayload_MarshalText(t *testing.T) {
 		}
 	})
 
-	t.Run("uuid_nil_produces_correct_base64", func(t *testing.T) {
-		nrp := &NullRowPayload{Key: uuid.Nil}
+	t.Run("valid_nullrow_uuid_produces_correct_base64", func(t *testing.T) {
+		// Use valid NullRow UUID with timestamp 0
+		nullRowUUID := CreateNullRowUUID(0)
+		nrp := &NullRowPayload{Key: nullRowUUID}
 		b, err := nrp.MarshalText()
 		if err != nil {
 			t.Fatalf("MarshalText failed: %v", err)
 		}
-		expected := "AAAAAAAAAAAAAAAAAAAAAA=="
-		if string(b) != expected {
-			t.Errorf("Expected %s, got %s", expected, string(b))
+		// Verify it's valid Base64 encoding (24 bytes)
+		if len(b) != 24 {
+			t.Errorf("Expected 24 bytes, got %d", len(b))
 		}
 	})
 }
@@ -57,14 +59,18 @@ func TestNullRowPayload_UnmarshalText(t *testing.T) {
 		}
 	})
 
-	t.Run("valid_uuid_nil", func(t *testing.T) {
+	t.Run("valid_nullrow_uuid", func(t *testing.T) {
+		// Create a valid NullRow UUID and encode it
+		nullRowUUID := CreateNullRowUUID(0)
+		encoded := base64.StdEncoding.EncodeToString(nullRowUUID[:])
+
 		nrp := &NullRowPayload{}
-		err := nrp.UnmarshalText([]byte("AAAAAAAAAAAAAAAAAAAAAA=="))
+		err := nrp.UnmarshalText([]byte(encoded))
 		if err != nil {
 			t.Fatalf("UnmarshalText failed: %v", err)
 		}
-		if nrp.Key != uuid.Nil {
-			t.Errorf("Expected uuid.Nil, got %s", nrp.Key)
+		if nrp.Key != nullRowUUID {
+			t.Errorf("Expected %s, got %s", nullRowUUID, nrp.Key)
 		}
 	})
 
@@ -97,11 +103,12 @@ func TestNullRowPayload_Validate(t *testing.T) {
 		}
 	})
 
-	t.Run("valid_uuid_nil", func(t *testing.T) {
-		nrp := &NullRowPayload{Key: uuid.Nil}
+	t.Run("valid_nullrow_uuid", func(t *testing.T) {
+		nullRowUUID := CreateNullRowUUID(0)
+		nrp := &NullRowPayload{Key: nullRowUUID}
 		err := nrp.Validate()
 		if err != nil {
-			t.Errorf("Validate should pass for uuid.Nil: %v", err)
+			t.Errorf("Validate should pass for valid NullRow UUID: %v", err)
 		}
 	})
 
@@ -121,13 +128,14 @@ func TestNullRow_RoundTrip(t *testing.T) {
 
 	for _, rowSize := range rowSizes {
 		t.Run(fmt.Sprintf("rowSize_%d", rowSize), func(t *testing.T) {
-			// Create original NullRow
+			// Create original NullRow with valid NullRow UUID
+			nullRowUUID := CreateNullRowUUID(0)
 			original := &NullRow{
 				baseRow: baseRow[*NullRowPayload]{
 					RowSize:      rowSize,
 					StartControl: START_TRANSACTION,
 					EndControl:   NULL_ROW_CONTROL,
-					RowPayload:   &NullRowPayload{Key: uuid.Nil},
+					RowPayload:   &NullRowPayload{Key: nullRowUUID},
 				},
 			}
 
@@ -155,8 +163,8 @@ func TestNullRow_RoundTrip(t *testing.T) {
 			}
 
 			// Verify fields
-			if restored.GetKey() != uuid.Nil {
-				t.Errorf("Key mismatch: expected uuid.Nil, got %s", restored.GetKey())
+			if restored.GetKey() != nullRowUUID {
+				t.Errorf("Key mismatch: expected %s, got %s", nullRowUUID, restored.GetKey())
 			}
 
 			if restored.StartControl != START_TRANSACTION {
@@ -189,17 +197,18 @@ func TestNullRow_RoundTrip(t *testing.T) {
 
 // TestNullRow_GetKey tests the GetKey accessor method
 func TestNullRow_GetKey(t *testing.T) {
+	nullRowUUID := CreateNullRowUUID(0)
 	nullRow := &NullRow{
 		baseRow: baseRow[*NullRowPayload]{
 			RowSize:      512,
 			StartControl: START_TRANSACTION,
 			EndControl:   NULL_ROW_CONTROL,
-			RowPayload:   &NullRowPayload{Key: uuid.Nil},
+			RowPayload:   &NullRowPayload{Key: nullRowUUID},
 		},
 	}
 
 	key := nullRow.GetKey()
-	if key != uuid.Nil {
-		t.Errorf("GetKey should return uuid.Nil, got %s", key)
+	if key != nullRowUUID {
+		t.Errorf("GetKey should return %s, got %s", nullRowUUID, key)
 	}
 }

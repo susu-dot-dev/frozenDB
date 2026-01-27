@@ -226,7 +226,7 @@ func Test_S_023_FR_004_Updates_On_Commit(t *testing.T) {
 	}
 
 	// Verify it's the timestamp from the committed row
-	expectedTs := extractUUIDv7Timestamp(key1)
+	expectedTs := ExtractUUIDv7Timestamp(key1)
 	if maxTsAfter != expectedTs {
 		t.Errorf("MaxTimestamp after commit: got %d, want %d", maxTsAfter, expectedTs)
 	}
@@ -252,7 +252,7 @@ func Test_S_023_FR_004_Updates_On_Commit(t *testing.T) {
 
 	// MaxTimestamp should update to the newer timestamp
 	maxTsAfter2 := finder.MaxTimestamp()
-	expectedTs2 := extractUUIDv7Timestamp(key2)
+	expectedTs2 := ExtractUUIDv7Timestamp(key2)
 	if maxTsAfter2 < expectedTs2 {
 		t.Errorf("MaxTimestamp after second commit: got %d, want at least %d", maxTsAfter2, expectedTs2)
 	}

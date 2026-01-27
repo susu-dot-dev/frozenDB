@@ -124,15 +124,6 @@ func (tx *Transaction) checkTombstone() error {
 	return nil
 }
 
-// extractUUIDv7Timestamp extracts the 48-bit millisecond timestamp from a UUIDv7.
-// The timestamp is stored in the first 6 bytes (48 bits) of the UUID.
-func extractUUIDv7Timestamp(u uuid.UUID) int64 {
-	// UUIDv7 format: first 48 bits are the timestamp in milliseconds
-	// Bytes 0-5 contain the timestamp, big-endian
-	return int64(u[0])<<40 | int64(u[1])<<32 | int64(u[2])<<24 |
-		int64(u[3])<<16 | int64(u[4])<<8 | int64(u[5])
-}
-
 // getChecksumStart returns the offset where the most recent checksum row starts.
 // If file size is less than 10,000 data rows, returns HEADER_SIZE (64) for the initial checksum.
 // Otherwise, calculates the position of the most recent checksum row based on row count.
@@ -472,7 +463,7 @@ func (tx *Transaction) AddRow(key uuid.UUID, value json.RawMessage) error {
 	}
 
 	// FR-014, FR-016, FR-017: Validate timestamp ordering
-	newTimestamp := extractUUIDv7Timestamp(key)
+	newTimestamp := ExtractUUIDv7Timestamp(key)
 	skewMs := int64(tx.Header.GetSkewMs())
 
 	// Get maxTimestamp (max of finder's committed rows and transaction's uncommitted rows)
@@ -624,9 +615,12 @@ func (tx *Transaction) Commit() error {
 
 	// FR-004: Handle empty transactions (Begin() + Commit() with no AddRow() calls)
 	if len(tx.rows) == 0 && tx.last.GetState() == PartialDataRowWithStartControl {
-		// Create and validate NullRowPayload
+		// Get maxTimestamp from finder for NullRow UUID creation
+		maxTimestamp := tx.finder.MaxTimestamp()
+
+		// Create and validate NullRowPayload with timestamp-aware UUID
 		payload := &NullRowPayload{
-			Key: uuid.Nil,
+			Key: CreateNullRowUUID(maxTimestamp),
 		}
 		if err := payload.Validate(); err != nil {
 			return NewInvalidActionError("created NullRowPayload failed validation", err)
@@ -916,9 +910,12 @@ func (tx *Transaction) Rollback(savepointId int) error {
 
 	// Handle empty transaction (Begin() + Rollback() with no AddRow)
 	if len(tx.rows) == 0 && tx.last.GetState() == PartialDataRowWithStartControl {
-		// Create NullRowPayload
+		// Get maxTimestamp from finder for NullRow UUID creation
+		maxTimestamp := tx.finder.MaxTimestamp()
+
+		// Create NullRowPayload with timestamp-aware UUID
 		payload := &NullRowPayload{
-			Key: uuid.Nil,
+			Key: CreateNullRowUUID(maxTimestamp),
 		}
 		if err := payload.Validate(); err != nil {
 			return NewInvalidActionError("created NullRowPayload failed validation", err)

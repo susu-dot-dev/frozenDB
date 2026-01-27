@@ -82,7 +82,7 @@ func (imf *InMemoryFinder) buildIndex() error {
 				if err := ValidateUUIDv7(key); err == nil {
 					imf.uuidIndex[key] = i
 					// Update maxTimestamp for complete DataRow
-					timestamp := extractUUIDv7Timestamp(key)
+					timestamp := ExtractUUIDv7Timestamp(key)
 					if timestamp > imf.maxTimestamp {
 						imf.maxTimestamp = timestamp
 					}
@@ -94,7 +94,7 @@ func (imf *InMemoryFinder) buildIndex() error {
 			imf.transactionEnd[i] = i
 			// Update maxTimestamp for NullRow - extract timestamp and compare, same as DataRow
 			key := ru.NullRow.GetKey()
-			timestamp := extractUUIDv7Timestamp(key)
+			timestamp := ExtractUUIDv7Timestamp(key)
 			if timestamp > imf.maxTimestamp {
 				imf.maxTimestamp = timestamp
 			}
@@ -202,7 +202,7 @@ func (imf *InMemoryFinder) OnRowAdded(index int64, row *RowUnion) error {
 			if err := ValidateUUIDv7(key); err == nil {
 				imf.uuidIndex[key] = index
 				// Update maxTimestamp for complete DataRow
-				timestamp := extractUUIDv7Timestamp(key)
+				timestamp := ExtractUUIDv7Timestamp(key)
 				if timestamp > imf.maxTimestamp {
 					imf.maxTimestamp = timestamp
 				}
@@ -214,7 +214,7 @@ func (imf *InMemoryFinder) OnRowAdded(index int64, row *RowUnion) error {
 		imf.transactionEnd[index] = index
 		// Update maxTimestamp for NullRow - extract timestamp and compare, same as DataRow
 		key := row.NullRow.GetKey()
-		timestamp := extractUUIDv7Timestamp(key)
+		timestamp := ExtractUUIDv7Timestamp(key)
 		if timestamp > imf.maxTimestamp {
 			imf.maxTimestamp = timestamp
 		}

@@ -614,7 +614,7 @@ func TestAddRow_MaxTimestampInitialization(t *testing.T) {
 func TestAddRow_UUIDv7TimestampExtraction(t *testing.T) {
 	t.Run("extracts_timestamp_correctly", func(t *testing.T) {
 		key, _ := uuid.NewV7()
-		ts := extractUUIDv7Timestamp(key)
+		ts := ExtractUUIDv7Timestamp(key)
 
 		// Timestamp should be reasonable (after year 2020, which is ~1577836800000 ms)
 		if ts < 1577836800000 {
@@ -631,7 +631,7 @@ func TestAddRow_UUIDv7TimestampExtraction(t *testing.T) {
 		var prevTs int64 = 0
 		for i := 0; i < 100; i++ {
 			key, _ := uuid.NewV7()
-			ts := extractUUIDv7Timestamp(key)
+			ts := ExtractUUIDv7Timestamp(key)
 			if ts < prevTs {
 				t.Errorf("Timestamp %d is less than previous %d", ts, prevTs)
 			}
@@ -2521,6 +2521,7 @@ func TestCommit_DiskPersistence(t *testing.T) {
 			Header:    header,
 			writeChan: dataChan,
 			db:        &mockDBFile{},
+			finder:    &mockFinderWithMaxTimestamp{maxTs: 0},
 		}
 
 		err := tx.Begin()
@@ -2791,6 +2792,7 @@ func TestTransactionPersistence_ErrorConditions(t *testing.T) {
 			Header:    header,
 			writeChan: dataChan,
 			db:        &mockDBFile{},
+			finder:    &mockFinderWithMaxTimestamp{maxTs: 0},
 		}
 
 		err := tx.Begin()
@@ -2941,6 +2943,7 @@ func TestTransactionPersistence_ErrorConditions(t *testing.T) {
 			Header:    header,
 			writeChan: dataChan,
 			db:        &mockDBFile{},
+			finder:    &mockFinderWithMaxTimestamp{maxTs: 0},
 		}
 
 		// Begin() should fail because channel is full (hits default case)
@@ -3044,6 +3047,7 @@ func TestTransactionPersistence_SynchronousWrites(t *testing.T) {
 			Header:    header,
 			writeChan: dataChan,
 			db:        &mockDBFile{},
+			finder:    &mockFinderWithMaxTimestamp{maxTs: 0},
 		}
 
 		startTime := time.Now()

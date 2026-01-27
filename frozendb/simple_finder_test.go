@@ -1040,17 +1040,22 @@ func createMockDataRow(rowSize int32, key uuid.UUID, value json.RawMessage) []by
 }
 
 func createMockNullRow(rowSize int32) []byte {
+	// Use valid NullRow UUID with timestamp 0 (empty database)
+	nullRowUUID := CreateNullRowUUID(0)
 	nullRow := &NullRow{
 		baseRow[*NullRowPayload]{
 			RowSize:      int(rowSize),
 			StartControl: START_TRANSACTION,
 			EndControl:   NULL_ROW_CONTROL,
 			RowPayload: &NullRowPayload{
-				Key: uuid.Nil,
+				Key: nullRowUUID,
 			},
 		},
 	}
-	bytes, _ := nullRow.MarshalText()
+	bytes, err := nullRow.MarshalText()
+	if err != nil {
+		panic(fmt.Sprintf("createMockNullRow: failed to marshal: %v", err))
+	}
 	return bytes
 }
 
