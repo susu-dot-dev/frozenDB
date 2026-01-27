@@ -26,7 +26,7 @@
 **Decision**: Implement NullRow according to v1 file format specification section 8.7
 
 **Rationale**:
-- NullRow structure must exactly match specification: start_control='T', end_control='NR', UUID=uuid.Nil
+- NullRow structure must exactly match specification: start_control='T', end_control='NR', UUID with timestamp equal to max_timestamp, other fields zero
 - Parity bytes calculated using LRC (Longitudinal Redundancy Check) per specification
 - Fixed width row structure with proper padding
 - Base64 encoding for UUID follows existing patterns in DataRow implementation

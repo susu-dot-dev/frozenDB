@@ -261,6 +261,8 @@ func dbAddNullRow(t *testing.T, path string) {
 	if err != nil {
 		t.Fatalf("BeginTx: %v", err)
 	}
+	// Commit empty transaction to create NullRow
+	// The transaction Commit() will create a NullRow automatically for empty transactions
 	if err := tx.Commit(); err != nil {
 		t.Fatalf("Commit: %v", err)
 	}
@@ -307,7 +309,6 @@ func runScenario(t *testing.T, id string, factory FinderFactory) {
 	default:
 		t.Fatalf("unknown scenario %s", id)
 	}
-
 	assertExpected(t, id, got, env)
 }
 

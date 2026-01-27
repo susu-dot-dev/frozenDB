@@ -91,27 +91,6 @@ func (drp *DataRowPayload) Validate() error {
 	return nil
 }
 
-// ValidateUUIDv7 validates that a UUID is version 7 and RFC 4122 variant.
-// Returns nil if valid, or an InvalidInputError if the UUID is invalid.
-func ValidateUUIDv7(u uuid.UUID) *InvalidInputError {
-	// Check for zero UUID
-	if u == uuid.Nil {
-		return NewInvalidInputError("UUID cannot be zero/Nil", nil)
-	}
-
-	// Validate variant is RFC 4122
-	if u.Variant() != uuid.RFC4122 {
-		return NewInvalidInputError(fmt.Sprintf("UUID variant must be RFC 4122, got %v", u.Variant()), nil)
-	}
-
-	// Validate version is 7
-	if u.Version() != 7 {
-		return NewInvalidInputError(fmt.Sprintf("UUID version must be 7, got %d", u.Version()), nil)
-	}
-
-	return nil
-}
-
 // DataRow represents a single key-value data row with UUIDv7 key and json.RawMessage value.
 // DataRow follows the v1_file_format.md specification and uses baseRow for common
 // file format handling. DataRows can be created manually or deserialized from bytes.

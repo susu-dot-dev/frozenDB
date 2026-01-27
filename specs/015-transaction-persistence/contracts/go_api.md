@@ -81,7 +81,7 @@ tx := &Transaction{
 
 **Empty transaction** (no AddRow calls):
 
-1. A NullRow is created with StartControl='T', EndControl='NR', Key=uuid.Nil
+1. A NullRow is created with StartControl='T', EndControl='NR', Key with timestamp equal to max_timestamp, other fields zero
 2. The NullRow is marshaled to bytes (rowSize bytes)
 3. Only incremental bytes (positions 2 to rowSize-1) are written to channel (first 2 bytes already written by Begin())
 

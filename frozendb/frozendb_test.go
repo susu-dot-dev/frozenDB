@@ -184,8 +184,10 @@ func buildDataRow(rowSize int32, key uuid.UUID, value string, startControl Start
 }
 
 func buildNullRow(rowSize int32, startControl StartControl, endControl EndControl) []byte {
+	// Use valid NullRow UUID with timestamp 0 (empty database)
+	nullRowUUID := CreateNullRowUUID(0)
 	payload := &NullRowPayload{
-		Key: uuid.Nil,
+		Key: nullRowUUID,
 	}
 	nullRow := &NullRow{
 		baseRow[*NullRowPayload]{
@@ -195,7 +197,10 @@ func buildNullRow(rowSize int32, startControl StartControl, endControl EndContro
 			RowPayload:   payload,
 		},
 	}
-	bytes, _ := nullRow.MarshalText()
+	bytes, err := nullRow.MarshalText()
+	if err != nil {
+		panic(fmt.Sprintf("buildNullRow: failed to marshal: %v", err))
+	}
 	return bytes
 }
 

@@ -62,7 +62,7 @@ As a frozenDB developer, I need to marshal and unmarshal NullRow instances to/fr
 
 - **FR-001**: NullRow struct MUST have start_control field always set to 'T' (transaction begin)
 - **FR-002**: NullRow struct MUST have end_control field always set to 'NR' (null row)
-- **FR-003**: NullRow struct MUST use uuid.Nil encoded as Base64 "AAAAAAAAAAAAAAAAAAAAAA=="
+- **FR-003**: NullRow struct MUST use a UUIDv7 with timestamp component equal to the current `max_timestamp` in the database, with all other fields (random components) set to zero. For an empty database, the timestamp is 0.
 - **FR-004**: NullRow struct MUST have a Validate() method that verifies all required field values
 - **FR-005**: NullRow struct MUST have a Marshal() method that produces binary data matching v1 file format
 - **FR-006**: NullRow struct MUST have an Unmarshal() method that can parse binary data into a NullRow instance
@@ -70,7 +70,7 @@ As a frozenDB developer, I need to marshal and unmarshal NullRow instances to/fr
 - **FR-008**: NullRow struct MUST handle padding correctly to match fixed row width
 - **FR-009**: NullRow validation MUST fail if start_control is not 'T'
 - **FR-010**: NullRow validation MUST fail if end_control is not 'NR'
-- **FR-011**: NullRow validation MUST fail if UUID is not uuid.Nil
+- **FR-011**: NullRow validation MUST fail if UUID timestamp does not equal the current `max_timestamp` or if any non-timestamp fields are not zero
 - **FR-012**: Marshal() method MUST return InvalidInputError if row structure is invalid
 - **FR-013**: Unmarshal() method MUST return CorruptDatabaseError wrapping validation errors if input data format is invalid
 
@@ -78,7 +78,7 @@ As a frozenDB developer, I need to marshal and unmarshal NullRow instances to/fr
 ### Key Entities *(include if feature involves data)*
 
 - **NullRow**: A struct representing a null operation row in the frozenDB file format
-  - Contains start_control (always 'T'), end_control (always 'NR'), UUID (always nil), parity bytes
+  - Contains start_control (always 'T'), end_control (always 'NR'), UUID (timestamp equals max_timestamp, other fields zero), parity bytes
   - Provides validation, marshaling, and unmarshaling capabilities
 - **ValidationError**: Uses InvalidInputError for validation failures (following existing struct validation patterns)
 - **MarshalError**: Uses InvalidInputError for marshaling failures (following existing struct validation patterns)

@@ -51,7 +51,7 @@ All complete rows in a frozenDB file have an index, including:
 
 - **Checksum Rows**: Every 10,000th complete row (by definition)
 - **Data Rows**: User data rows with UUID keys and JSON values
-- **Null Rows**: Single-row transactions with uuid.Nil as key
+- **Null Rows**: Single-row transactions with UUIDv7 keys (timestamp equals max_timestamp, other fields zero)
 - **Partial Data Rows**: The incomplete row at file end (if present)
 
 **Index Properties:**
@@ -73,7 +73,7 @@ GetIndex() MAY assume that UUID keys are unique within the database. Since froze
 
 **Non-Searchable Row Types:**
 - **Checksum Rows**: Do not contain UUID keys
-- **Null Rows**: Use uuid.Nil as key, but GetIndex() must not find them (searching for UUID 0x0 is invalid)
+- **Null Rows**: Use UUIDv7 keys with timestamp equal to max_timestamp, but GetIndex() must not find them (NullRows are not user data and are excluded from query results)
 - **Partial Data Rows**: Not considered for search (incomplete state)
 
 ### 3.2. Search Behavior
@@ -85,7 +85,7 @@ GetIndex() MAY assume that UUID keys are unique within the database. Since froze
 
 **Search Algorithm:**
 1. Skip checksum rows (no UUID key)
-2. Skip NullRows (use uuid.Nil as key, but are not searchable)
+2. Skip NullRows (NullRows are not user data and are excluded from query results)
 3. Skip PartialDataRows (incomplete state)
 4. Compare UUID keys for DataRows only
 5. Return the matching index, or error if not found
@@ -282,16 +282,17 @@ func (f *Finder) MaxTimestamp() int64
 
 **Definition of Complete Data Rows:**
 - **Data Rows**: Complete DataRow entries with UUID keys and JSON values
-- **Null Rows**: Single-row transactions with uuid.Nil as key
+- **Null Rows**: Single-row transactions with UUIDv7 keys (timestamp equals the `max_timestamp` of the database at the time of insertion, other fields zero). Note: The NullRow's UUID timestamp is fixed at insertion time and does not change, even if later rows have higher timestamps.
 - **Excluded**: Checksum rows, PartialDataRow entries (incomplete transactions)
 
 **Return Value Behavior:**
-- **Non-zero**: Returns the timestamp from the most recent complete data or null row
+- **Non-zero**: Returns the maximum timestamp among all complete data and null rows in the database. This is a dynamic value that increases as new rows with higher timestamps are added.
 - **Zero**: Returns 0 when the database contains no complete data or null rows (only checksum/PartialDataRow entries)
 
-**Return Value Behavior:**
-- **Non-zero**: Returns the timestamp from the most recent complete data or null row
-- **Zero**: Returns 0 when the database contains no complete data or null rows (only checksum/PartialDataRow entries)
+**Important Distinction:**
+- **NullRow UUID Timestamp**: Fixed value set at insertion time, equal to the `max_timestamp` of the database at that moment. This value is immutable and does not change after the NullRow is written to the database.
+- **Finder MaxTimestamp()**: Dynamic value that tracks the current maximum timestamp across all complete rows (DataRows and NullRows) in the database. This value can increase as new rows are added.
+- **Example**: If a NullRow is inserted with timestamp 10 (because the database's `max_timestamp` was 10 at that time), and later a DataRow with timestamp 20 is inserted, the Finder's `MaxTimestamp()` will return 20, while the NullRow's UUID still contains timestamp 10.
 
 **Time Complexity Requirement:**
 All Finder implementations MUST provide O(1) time complexity for MaxTimestamp() calls. The specific algorithm for maintaining this value is implementation-dependent but must meet the performance requirement.

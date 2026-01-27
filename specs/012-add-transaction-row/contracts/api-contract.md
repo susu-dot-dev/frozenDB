@@ -200,7 +200,7 @@ All transaction operations must produce rows compliant with v1_file_format.md:
 //   - ROW_END: 0x0A byte
 //
 // NullRow structure:
-//   - uuid: uuid.Nil Base64 encoded
+//   - uuid: UUIDv7 with timestamp equal to max_timestamp, other fields zero, Base64 encoded
 //   - value: No user data (immediate padding)
 //   - end_control: "NR"
 ```

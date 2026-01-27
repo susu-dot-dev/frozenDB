@@ -2,6 +2,7 @@ package frozendb
 
 import (
 	"encoding/base64"
+	"fmt"
 	"testing"
 
 	"github.com/google/uuid"
@@ -18,7 +19,7 @@ func Test_S_010_FR_001_NullRowStartControlField(t *testing.T) {
 			RowSize:      512,
 			StartControl: START_TRANSACTION,
 			EndControl:   NULL_ROW_CONTROL,
-			RowPayload:   &NullRowPayload{Key: uuid.Nil},
+			RowPayload:   &NullRowPayload{Key: CreateNullRowUUID(0)},
 		},
 	}
 
@@ -41,7 +42,7 @@ func Test_S_010_FR_002_NullRowEndControlField(t *testing.T) {
 			RowSize:      512,
 			StartControl: START_TRANSACTION,
 			EndControl:   NULL_ROW_CONTROL,
-			RowPayload:   &NullRowPayload{Key: uuid.Nil},
+			RowPayload:   &NullRowPayload{Key: CreateNullRowUUID(0)},
 		},
 	}
 
@@ -65,8 +66,8 @@ func Test_S_010_FR_003_NullRowUUIDNilBase64(t *testing.T) {
 		t.Errorf("uuid.Nil Base64 encoding mismatch: expected %s, got %s", NilUUIDBase64, encoded)
 	}
 
-	// Test NullRowPayload with uuid.Nil
-	payload := &NullRowPayload{Key: uuid.Nil}
+	// Test NullRowPayload with timestamp 0 (new format)
+	payload := &NullRowPayload{Key: CreateNullRowUUID(0)}
 	marshaledPayload, err := payload.MarshalText()
 	if err != nil {
 		t.Fatalf("NullRowPayload.MarshalText() failed: %v", err)
@@ -77,8 +78,10 @@ func Test_S_010_FR_003_NullRowUUIDNilBase64(t *testing.T) {
 		t.Errorf("NullRowPayload marshaled length mismatch: expected 24, got %d", len(marshaledPayload))
 	}
 
-	if string(marshaledPayload) != NilUUIDBase64 {
-		t.Errorf("NullRowPayload.MarshalText() mismatch: expected %s, got %s", NilUUIDBase64, string(marshaledPayload))
+	// Verify it produces valid UUID encoding (not uuid.Nil anymore)
+	_, err = DecodeUUIDBase64(marshaledPayload)
+	if err != nil {
+		t.Errorf("NullRowPayload.MarshalText() should produce valid Base64 UUID: %v", err)
 	}
 }
 
@@ -90,7 +93,7 @@ func Test_S_010_FR_004_NullRowValidateMethod(t *testing.T) {
 				RowSize:      512,
 				StartControl: START_TRANSACTION,
 				EndControl:   NULL_ROW_CONTROL,
-				RowPayload:   &NullRowPayload{Key: uuid.Nil},
+				RowPayload:   &NullRowPayload{Key: CreateNullRowUUID(0)},
 			},
 		}
 
@@ -106,7 +109,7 @@ func Test_S_010_FR_004_NullRowValidateMethod(t *testing.T) {
 				RowSize:      512,
 				StartControl: START_TRANSACTION,
 				EndControl:   NULL_ROW_CONTROL,
-				RowPayload:   &NullRowPayload{Key: uuid.Nil},
+				RowPayload:   &NullRowPayload{Key: CreateNullRowUUID(0)},
 			},
 		}
 
@@ -123,18 +126,15 @@ func Test_S_010_FR_004_NullRowValidateMethod(t *testing.T) {
 
 // Test_S_010_FR_005_NullRowMarshalMethod tests FR-005: NullRow struct MUST have a Marshal() method that produces binary data matching v1 file format
 func Test_S_010_FR_005_NullRowMarshalMethod(t *testing.T) {
-	nullRow := &NullRow{
-		baseRow: baseRow[*NullRowPayload]{
-			RowSize:      512,
-			StartControl: START_TRANSACTION,
-			EndControl:   NULL_ROW_CONTROL,
-			RowPayload:   &NullRowPayload{Key: uuid.Nil},
-		},
+	// Use new constructor with timestamp 0 for compatibility with old test behavior
+	nullRow, err := NewNullRow(512, 0)
+	if err != nil {
+		t.Fatalf("NewNullRow failed: %v", err)
 	}
 
-	rowBytes, err := nullRow.MarshalText()
-	if err != nil {
-		t.Fatalf("NullRow.MarshalText() failed: %v", err)
+	rowBytes, marshalErr := nullRow.MarshalText()
+	if marshalErr != nil {
+		t.Fatalf("NullRow.MarshalText() failed: %v", marshalErr)
 	}
 
 	// Verify exact byte layout per v1_file_format.md section 8.7
@@ -153,10 +153,12 @@ func Test_S_010_FR_005_NullRowMarshalMethod(t *testing.T) {
 		t.Errorf("Start control mismatch: expected 'T' (0x%02X), got 0x%02X", byte(START_TRANSACTION), rowBytes[1])
 	}
 
-	// Positions [2..25]: uuid_base64 (24 bytes) = "AAAAAAAAAAAAAAAAAAAAAA=="
+	// Positions [2..25]: uuid_base64 (24 bytes) - should be valid UUIDv7 with timestamp=0
 	uuidBase64 := string(rowBytes[2:26])
-	if uuidBase64 != NilUUIDBase64 {
-		t.Errorf("UUID Base64 mismatch: expected %s, got %s", NilUUIDBase64, uuidBase64)
+	// Verify it's a valid UUID (not necessarily all zeros anymore)
+	_, decodeErr := DecodeUUIDBase64([]byte(uuidBase64))
+	if decodeErr != nil {
+		t.Errorf("UUID Base64 should be valid: %v", decodeErr)
 	}
 
 	// Positions [26..N-6]: NULL_BYTE padding (no JSON value for NullRow)
@@ -188,19 +190,15 @@ func Test_S_010_FR_005_NullRowMarshalMethod(t *testing.T) {
 
 // Test_S_010_FR_006_NullRowUnmarshalMethod tests FR-006: NullRow struct MUST have an Unmarshal() method that can parse binary data into a NullRow instance
 func Test_S_010_FR_006_NullRowUnmarshalMethod(t *testing.T) {
-	// Create and marshal a valid NullRow
-	originalRow := &NullRow{
-		baseRow: baseRow[*NullRowPayload]{
-			RowSize:      512,
-			StartControl: START_TRANSACTION,
-			EndControl:   NULL_ROW_CONTROL,
-			RowPayload:   &NullRowPayload{Key: uuid.Nil},
-		},
+	// Create and marshal a valid NullRow using new constructor
+	originalRow, err := NewNullRow(512, 0)
+	if err != nil {
+		t.Fatalf("NewNullRow failed: %v", err)
 	}
 
-	rowBytes, err := originalRow.MarshalText()
-	if err != nil {
-		t.Fatalf("Original NullRow.MarshalText() failed: %v", err)
+	rowBytes, marshalErr := originalRow.MarshalText()
+	if marshalErr != nil {
+		t.Fatalf("Original NullRow.MarshalText() failed: %v", marshalErr)
 	}
 
 	// Unmarshal into a new NullRow
@@ -220,8 +218,9 @@ func Test_S_010_FR_006_NullRowUnmarshalMethod(t *testing.T) {
 	}
 
 	// Verify round-trip preservation
-	if deserializedRow.GetKey() != uuid.Nil {
-		t.Errorf("Deserialized key mismatch: expected uuid.Nil, got %s", deserializedRow.GetKey())
+	// Verify key matches original (should be timestamp=0 NullRow UUID)
+	if deserializedRow.GetKey() != originalRow.GetKey() {
+		t.Errorf("Deserialized key mismatch: expected %s, got %s", originalRow.GetKey(), deserializedRow.GetKey())
 	}
 
 	if deserializedRow.StartControl != START_TRANSACTION {
@@ -233,9 +232,9 @@ func Test_S_010_FR_006_NullRowUnmarshalMethod(t *testing.T) {
 	}
 
 	// Verify re-marshaling produces identical bytes
-	remarshaled, err := deserializedRow.MarshalText()
-	if err != nil {
-		t.Fatalf("Re-marshaling failed: %v", err)
+	remarshaled, remarshaledErr := deserializedRow.MarshalText()
+	if remarshaledErr != nil {
+		t.Fatalf("Re-marshaling failed: %v", remarshaledErr)
 	}
 
 	if len(remarshaled) != len(rowBytes) {
@@ -251,12 +250,14 @@ func Test_S_010_FR_006_NullRowUnmarshalMethod(t *testing.T) {
 
 // Test_S_010_FR_007_NullRowParityBytesCalculation tests FR-007: NullRow struct MUST calculate correct parity bytes for marshaled data
 func Test_S_010_FR_007_NullRowParityBytesCalculation(t *testing.T) {
+	// Use valid NullRow UUID with timestamp 0 (empty database)
+	nullRowUUID := CreateNullRowUUID(0)
 	nullRow := &NullRow{
 		baseRow: baseRow[*NullRowPayload]{
 			RowSize:      512,
 			StartControl: START_TRANSACTION,
 			EndControl:   NULL_ROW_CONTROL,
-			RowPayload:   &NullRowPayload{Key: uuid.Nil},
+			RowPayload:   &NullRowPayload{Key: nullRowUUID},
 		},
 	}
 
@@ -316,13 +317,18 @@ func Test_S_010_FR_008_NullRowPaddingCorrectness(t *testing.T) {
 					RowSize:      rowSize,
 					StartControl: START_TRANSACTION,
 					EndControl:   NULL_ROW_CONTROL,
-					RowPayload:   &NullRowPayload{Key: uuid.Nil},
+					RowPayload:   &NullRowPayload{Key: CreateNullRowUUID(0)},
 				},
 			}
 
-			rowBytes, err := nullRow.MarshalText()
-			if err != nil {
-				t.Fatalf("NullRow.MarshalText() failed for rowSize=%d: %v", rowSize, err)
+			rowBytes, marshalErr := nullRow.MarshalText()
+			if marshalErr != nil {
+				t.Fatalf("NullRow.MarshalText() failed: %v", marshalErr)
+			}
+
+			// Verify exact byte layout per v1_file_format.md section 8.7
+			if len(rowBytes) != rowSize {
+				t.Errorf("Row size mismatch: expected %d, got %d", rowSize, len(rowBytes))
 			}
 
 			// Verify exact row length
@@ -371,7 +377,7 @@ func Test_S_010_FR_009_ValidateFailsInvalidStartControl(t *testing.T) {
 					RowSize:      512,
 					StartControl: tc.startControl,
 					EndControl:   NULL_ROW_CONTROL,
-					RowPayload:   &NullRowPayload{Key: uuid.Nil},
+					RowPayload:   &NullRowPayload{Key: CreateNullRowUUID(0)},
 				},
 			}
 
@@ -416,7 +422,7 @@ func Test_S_010_FR_010_ValidateFailsInvalidEndControl(t *testing.T) {
 					RowSize:      512,
 					StartControl: START_TRANSACTION,
 					EndControl:   tc.endControl,
-					RowPayload:   &NullRowPayload{Key: uuid.Nil},
+					RowPayload:   &NullRowPayload{Key: CreateNullRowUUID(0)},
 				},
 			}
 
@@ -453,7 +459,8 @@ func Test_S_010_FR_011_ValidateFailsInvalidUUID(t *testing.T) {
 		key        uuid.UUID
 		shouldFail bool
 	}{
-		{"valid_uuid_nil", uuid.Nil, false},
+		{"valid_nullrow_uuid", CreateNullRowUUID(0), false},
+		{"invalid_uuid_nil", uuid.Nil, true},
 		{"invalid_uuidv7", nonNilUUID, true},
 		{"invalid_uuidv4", uuid.MustParse("550e8400-e29b-41d4-a716-446655440000"), true},
 	}
@@ -496,7 +503,7 @@ func Test_S_010_FR_012_MarshalReturnsInvalidInputError(t *testing.T) {
 					RowSize:      512,
 					StartControl: ROW_CONTINUE, // Invalid for NullRow
 					EndControl:   NULL_ROW_CONTROL,
-					RowPayload:   &NullRowPayload{Key: uuid.Nil},
+					RowPayload:   &NullRowPayload{Key: CreateNullRowUUID(0)},
 				},
 			},
 			wantErr: true,
@@ -512,7 +519,7 @@ func Test_S_010_FR_012_MarshalReturnsInvalidInputError(t *testing.T) {
 					RowSize:      512,
 					StartControl: START_TRANSACTION,
 					EndControl:   TRANSACTION_COMMIT, // Invalid for NullRow
-					RowPayload:   &NullRowPayload{Key: uuid.Nil},
+					RowPayload:   &NullRowPayload{Key: CreateNullRowUUID(0)},
 				},
 			},
 			wantErr: true,
@@ -561,6 +568,365 @@ func Test_S_010_FR_012_MarshalReturnsInvalidInputError(t *testing.T) {
 	}
 }
 
+// Test_S_025_FR_001_NullRowTimestampMatching tests FR-001: System MUST generate NullRow UUIDs with timestamp component equal to current maxTimestamp, ignoring system clock
+func Test_S_025_FR_001_NullRowTimestampMatching(t *testing.T) {
+	t.Run("nullrow_with_max_timestamp_zero", func(t *testing.T) {
+		// Given maxTimestamp = 0 (empty database)
+		maxTimestamp := int64(0)
+
+		// When NullRow is created
+		nullRow, err := NewNullRow(512, maxTimestamp)
+		if err != nil {
+			t.Fatalf("NewNullRow failed: %v", err)
+		}
+
+		// Then NullRow UUID timestamp should be 0
+		timestamp := ExtractUUIDv7Timestamp(nullRow.GetKey())
+		if timestamp != 0 {
+			t.Errorf("Expected NullRow timestamp to be 0, got %d", timestamp)
+		}
+	})
+
+	t.Run("nullrow_with_max_timestamp_1000", func(t *testing.T) {
+		// Given maxTimestamp = 1000
+		maxTimestamp := int64(1000)
+
+		// When NullRow is created
+		nullRow, err := NewNullRow(512, maxTimestamp)
+		if err != nil {
+			t.Fatalf("NewNullRow failed: %v", err)
+		}
+
+		// Then NullRow UUID timestamp should be 1000
+		timestamp := ExtractUUIDv7Timestamp(nullRow.GetKey())
+		if timestamp != 1000 {
+			t.Errorf("Expected NullRow timestamp to be 1000, got %d", timestamp)
+		}
+	})
+
+	t.Run("nullrow_with_max_timestamp_5000", func(t *testing.T) {
+		// Given maxTimestamp = 5000
+		maxTimestamp := int64(5000)
+
+		// When NullRow is created
+		nullRow, err := NewNullRow(512, maxTimestamp)
+		if err != nil {
+			t.Fatalf("NewNullRow failed: %v", err)
+		}
+
+		// Then NullRow UUID timestamp should be 5000
+		timestamp := ExtractUUIDv7Timestamp(nullRow.GetKey())
+		if timestamp != 5000 {
+			t.Errorf("Expected NullRow timestamp to be 5000, got %d", timestamp)
+		}
+	})
+
+	t.Run("multiple_nullrows_same_timestamp", func(t *testing.T) {
+		// Given maxTimestamp = 5000
+		maxTimestamp := int64(5000)
+
+		// When multiple NullRows are created
+		nullRow1, err1 := NewNullRow(512, maxTimestamp)
+		nullRow2, err2 := NewNullRow(512, maxTimestamp)
+		nullRow3, err3 := NewNullRow(512, maxTimestamp)
+
+		if err1 != nil {
+			t.Fatalf("NewNullRow failed for row1: %v", err1)
+		}
+		if err2 != nil {
+			t.Fatalf("NewNullRow failed for row2: %v", err2)
+		}
+		if err3 != nil {
+			t.Fatalf("NewNullRow failed for row3: %v", err3)
+		}
+
+		// Then all NullRows should have timestamp 5000
+		timestamp1 := ExtractUUIDv7Timestamp(nullRow1.GetKey())
+		timestamp2 := ExtractUUIDv7Timestamp(nullRow2.GetKey())
+		timestamp3 := ExtractUUIDv7Timestamp(nullRow3.GetKey())
+
+		if timestamp1 != 5000 {
+			t.Errorf("Expected NullRow1 timestamp to be 5000, got %d", timestamp1)
+		}
+		if timestamp2 != 5000 {
+			t.Errorf("Expected NullRow2 timestamp to be 5000, got %d", timestamp2)
+		}
+		if timestamp3 != 5000 {
+			t.Errorf("Expected NullRow3 timestamp to be 5000, got %d", timestamp3)
+		}
+
+		// And all should be identical (deterministic)
+		if nullRow1.GetKey() != nullRow2.GetKey() || nullRow2.GetKey() != nullRow3.GetKey() {
+			t.Error("Multiple NullRows with same maxTimestamp should have identical UUIDs")
+		}
+	})
+}
+
+// Test_S_025_FR_003_EmptyDatabaseNullRowTimestamp tests FR-003: System MUST handle empty databases (maxTimestamp = 0) by creating NullRows with timestamp 0
+func Test_S_025_FR_003_EmptyDatabaseNullRowTimestamp(t *testing.T) {
+	t.Run("empty_database_creates_nullrow_with_timestamp_zero", func(t *testing.T) {
+		// Given an empty database with maxTimestamp = 0
+		maxTimestamp := int64(0)
+		rowSize := 512
+
+		// When NullRow is created
+		nullRow, err := NewNullRow(rowSize, maxTimestamp)
+		if err != nil {
+			t.Fatalf("NewNullRow failed: %v", err)
+		}
+
+		// Then NullRow should have timestamp 0
+		timestamp := ExtractUUIDv7Timestamp(nullRow.GetKey())
+		if timestamp != 0 {
+			t.Errorf("Expected NullRow timestamp to be 0 for empty database, got %d", timestamp)
+		}
+
+		// And NullRow should be valid UUIDv7
+		if err := ValidateUUIDv7(nullRow.GetKey()); err != nil {
+			t.Errorf("NullRow UUID should be valid UUIDv7: %v", err)
+		}
+
+		// And NullRow should pass validation
+		if err := nullRow.Validate(); err != nil {
+			t.Errorf("NullRow should pass validation: %v", err)
+		}
+	})
+
+	t.Run("empty_database_nullrow_marshal_unmarshal", func(t *testing.T) {
+		// Given an empty database
+		maxTimestamp := int64(0)
+		rowSize := 512
+
+		// When NullRow is created and marshaled
+		originalRow, err := NewNullRow(rowSize, maxTimestamp)
+		if err != nil {
+			t.Fatalf("NewNullRow failed: %v", err)
+		}
+
+		marshaled, err := originalRow.MarshalText()
+		if err != nil {
+			t.Fatalf("MarshalText failed: %v", err)
+		}
+
+		// Then it should unmarshal correctly
+		unmarshaledRow := &NullRow{
+			baseRow: baseRow[*NullRowPayload]{
+				RowSize: rowSize,
+			},
+		}
+
+		if err := unmarshaledRow.UnmarshalText(marshaled); err != nil {
+			t.Fatalf("UnmarshalText failed: %v", err)
+		}
+
+		// And should have the same timestamp
+		originalTimestamp := ExtractUUIDv7Timestamp(originalRow.GetKey())
+		unmarshaledTimestamp := ExtractUUIDv7Timestamp(unmarshaledRow.GetKey())
+
+		if originalTimestamp != unmarshaledTimestamp {
+			t.Errorf("Timestamp mismatch after marshal/unmarshal: original=%d, unmarshaled=%d", originalTimestamp, unmarshaledTimestamp)
+		}
+
+		if originalTimestamp != 0 {
+			t.Errorf("Expected timestamp to be 0, got %d", originalTimestamp)
+		}
+	})
+
+	t.Run("empty_database_multiple_nullrows_consistent", func(t *testing.T) {
+		// Given an empty database
+		maxTimestamp := int64(0)
+
+		// When multiple NullRows are created
+		nullRow1, err1 := NewNullRow(512, maxTimestamp)
+		nullRow2, err2 := NewNullRow(512, maxTimestamp)
+
+		if err1 != nil {
+			t.Fatalf("NewNullRow failed for row1: %v", err1)
+		}
+		if err2 != nil {
+			t.Fatalf("NewNullRow failed for row2: %v", err2)
+		}
+
+		// Then they should have identical UUIDs (deterministic for same maxTimestamp)
+		if nullRow1.GetKey() != nullRow2.GetKey() {
+			t.Errorf("NullRows with same maxTimestamp should have identical UUIDs: got %s and %s", nullRow1.GetKey(), nullRow2.GetKey())
+		}
+
+		// And both should have timestamp 0
+		timestamp1 := ExtractUUIDv7Timestamp(nullRow1.GetKey())
+		timestamp2 := ExtractUUIDv7Timestamp(nullRow2.GetKey())
+
+		if timestamp1 != 0 || timestamp2 != 0 {
+			t.Errorf("Expected both timestamps to be 0, got %d and %d", timestamp1, timestamp2)
+		}
+	})
+}
+
+// Test_S_025_FR_007_NullRowUUIDv7Compliance tests FR-007: System MUST ensure NullRows still adhere to all other UUIDv7 requirements (random components, proper encoding)
+func Test_S_025_FR_007_NullRowUUIDv7Compliance(t *testing.T) {
+	t.Run("nullrow_uuidv7_version_validation", func(t *testing.T) {
+		// Given various maxTimestamp values
+		testTimestamps := []int64{0, 1000, 5000, 123456789}
+
+		for _, maxTimestamp := range testTimestamps {
+			t.Run(fmt.Sprintf("timestamp_%d", maxTimestamp), func(t *testing.T) {
+				// When NullRow is created
+				nullRow, err := NewNullRow(512, maxTimestamp)
+				if err != nil {
+					t.Fatalf("NewNullRow failed: %v", err)
+				}
+
+				// Then UUID should be valid UUIDv7
+				testUUID := nullRow.GetKey()
+
+				// Check version is 7
+				if testUUID.Version() != 7 {
+					t.Errorf("Expected UUID version 7, got %d", testUUID.Version())
+				}
+
+				// Check variant is RFC 4122
+				if testUUID.Variant() != uuid.RFC4122 {
+					t.Errorf("Expected UUID variant RFC 4122, got %v", testUUID.Variant())
+				}
+
+				// Check not nil
+				if testUUID == uuid.Nil {
+					t.Error("NullRow UUID should not be uuid.Nil")
+				}
+			})
+		}
+	})
+
+	t.Run("nullrow_uuid_random_components_zeroed", func(t *testing.T) {
+		// Given a maxTimestamp
+		maxTimestamp := int64(123456789)
+
+		// When NullRow is created
+		nullRow, err := NewNullRow(512, maxTimestamp)
+		if err != nil {
+			t.Fatalf("NewNullRow failed: %v", err)
+		}
+
+		// Then random components should be zeroed (deterministic NullRows)
+		uuid := nullRow.GetKey()
+
+		// For UUIDv7 NullRows: bytes 6-15 should have specific pattern
+		// Byte 6 should be 0x70 (version 7 with zeroed random bits)
+		// Byte 8 should be 0x80 (RFC 4122 variant with zeroed random bits)
+		// All other random bytes should be zeroed
+		for i := 6; i < 16; i++ {
+			var expected byte
+			switch i {
+			case 6:
+				expected = 0x70 // Version 7 with zeroed random bits
+			case 8:
+				expected = 0x80 // RFC 4122 variant with zeroed random bits
+			default:
+				expected = 0x00 // Random bits zeroed
+			}
+
+			if uuid[i] != expected {
+				t.Errorf("Random component byte %d should be 0x%02X for NullRow, got 0x%02X", i, expected, uuid[i])
+			}
+		}
+	})
+
+	t.Run("nullrow_uuid_deterministic", func(t *testing.T) {
+		// Given same maxTimestamp
+		maxTimestamp := int64(987654321)
+
+		// When multiple NullRows are created
+		nullRows := make([]*NullRow, 5)
+		for i := 0; i < 5; i++ {
+			nullRow, err := NewNullRow(512, maxTimestamp)
+			if err != nil {
+				t.Fatalf("NewNullRow %d failed: %v", i, err)
+			}
+			nullRows[i] = nullRow
+		}
+
+		// Then all should have identical UUIDs (deterministic)
+		firstUUID := nullRows[0].GetKey()
+		for i := 1; i < 5; i++ {
+			if nullRows[i].GetKey() != firstUUID {
+				t.Errorf("NullRow %d UUID %s differs from first UUID %s (should be deterministic)",
+					i, nullRows[i].GetKey(), firstUUID)
+			}
+		}
+	})
+
+	t.Run("nullrow_uuid_base64_encoding", func(t *testing.T) {
+		// Given various maxTimestamp values
+		testTimestamps := []int64{0, 1000, 5000}
+
+		for _, maxTimestamp := range testTimestamps {
+			t.Run(fmt.Sprintf("timestamp_%d", maxTimestamp), func(t *testing.T) {
+				// When NullRow is created
+				nullRow, err := NewNullRow(512, maxTimestamp)
+				if err != nil {
+					t.Fatalf("NewNullRow failed: %v", err)
+				}
+
+				// Then marshaling should work with proper Base64 encoding
+				payload := &NullRowPayload{Key: nullRow.GetKey()}
+				marshaled, err := payload.MarshalText()
+				if err != nil {
+					t.Fatalf("MarshalText failed: %v", err)
+				}
+
+				// Should produce exactly 24 bytes
+				if len(marshaled) != 24 {
+					t.Errorf("Expected 24 bytes, got %d", len(marshaled))
+				}
+
+				// Should be valid Base64
+				if _, err := base64.StdEncoding.DecodeString(string(marshaled)); err != nil {
+					t.Errorf("Invalid Base64 encoding: %v", err)
+				}
+			})
+		}
+	})
+
+	t.Run("nullrow_uuid_roundtrip", func(t *testing.T) {
+		// Given a maxTimestamp
+		maxTimestamp := int64(55555555)
+
+		// When NullRow is created and marshaled/unmarshaled
+		originalRow, err := NewNullRow(512, maxTimestamp)
+		if err != nil {
+			t.Fatalf("NewNullRow failed: %v", err)
+		}
+
+		marshaled, err := originalRow.MarshalText()
+		if err != nil {
+			t.Fatalf("MarshalText failed: %v", err)
+		}
+
+		unmarshaledRow := &NullRow{
+			baseRow: baseRow[*NullRowPayload]{
+				RowSize: 512,
+			},
+		}
+
+		if err := unmarshaledRow.UnmarshalText(marshaled); err != nil {
+			t.Fatalf("UnmarshalText failed: %v", err)
+		}
+
+		// Then UUID should be identical and still valid UUIDv7
+		originalUUID := originalRow.GetKey()
+		unmarshaledUUID := unmarshaledRow.GetKey()
+
+		if originalUUID != unmarshaledUUID {
+			t.Errorf("UUID mismatch after roundtrip: original=%s, unmarshaled=%s", originalUUID, unmarshaledUUID)
+		}
+
+		// Should still be valid UUIDv7
+		if err := ValidateUUIDv7(unmarshaledUUID); err != nil {
+			t.Errorf("UUID should still be valid UUIDv7 after roundtrip: %v", err)
+		}
+	})
+}
+
 // Test_S_010_FR_013_UnmarshalReturnsCorruptDatabaseError tests FR-013: Unmarshal() method MUST return CorruptDatabaseError wrapping validation errors if input data format is invalid
 func Test_S_010_FR_013_UnmarshalReturnsCorruptDatabaseError(t *testing.T) {
 	// Create a valid NullRow and marshal it
@@ -569,7 +935,7 @@ func Test_S_010_FR_013_UnmarshalReturnsCorruptDatabaseError(t *testing.T) {
 			RowSize:      512,
 			StartControl: START_TRANSACTION,
 			EndControl:   NULL_ROW_CONTROL,
-			RowPayload:   &NullRowPayload{Key: uuid.Nil},
+			RowPayload:   &NullRowPayload{Key: CreateNullRowUUID(0)},
 		},
 	}
 

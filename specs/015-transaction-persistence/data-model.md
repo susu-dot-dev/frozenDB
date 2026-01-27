@@ -134,7 +134,7 @@ is finalized as a NullRow, resulting in exactly one row.
 
 - Start control must be 'T' (START_TRANSACTION)
 - End control must be 'NR' (NULL_ROW_CONTROL)
-- Key must be uuid.Nil (all zeros)
+- Key must be UUIDv7 with timestamp equal to max_timestamp, all other fields zero
 - No value field (padding starts immediately after UUID)
 
 **Operations**:
@@ -241,7 +241,7 @@ it.
 **Commit() Operation (empty transaction)**:
 
 1. Transaction creates NullRow with StartControl='T', EndControl='NR',
-   Key=uuid.Nil
+   Key with timestamp equal to max_timestamp, other fields zero
 2. Transaction calls NullRow.MarshalText() → rowSize bytes
 3. Transaction slices off first 2 bytes: newBytes = bytes[2:] → rowSize-2 bytes
 4. Transaction sends new bytes to writeChan

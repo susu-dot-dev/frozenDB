@@ -110,7 +110,7 @@ A NullRow is a fixed-width row that represents a null operation with no user dat
 
 **NullRow Structure:**
 - **start_control**: Always `T` (transaction begin)
-- **uuid**: The zero UUID (uuid.Nil), Base64 encoded as "AAAAAAAAAAAAAAAAAAAAAA=="
+- **uuid**: A UUIDv7 with timestamp component equal to the `max_timestamp` of the database **at the time of insertion**, with all other fields (random components) set to zero. This timestamp is fixed and immutable once the NullRow is written to the database. For an empty database (no complete rows), the timestamp is 0.
 - **value**: No user value (immediate padding after UUID)
 - **end_control**: Always `NR` (null row)
 
@@ -134,9 +134,9 @@ A NullRow is a fixed-width row that represents a null operation with no user dat
 - NullRows count toward the 10,000-row checksum interval
 
 **UUID and Ordering Rules:**
-- NullRows use uuid.Nil (all zeros) as the key
+- NullRows use a UUIDv7 with timestamp equal to the `max_timestamp` of the database **at the time of insertion**, with all other fields set to zero. This timestamp is fixed and immutable once the NullRow is written to the database, and does not change even if later rows have higher timestamps.
 - DataRows cannot use uuid.Nil as a valid key
-- NullRows are ignored for UUID timestamp ordering validation
+- NullRows MUST follow the same timestamp ordering requirements as DataRows (see section 8.4)
 
 ### 2.4. End Control Character Design
 
@@ -448,17 +448,24 @@ All positions use zero-based indexing.
 - MUST be globally unique
 - MUST be Base64 encoded (24 bytes with "=" padding)
 - Timestamp ordering MUST follow the algorithm described below to prevent unbounded decreases
-- DataRows MUST NOT use uuid.Nil as a valid key. NullRows are the only row type that may use uuid.Nil.
+- DataRows MUST NOT use uuid.Nil as a valid key
 
 #### Timestamp Ordering Algorithm
 
-To prevent unbounded timestamp decreases while accounting for clock skew, implementations MUST enforce the following algorithm when inserting new data rows:
+To prevent unbounded timestamp decreases while accounting for clock skew, implementations MUST enforce the following algorithm when inserting new non-checksum rows (DataRows and NullRows):
 
-1. **Track Maximum Timestamp**: Maintain the maximum timestamp observed across all committed data rows in the database (`max_timestamp`)
-2. **Validate New Row**: For any new data row with timestamp `new_timestamp`:
+1. **Track Maximum Timestamp**: Maintain the maximum timestamp observed across all committed non-checksum rows (DataRows and NullRows) in the database (`max_timestamp`)
+2. **Validate New Row**: For any new non-checksum row (DataRow or NullRow) with timestamp `new_timestamp`:
    - `new_timestamp + skew_ms > max_timestamp` MUST be true
    - If this condition fails, the row MUST be rejected
 3. **Update Maximum**: After successful insertion, update: `max_timestamp = max(max_timestamp, new_timestamp)`
+
+**NullRow Timestamp Generation:**
+- When inserting a NullRow, the UUID timestamp MUST be set to the `max_timestamp` of the database **at the time of insertion**
+- This timestamp becomes part of the NullRow's immutable UUID and does not change after the row is written to the database
+- For an empty database (no complete rows), `max_timestamp` is 0, so the NullRow timestamp is 0
+- The NullRow's UUID has its timestamp component set to the insertion-time `max_timestamp` of the database, with all other UUID fields (random components) set to zero
+- **Important distinction**: The NullRow's UUID timestamp is a fixed value from insertion time. It is independent of the Finder's `MaxTimestamp()` method, which tracks the current maximum timestamp across all rows in the database and may increase as new rows are added
 
 #### Example Prevention
 
@@ -468,10 +475,10 @@ This algorithm prevents problematic scenarios like:
 - For row2 (95ms): `95ms + 5ms > 100ms` → `100ms > 100ms` → **FAILS**
 - Row2 rejected, preventing the unbounded decrease
 
-For UUID timestamp ordering validation:
-- NullRows are ignored when validating ascending timestamps and for `max_timestamp` tracking
-- A NullRow may be inserted regardless of previous DataRows timestamp
-- When validating a DataRow, implementations MUST use the algorithm above against the tracked `max_timestamp`
+**All Non-Checksum Rows Must Follow Ordering:**
+- Both DataRows and NullRows MUST follow the timestamp ordering algorithm above
+- NullRows are no longer excluded from timestamp ordering validation
+- All non-checksum rows (DataRows and NullRows) must be in roughly ascending timestamp order, accounting for the `skew_ms` window
 
 ### 8.5. Padding Calculation
 
@@ -581,7 +588,7 @@ Position:  [0]    [1]    [2..25]         [26..N-6]        [N-5..N-4]    [N-3..N-
 
 Where N = `row_size` from header. All positions use zero-based indexing.
 - **start_control**: Always `T` (transaction begin) - position [1]
-- **uuid_base64**: Always 24 bytes at positions [2..25], Base64 encoding of uuid.Nil: "AAAAAAAAAAAAAAAAAAAAAA=="
+- **uuid_base64**: Always 24 bytes at positions [2..25], Base64 encoding of a UUIDv7 with timestamp component equal to the `max_timestamp` of the database **at the time of insertion** and all other fields set to zero. This timestamp is fixed and immutable once written to the database.
 - **padding**: NULL_BYTE padding from position [26] through position [N-6]
 - **end_control**: Always `NR` at positions [N-5..N-4]
 - **parity_bytes**: At positions [N-3..N-2] 
@@ -594,7 +601,7 @@ padding_bytes = row_size - 31
 Where 31 = 1 (ROW_START) + 1 (start_control) + 24 (UUID) + 2 (end_control) + 2 (parity) + 1 (ROW_END)
 
 ### 8.7.2. Validation Rules
-- **UUID**: Must be exactly uuid.Nil, Base64 encoded as "AAAAAAAAAAAAAAAAAAAAAA=="
+- **UUID**: Must be a UUIDv7 with timestamp component equal to the `max_timestamp` of the database **at the time of insertion**, with all other fields (random components) set to zero. For an empty database, the timestamp is 0. Note: This timestamp is a fixed value from insertion time and does not change, even if later rows have higher timestamps. It is independent of the Finder's `MaxTimestamp()` method which tracks the current maximum across all rows.
 - **Start Control**: Must be exactly `T`
 - **End Control**: Must be exactly `NR`
 - **Value**: No user value allowed (padding starts immediately after UUID)
@@ -604,7 +611,7 @@ Where 31 = 1 (ROW_START) + 1 (start_control) + 24 (UUID) + 2 (end_control) + 2 (
 - **Single-row transaction**: Each NullRow is a complete, self-contained transaction
 - **Transaction boundaries**: NullRows can only appear where new transactions are allowed
 - **Counting**: NullRows count toward the 10,000-row checksum interval
-- **UUID ordering**: NullRows are ignored for UUID timestamp ascending validation
+- **UUID ordering**: NullRows MUST follow the same timestamp ordering requirements as DataRows (see section 8.4)
 
 ### 8.6.6. Reader and Recovery Behavior
 

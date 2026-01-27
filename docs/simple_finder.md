@@ -28,13 +28,15 @@ The SimpleFinder maintains two pieces of in-memory state:
 
 **Size Tracking**: Tracks the extent of data confirmed via `OnRowAdded()` callbacks. When created, SimpleFinder initializes `size` to the current database file size from `dbFile.Size()`.
 
-**MaxTimestamp Tracking**: Tracks the maximum timestamp among all complete data rows.
+**MaxTimestamp Tracking**: Tracks the maximum timestamp among all complete non-checksum rows (DataRows and NullRows). This is a dynamic value that increases as new rows with higher timestamps are added.
 
 **Initialization**: During creation, SimpleFinder performs a linear scan to initialize max_timestamp:
 - Start from the last complete row and scan backwards to the first row
-- Look for DataRow or NullRow entries
-- If found, set max_timestamp to the timestamp of that row
+- Look for DataRow or NullRow entries (both have UUIDv7 timestamps)
+- If found, set max_timestamp to the maximum timestamp found among all rows
 - If no data or null rows are found, set max_timestamp to 0
+
+**Important Distinction**: The Finder's `max_timestamp` is a dynamic tracking value. NullRow UUID timestamps are fixed values set at insertion time (equal to the database's `max_timestamp` at that moment), but the Finder's `max_timestamp` can increase as new rows are added.
 
 ### 2.2. Memory Constraints
 
@@ -196,7 +198,7 @@ When OnRowAdded() is called with a new row:
 
 **Row Type Analysis:**
 - **DataRow**: Compare row timestamp with current max_timestamp, update if greater
-- **NullRow**: Compare row timestamp with current max_timestamp, update if greater  
+- **NullRow**: Compare row timestamp with current max_timestamp, update if greater. Note: NullRow UUID timestamps are fixed at insertion time (equal to the database's `max_timestamp` at that moment), but the Finder's `max_timestamp` tracking value can still increase if the NullRow's timestamp is greater than the current tracked maximum.
 - **ChecksumRow**: Do not update max_timestamp (checksum rows have no relevant timestamp)
 - **PartialDataRow**: Do not update max_timestamp (incomplete transaction data)
 
