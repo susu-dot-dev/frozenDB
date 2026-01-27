@@ -449,6 +449,7 @@ All positions use zero-based indexing.
 - MUST be Base64 encoded (24 bytes with "=" padding)
 - Timestamp ordering MUST follow the algorithm described below to prevent unbounded decreases
 - DataRows MUST NOT use uuid.Nil as a valid key
+- **DataRow UUID Validation**: DataRow UUIDs MUST NOT have all zeros in the non-timestamp part (bytes 7, 9-15). This pattern indicates a NullRow UUID, which is invalid for DataRows. At least one byte in positions 7, 9-15 MUST be non-zero. Implementations MUST reject DataRows with all-zero non-timestamp parts during validation.
 
 #### Timestamp Ordering Algorithm
 
@@ -541,7 +542,7 @@ All present fields MUST follow the same validation rules as DataRows:
 
 - **ROW_START**: MUST be byte value 0x1F (UTF-8: U+001F, unit separator)
 - **start_control**: MUST be valid uppercase alphanumeric character (T or R for data rows)
-- **uuid_base64**: MUST be 24-byte valid Base64 encoding of a UUIDv7
+- **uuid_base64**: MUST be 24-byte valid Base64 encoding of a UUIDv7. When present (State 2 and State 3), the UUID MUST follow all DataRow UUID validation rules, including the requirement that the non-timestamp part (bytes 7, 9-15) MUST NOT be all zeros (see section 8.4).
 - **json_payload**: MUST be valid UTF-8 JSON string
 - **'S' character**: MUST be the single character 'S' indicating savepoint intent
 
