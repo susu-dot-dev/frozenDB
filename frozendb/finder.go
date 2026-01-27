@@ -13,8 +13,9 @@ import "github.com/google/uuid"
 type FinderStrategy string
 
 const (
-	FinderStrategySimple   FinderStrategy = "simple"
-	FinderStrategyInMemory FinderStrategy = "inmemory"
+	FinderStrategySimple       FinderStrategy = "simple"
+	FinderStrategyInMemory     FinderStrategy = "inmemory"
+	FinderStrategyBinarySearch FinderStrategy = "binary_search"
 )
 
 // Finder defines methods for locating rows and transaction boundaries in frozenDB files.

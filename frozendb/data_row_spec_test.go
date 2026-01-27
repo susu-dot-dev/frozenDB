@@ -3,6 +3,7 @@ package frozendb
 import (
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"testing"
 
@@ -905,4 +906,66 @@ func Test_S_005_FR_012_ChildStructValidation(t *testing.T) {
 			t.Errorf("DataRow validation should pass: %v", err)
 		}
 	})
+}
+
+// Test_S_027_FR_009_DataRowRejectsNullRowUUID tests FR-009: DataRow Validate() method
+// MUST reject UUIDs where the non-timestamp part (bytes 7, 9-15) are all zeros,
+// as these represent NullRow UUIDs which are invalid for DataRows.
+func Test_S_027_FR_009_DataRowRejectsNullRowUUID(t *testing.T) {
+	// FR-009: DataRow Validate() method MUST reject UUIDs where the non-timestamp part
+	// (bytes 7, 9-15) are all zeros, as these represent NullRow UUIDs which are invalid for DataRows
+
+	// Create a NullRow UUID (timestamp present, but bytes 7, 9-15 are all zeros)
+	nullRowUUID := CreateNullRowUUID(1000)
+
+	// Verify it's detected as a NullRow UUID
+	if !IsNullRowUUID(nullRowUUID) {
+		t.Fatalf("Created UUID should be detected as NullRow UUID")
+	}
+
+	// Attempt to create a DataRow with NullRow UUID - should be rejected
+	dataRow := &DataRow{
+		baseRow[*DataRowPayload]{
+			RowSize:      512,
+			StartControl: START_TRANSACTION,
+			EndControl:   TRANSACTION_COMMIT,
+			RowPayload: &DataRowPayload{
+				Key:   nullRowUUID,
+				Value: json.RawMessage(`{"value":"test"}`),
+			},
+		},
+	}
+
+	// Validate should fail because NullRow UUID is invalid for DataRow
+	err := dataRow.Validate()
+	if err == nil {
+		t.Fatalf("DataRow validation should reject NullRow UUID, but got no error")
+	}
+
+	// Verify error is InvalidInputError
+	var invalidErr *InvalidInputError
+	if !errors.As(err, &invalidErr) {
+		t.Fatalf("DataRow validation should return InvalidInputError for NullRow UUID, got %T: %v", err, err)
+	}
+
+	// Test with a valid DataRow UUID (non-zero bytes in positions 7, 9-15)
+	validKey := uuid.Must(uuid.NewV7())
+	validDataRow := &DataRow{
+		baseRow[*DataRowPayload]{
+			RowSize:      512,
+			StartControl: START_TRANSACTION,
+			EndControl:   TRANSACTION_COMMIT,
+			RowPayload: &DataRowPayload{
+				Key:   validKey,
+				Value: json.RawMessage(`{"value":"test"}`),
+			},
+		},
+	}
+
+	// Valid DataRow UUID should pass validation
+	if err := validDataRow.Validate(); err != nil {
+		t.Fatalf("DataRow with valid UUID should pass validation, got error: %v", err)
+	}
+
+	t.Log("FR-009: DataRow Validate() correctly rejects NullRow UUIDs (all-zero non-timestamp parts)")
 }

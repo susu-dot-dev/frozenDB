@@ -83,6 +83,12 @@ func (drp *DataRowPayload) Validate() error {
 		return err
 	}
 
+	// FR-009: Reject UUIDs where the non-timestamp part (bytes 7, 9-15) are all zeros
+	// This pattern indicates a NullRow UUID, which is invalid for DataRows
+	if IsNullRowUUID(drp.Key) {
+		return NewInvalidInputError("DataRow UUID cannot be a NullRow UUID (non-timestamp parts bytes 7, 9-15 must not be all zeros)", nil)
+	}
+
 	// Validate value is non-empty
 	if len(drp.Value) == 0 {
 		return NewInvalidInputError("DataRowPayload.Value cannot be empty", nil)
