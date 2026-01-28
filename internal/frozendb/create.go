@@ -92,6 +92,23 @@ type CreateConfig struct {
 	skewMs  int    // Time skew window in milliseconds (0-86400000)
 }
 
+// NewCreateConfig creates a new CreateConfig with the specified parameters.
+// This constructor allows external packages (like examples) to create config instances.
+//
+// Parameters:
+//   - path: Filesystem path for the database file (must end with .fdb)
+//   - rowSize: Size of each data row in bytes (128-65536)
+//   - skewMs: Time skew window in milliseconds (0-86400000)
+//
+// Returns a CreateConfig instance. Call Validate() or Create() to check validity.
+func NewCreateConfig(path string, rowSize int, skewMs int) CreateConfig {
+	return CreateConfig{
+		path:    path,
+		rowSize: rowSize,
+		skewMs:  skewMs,
+	}
+}
+
 // GetPath returns the filesystem path for the database file
 func (cfg *CreateConfig) GetPath() string {
 	return cfg.path
