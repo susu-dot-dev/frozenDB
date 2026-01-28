@@ -16,6 +16,35 @@ frozenDB is a single-file key-value store where rows can only be added, never re
 - **Single-file storage** - Simple deployment and backup strategies
 - **Text-based data format** - Easy to parse the database file, recover errors. Any JSON serializable type is allowed
 
+## Project Structure
+
+frozenDB follows standard Go project layout conventions:
+
+```
+frozenDB/
+├── pkg/frozendb/          # PUBLIC API - Import from your applications
+│   ├── frozendb.go        # Core database operations (open, close)
+│   ├── transaction.go     # Transaction management
+│   ├── errors.go          # Error types and handling
+│   └── finder.go          # Query strategies
+│
+├── internal/frozendb/     # INTERNAL - Implementation details (not importable)
+│   └── *.go               # All implementation code
+│
+├── cmd/frozendb/          # CLI TOOLS
+│   └── main.go            # Command-line interface
+│
+├── examples/              # EXAMPLES
+│   └── getting_started/   # Quick start guide
+│       └── main.go        # Working example code
+│
+└── docs/                  # DOCUMENTATION
+    ├── v1_file_format.md  # File format specification
+    └── ...
+```
+
+**Import Path**: `github.com/susu-dot-dev/frozenDB/pkg/frozendb`
+
 ## Architecture
 
 ```
@@ -39,35 +68,86 @@ frozenDB is a single-file key-value store where rows can only be added, never re
 ## Installation
 
 ```bash
-go get github.com/susu-dot-dev/frozenDB
+go get github.com/susu-dot-dev/frozenDB/pkg/frozendb
 ```
 
 ## Quick Start
+
+For a complete working example, see [examples/getting_started/main.go](examples/getting_started/main.go).
+
+### Using the Public API
 
 ```go
 package main
 
 import (
+    "encoding/json"
     "log"
-    "github.com/susu-dot-dev/frozenDB/frozendb"
+    "github.com/google/uuid"
+    "github.com/susu-dot-dev/frozenDB/pkg/frozendb"
 )
 
-func main() {
-    // Create a new database file
-    config := frozendb.CreateConfig{
-        Path:    "/var/lib/app/database.fdb",
-        RowSize:  1024,
-        SkewMs:   5000,
-    }
-    
-    // Requires sudo privileges for append-only protection
-    err := frozendb.Create(config)
-    if err != nil {
-        log.Fatalf("Failed to create database: %v", err)
-    }
-    
-    log.Println("Database created successfully!")
+type MyData struct {
+    Message string `json:"message"`
 }
+
+func main() {
+    // Open an existing database
+    // (Database creation is done via CLI or internal package - see examples/)
+    db, err := frozendb.NewFrozenDB(
+        "/path/to/database.fdb",
+        frozendb.MODE_WRITE,
+        frozendb.FinderStrategySimple,
+    )
+    if err != nil {
+        log.Fatal(err)
+    }
+    defer db.Close()
+
+    // Begin a transaction
+    tx, err := db.BeginTx()
+    if err != nil {
+        log.Fatal(err)
+    }
+
+    // Add a row with UUIDv7 key
+    key := uuid.Must(uuid.NewV7())
+    data := MyData{Message: "Hello, frozenDB!"}
+    jsonData, _ := json.Marshal(data)
+    
+    if err := tx.AddRow(key, jsonData); err != nil {
+        log.Fatal(err)
+    }
+
+    // Commit the transaction
+    if err := tx.Commit(); err != nil {
+        log.Fatal(err)
+    }
+
+    // Query the data
+    var retrieved MyData
+    if err := db.Get(key, &retrieved); err != nil {
+        log.Fatal(err)
+    }
+    
+    log.Printf("Retrieved: %s", retrieved.Message)
+}
+```
+
+### Building the CLI
+
+```bash
+# Build the frozendb CLI binary
+make build-cli
+
+# Binary is output to: dist/frozendb
+./dist/frozendb
+
+# Build example binaries
+make build-examples
+
+# Run the getting_started example
+./dist/examples/getting_started
 ```
 
 ## Use Cases
@@ -79,87 +159,91 @@ func main() {
 
 ## API Design
 
-### Database File Creation
+### Core Database Operations
 
 ```go
-// CreateConfig holds configuration for creating a new frozenDB database file
-type CreateConfig struct {
-    Path    string // Filesystem path for the database file
-    RowSize int    // Size of each data row in bytes (128-65536)
-    SkewMs  int    // Time skew window in milliseconds (0-86400000)
-}
+// Open an existing database
+func NewFrozenDB(path string, mode string, strategy FinderStrategy) (*FrozenDB, error)
 
-// Create creates a new frozenDB database file with the given configuration.
-// The function performs atomic file creation with proper error handling and cleanup.
-// Files are created with append-only protection to ensure immutability.
-//
-// Requirements:
-//   - Must be run with sudo privileges to set append-only attribute
-//   - Parent directory must exist and be writable
-//   - Target file must not already exist
-//
-// Parameters:
-//   - config: Configuration containing path, rowSize, and skewMs
-//
-// Returns:
-//   - error: nil on success, or one of:
-//     * InvalidInputError: for invalid input parameters
-//     * PathError: for filesystem path issues  
-//     * WriteError: for file operations, sudo context, or attribute setting failures
-//
-// Example:
-//   config := frozendb.CreateConfig{
-//       Path:    "/var/lib/app/database.fdb",
-//       RowSize:  1024,
-//       SkewMs:   5000,
-//   }
-//   err := frozendb.Create(config)
-//   if err != nil {
-//       log.Fatal(err)
-//   }
-func Create(config CreateConfig) error
+// Access modes
+const (
+    MODE_READ  string = "r"  // Read-only access, multiple readers allowed
+    MODE_WRITE string = "w"  // Read-write access, exclusive lock
+)
+
+// Query strategies
+const (
+    FinderStrategySimple       // Fixed memory, O(n) lookups
+    FinderStrategyInMemory     // ~40 bytes/row, O(1) lookups
+    FinderStrategyBinarySearch // O(log n) with time-based optimization
+)
+
+// Database methods
+func (db *FrozenDB) BeginTx() (*Transaction, error)
+func (db *FrozenDB) Get(key uuid.UUID, value any) error
+func (db *FrozenDB) Close() error
+
+// Transaction methods
+func (tx *Transaction) AddRow(key uuid.UUID, value []byte) error
+func (tx *Transaction) Commit() error
+func (tx *Transaction) Rollback() error
+func (tx *Transaction) Validate() error
 ```
+
+### Database Creation
+
+**Note**: Database creation is currently done via the internal package (see [examples/getting_started/](examples/getting_started/)) or will be available through the CLI in future releases.
+
+```go
+// TEMPORARY: Using internal package for creation
+import internal "github.com/susu-dot-dev/frozenDB/internal/frozendb"
+
+config := internal.NewCreateConfig("/path/to/db.fdb", 256, 5000)
+err := internal.Create(config)
+
+// FUTURE: Use CLI for creation
+// $ frozendb create --path /path/to/db.fdb --row-size 256 --skew-ms 5000
+```
+
+Database creation requires sudo privileges to set the append-only file attribute, ensuring immutability at the filesystem level.
 
 ### Error Handling
 
 frozenDB uses structured error types for different failure scenarios:
 
 ```go
-func handleCreateError(err error) {
+import "github.com/susu-dot-dev/frozenDB/pkg/frozendb"
+
+func handleError(err error) {
     switch err.(type) {
     case *frozendb.InvalidInputError:
-        // Check parameters: empty path, invalid ranges, wrong extension
+        // Invalid parameters or input validation failures
         fmt.Println("Invalid input:", err)
         
     case *frozendb.PathError:
-        // Check: parent directory exists, path is writable, file doesn't exist
+        // Filesystem path issues
         fmt.Println("Path error:", err)
         
     case *frozendb.WriteError:
-        // Check: sudo permissions, disk space, filesystem support
+        // File write operations, sudo permissions, disk space
         fmt.Println("Write error:", err)
+        
+    case *frozendb.CorruptDatabaseError:
+        // Database file corruption detected
+        fmt.Println("Corrupt database:", err)
+        
+    case *frozendb.KeyNotFoundError:
+        // Key does not exist in database
+        fmt.Println("Key not found:", err)
+        
+    case *frozendb.TombstonedError:
+        // Key exists but is marked as deleted
+        fmt.Println("Key tombstoned:", err)
         
     default:
         fmt.Println("Unexpected error:", err)
     }
 }
-```
-```
-
-### Database Operations (coming soon)
-
-```go
-type DB struct { Path string, ... }
-
-func NewDB(path string, rowSize int, opts ...Option) (*DB, error)
-func (db *DB) BeginTx() error
-func (db *DB) CommitTx() error
-func (db *DB) AbortTx() error
-func (db *DB) Add(key uuid.UUID, value interface{}) error
-func (db *DB) Get(key uuid.UUID) (interface{}, bool, error)
-func (db *DB) Enumerate() <-chan KeyValue
-func (db *DB) Count() (int64, error)
-func (db *DB) Close() error
 ```
 
 ## Design Philosophy

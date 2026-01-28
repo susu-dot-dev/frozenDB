@@ -1,6 +1,9 @@
 # frozenDB Makefile
 
-.PHONY: ci deps tidy fmt lint test build clean
+.PHONY: ci deps tidy fmt lint test build build-cli build-examples clean clean-cli
+
+# Build output directory
+DIST_DIR := dist
 
 # Default target
 all: ci
@@ -50,28 +53,51 @@ build:
 	@echo "Building project..."
 	go build ./...
 
+## Build the frozendb CLI binary
+build-cli:
+	@echo "Building frozendb CLI..."
+	@mkdir -p $(DIST_DIR)
+	go build -o $(DIST_DIR)/frozendb ./cmd/frozendb
+
+## Build example binaries
+build-examples:
+	@echo "Building examples..."
+	@mkdir -p $(DIST_DIR)/examples
+	go build -o $(DIST_DIR)/examples/getting_started ./examples/getting_started
+	@echo "Copying sample database..."
+	cp examples/getting_started/sample.fdb $(DIST_DIR)/examples/
+
 ## Run all checks and build
-ci: deps tidy fmt lint test build
+ci: deps tidy fmt lint test build build-cli build-examples
 	@echo "CI pipeline completed successfully!"
 
 ## Clean build artifacts
 clean:
 	@echo "Cleaning up..."
+	rm -rf $(DIST_DIR)
 	rm -f coverage.out coverage.html
 	go clean -cache
+
+## Clean CLI binary
+clean-cli:
+	@echo "Cleaning frozendb CLI binary..."
+	rm -f $(DIST_DIR)/frozendb
 
 ## Help target
 help:
 	@echo "Available targets:"
-	@echo "  ci           - Run all checks and build"
-	@echo "  deps         - Install dependencies"
-	@echo "  tidy         - Clean up dependencies"
-	@echo "  fmt          - Format code"
-	@echo "  lint         - Run linter"
-	@echo "  test         - Run tests"
-	@echo "  test-coverage- Run tests with coverage"
-	@echo "  test-spec    - Run spec tests only"
-	@echo "  test-unit    - Run unit tests only"
-	@echo "  build        - Build the project"
-	@echo "  clean        - Clean build artifacts"
-	@echo "  help         - Show this help message"
+	@echo "  ci            - Run all checks and build"
+	@echo "  deps          - Install dependencies"
+	@echo "  tidy          - Clean up dependencies"
+	@echo "  fmt           - Format code"
+	@echo "  lint          - Run linter"
+	@echo "  test          - Run tests"
+	@echo "  test-coverage - Run tests with coverage"
+	@echo "  test-spec     - Run spec tests only"
+	@echo "  test-unit     - Run unit tests only"
+	@echo "  build         - Build the project"
+	@echo "  build-cli     - Build the frozendb CLI binary (output: dist/frozendb)"
+	@echo "  build-examples- Build example binaries (output: dist/examples/)"
+	@echo "  clean         - Clean all build artifacts"
+	@echo "  clean-cli     - Clean CLI binary only"
+	@echo "  help          - Show this help message"
