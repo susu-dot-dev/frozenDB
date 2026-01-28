@@ -1,0 +1,379 @@
+package frozendb
+
+import (
+	"encoding/json"
+	"testing"
+
+	"github.com/google/uuid"
+)
+
+func TestDataRowPayload_MarshalText(t *testing.T) {
+	key, err := uuid.NewV7()
+	if err != nil {
+		t.Fatalf("Failed to generate UUIDv7: %v", err)
+	}
+
+	tests := []struct {
+		name    string
+		payload *DataRowPayload
+		wantErr bool
+	}{
+		{
+			name: "valid payload",
+			payload: &DataRowPayload{
+				Key:   key,
+				Value: json.RawMessage(`{"test":"value"}`),
+			},
+			wantErr: false,
+		},
+		{
+			name:    "nil payload",
+			payload: nil,
+			wantErr: true,
+		},
+		{
+			name: "empty value",
+			payload: &DataRowPayload{
+				Key:   key,
+				Value: json.RawMessage(""),
+			},
+			wantErr: false, // MarshalText doesn't validate empty value
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := tt.payload.MarshalText()
+			if (err != nil) != tt.wantErr {
+				t.Errorf("DataRowPayload.MarshalText() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if !tt.wantErr && len(got) < 24 {
+				t.Errorf("DataRowPayload.MarshalText() length = %d, want at least 24", len(got))
+			}
+		})
+	}
+}
+
+func TestDataRowPayload_UnmarshalText(t *testing.T) {
+	key, err := uuid.NewV7()
+	if err != nil {
+		t.Fatalf("Failed to generate UUIDv7: %v", err)
+	}
+
+	// Create valid payload bytes
+	validPayload := &DataRowPayload{
+		Key:   key,
+		Value: json.RawMessage(`{"test":"value"}`),
+	}
+	validBytes, err := validPayload.MarshalText()
+	if err != nil {
+		t.Fatalf("Failed to marshal valid payload: %v", err)
+	}
+
+	tests := []struct {
+		name    string
+		text    []byte
+		wantErr bool
+	}{
+		{
+			name:    "valid payload",
+			text:    validBytes,
+			wantErr: false,
+		},
+		{
+			name:    "too short",
+			text:    []byte("short"),
+			wantErr: true,
+		},
+		{
+			name:    "invalid Base64 UUID",
+			text:    append([]byte("invalid_base64_encoding!!"), []byte(`{"test":"value"}`)...),
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			payload := &DataRowPayload{}
+			err := payload.UnmarshalText(tt.text)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("DataRowPayload.UnmarshalText() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestDataRowPayload_Validate(t *testing.T) {
+	key, err := uuid.NewV7()
+	if err != nil {
+		t.Fatalf("Failed to generate UUIDv7: %v", err)
+	}
+
+	tests := []struct {
+		name    string
+		payload *DataRowPayload
+		wantErr bool
+	}{
+		{
+			name: "valid payload",
+			payload: &DataRowPayload{
+				Key:   key,
+				Value: json.RawMessage(`{"test":"value"}`),
+			},
+			wantErr: false,
+		},
+		{
+			name:    "nil payload",
+			payload: nil,
+			wantErr: true,
+		},
+		{
+			name: "empty value",
+			payload: &DataRowPayload{
+				Key:   key,
+				Value: json.RawMessage(""),
+			},
+			wantErr: true,
+		},
+		{
+			name: "invalid UUIDv4",
+			payload: &DataRowPayload{
+				Key:   uuid.MustParse("550e8400-e29b-41d4-a716-446655440000"), // v4
+				Value: json.RawMessage(`{"test":"value"}`),
+			},
+			wantErr: true,
+		},
+		{
+			name: "zero UUID",
+			payload: &DataRowPayload{
+				Key:   uuid.Nil,
+				Value: json.RawMessage(`{"test":"value"}`),
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.payload.Validate()
+			if (err != nil) != tt.wantErr {
+				t.Errorf("DataRowPayload.Validate() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestValidateUUIDv7(t *testing.T) {
+	tests := []struct {
+		name    string
+		u       uuid.UUID
+		wantErr bool
+	}{
+		{
+			name:    "valid UUIDv7",
+			u:       uuid.Must(uuid.NewV7()),
+			wantErr: false,
+		},
+		{
+			name:    "zero UUID",
+			u:       uuid.Nil,
+			wantErr: true,
+		},
+		{
+			name:    "UUIDv4",
+			u:       uuid.MustParse("550e8400-e29b-41d4-a716-446655440000"),
+			wantErr: true,
+		},
+		{
+			name:    "UUIDv1",
+			u:       uuid.MustParse("6ba7b810-9dad-11d1-80b4-00c04fd430c8"),
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidateUUIDv7(tt.u)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("ValidateUUIDv7() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestDataRow_GetKey(t *testing.T) {
+	key, err := uuid.NewV7()
+	if err != nil {
+		t.Fatalf("Failed to generate UUIDv7: %v", err)
+	}
+
+	tests := []struct {
+		name    string
+		dataRow *DataRow
+		want    uuid.UUID
+	}{
+		{
+			name: "valid key",
+			dataRow: func() *DataRow {
+				dr, _ := NewDataRow(512, START_TRANSACTION, TRANSACTION_COMMIT, key, json.RawMessage(`{"test":"value"}`))
+				return dr
+			}(),
+			want: key,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := tt.dataRow.GetKey()
+			if got != tt.want {
+				t.Errorf("DataRow.GetKey() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestDataRow_GetValue(t *testing.T) {
+	key, err := uuid.NewV7()
+	if err != nil {
+		t.Fatalf("Failed to generate UUIDv7: %v", err)
+	}
+
+	value := json.RawMessage(`{"test":"value"}`)
+	tests := []struct {
+		name    string
+		dataRow *DataRow
+		want    json.RawMessage
+	}{
+		{
+			name: "valid value",
+			dataRow: func() *DataRow {
+				dr, _ := NewDataRow(512, START_TRANSACTION, TRANSACTION_COMMIT, key, value)
+				return dr
+			}(),
+			want: value,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := tt.dataRow.GetValue()
+			if string(got) != string(tt.want) {
+				t.Errorf("DataRow.GetValue() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestDataRow_RoundTripSerialization(t *testing.T) {
+	key, err := uuid.NewV7()
+	if err != nil {
+		t.Fatalf("Failed to generate UUIDv7: %v", err)
+	}
+
+	value := json.RawMessage(`{"name":"Test","count":42,"active":true}`)
+	originalRow, _ := NewDataRow(512, START_TRANSACTION, TRANSACTION_COMMIT, key, value)
+
+	if err := originalRow.Validate(); err != nil {
+		t.Fatalf("Original row validation failed: %v", err)
+	}
+
+	// Serialize
+	bytes, err := originalRow.MarshalText()
+	if err != nil {
+		t.Fatalf("MarshalText failed: %v", err)
+	}
+
+	// Deserialize
+	deserializedRow := &DataRow{}
+
+	if err := deserializedRow.UnmarshalText(bytes); err != nil {
+		t.Fatalf("UnmarshalText failed: %v", err)
+	}
+
+	// Verify round-trip
+	if deserializedRow.GetKey() != key {
+		t.Errorf("Key mismatch: expected %s, got %s", key, deserializedRow.GetKey())
+	}
+
+	if string(deserializedRow.GetValue()) != string(value) {
+		t.Errorf("Deserialized value mismatch: expected %s, got %s", value, deserializedRow.GetValue())
+	}
+}
+
+func TestDataRow_Validate(t *testing.T) {
+	key, err := uuid.NewV7()
+	if err != nil {
+		t.Fatalf("Failed to generate UUIDv7: %v", err)
+	}
+
+	tests := []struct {
+		name    string
+		dataRow *DataRow
+		wantErr bool
+	}{
+		{
+			name: "valid DataRow with T/TC",
+			dataRow: func() *DataRow {
+				dr, _ := NewDataRow(512, START_TRANSACTION, TRANSACTION_COMMIT, key, json.RawMessage(`{"test":"value"}`))
+				return dr
+			}(),
+			wantErr: false,
+		},
+		{
+			name: "valid DataRow with R/RE",
+			dataRow: func() *DataRow {
+				dr, _ := NewDataRow(512, ROW_CONTINUE, ROW_END_CONTROL, key, json.RawMessage(`{"test":"value"}`))
+				return dr
+			}(),
+			wantErr: false,
+		},
+		{
+			name: "invalid start control (C)",
+			dataRow: func() *DataRow {
+				dr, _ := NewDataRow(512, CHECKSUM_ROW, TRANSACTION_COMMIT, key, json.RawMessage(`{"test":"value"}`))
+				return dr
+			}(),
+			wantErr: true,
+		},
+		{
+			name: "invalid end control (CS)",
+			dataRow: func() *DataRow {
+				dr, _ := NewDataRow(512, START_TRANSACTION, CHECKSUM_ROW_CONTROL, key, json.RawMessage(`{"test":"value"}`))
+				return dr
+			}(),
+			wantErr: true,
+		},
+		{
+			name: "valid rollback R0",
+			dataRow: func() *DataRow {
+				dr, _ := NewDataRow(512, START_TRANSACTION, FULL_ROLLBACK, key, json.RawMessage(`{"test":"value"}`))
+				return dr
+			}(),
+			wantErr: false,
+		},
+		{
+			name: "valid rollback R5",
+			dataRow: func() *DataRow {
+				dr, _ := NewDataRow(512, ROW_CONTINUE, EndControl{'R', '5'}, key, json.RawMessage(`{"test":"value"}`))
+				return dr
+			}(),
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Since NewDataRow calls Validate internally, check if dataRow is nil (creation failed)
+			if tt.dataRow == nil && tt.wantErr {
+				// Expected creation to fail
+				return
+			}
+
+			err := tt.dataRow.Validate()
+			if (err != nil) != tt.wantErr {
+				t.Errorf("DataRow.Validate() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
