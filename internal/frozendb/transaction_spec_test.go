@@ -140,8 +140,8 @@ func Test_S_006_FR_001_TransactionStructCreation(t *testing.T) {
 			rows: []DataRow{*row},
 		}
 
-		if len(tx.GetRows()) != 1 {
-			t.Errorf("Expected 1 row, got %d", len(tx.GetRows()))
+		if len(tx.rows) != 1 {
+			t.Errorf("Expected 1 row, got %d", len(tx.rows))
 		}
 	})
 
@@ -179,8 +179,8 @@ func Test_S_006_FR_001_TransactionStructCreation(t *testing.T) {
 			rows: rows,
 		}
 
-		if len(tx.GetRows()) != 100 {
-			t.Errorf("Expected 100 rows, got %d", len(tx.GetRows()))
+		if len(tx.rows) != 100 {
+			t.Errorf("Expected 100 rows, got %d", len(tx.rows))
 		}
 	})
 
@@ -190,8 +190,8 @@ func Test_S_006_FR_001_TransactionStructCreation(t *testing.T) {
 			rows: []DataRow{},
 		}
 
-		if len(tx.GetRows()) != 0 {
-			t.Errorf("Expected 0 rows, got %d", len(tx.GetRows()))
+		if len(tx.rows) != 0 {
+			t.Errorf("Expected 0 rows, got %d", len(tx.rows))
 		}
 	})
 }
@@ -231,7 +231,7 @@ func Test_S_006_FR_002_DirectIndexingSystem(t *testing.T) {
 		rows: []DataRow{*row1, *row2, *row3},
 	}
 
-	rows := tx.GetRows()
+	rows := tx.rows
 	// Test: Index 0 maps to first element
 	if rows[0].GetKey() != key1 {
 		t.Errorf("Index 0 should map to first row key, expected %s, got %s", key1, rows[0].GetKey())
@@ -467,8 +467,8 @@ func Test_S_006_FR_003_TransactionStartValidation(t *testing.T) {
 		}
 
 		// Directly check that first row has START_TRANSACTION
-		if tx.GetRows()[0].StartControl != START_TRANSACTION {
-			t.Errorf("First row should have START_TRANSACTION, got %c", tx.GetRows()[0].StartControl)
+		if tx.rows[0].StartControl != START_TRANSACTION {
+			t.Errorf("First row should have START_TRANSACTION, got %c", tx.rows[0].StartControl)
 		}
 	})
 
@@ -483,7 +483,7 @@ func Test_S_006_FR_003_TransactionStartValidation(t *testing.T) {
 		}
 
 		// Directly check that first row does not have START_TRANSACTION
-		if tx.GetRows()[0].StartControl == START_TRANSACTION {
+		if tx.rows[0].StartControl == START_TRANSACTION {
 			t.Error("First row should not have START_TRANSACTION when it starts with R")
 		}
 	})
@@ -761,11 +761,11 @@ func Test_S_011_FR_001_BeginCreatesPartialDataRow(t *testing.T) {
 		// - empty should be nil (no commit yet)
 		// - calling Begin() again should fail (transaction is active)
 		// - rows should be empty
-		if tx.GetEmptyRow() != nil {
+		if tx.empty != nil {
 			t.Error("Empty row should be nil after Begin()")
 		}
 
-		if len(tx.GetRows()) != 0 {
+		if len(tx.rows) != 0 {
 			t.Error("Rows should be empty after Begin()")
 		}
 
@@ -799,7 +799,7 @@ func Test_S_011_FR_002_CommitCreatesNullRow(t *testing.T) {
 		}
 
 		// Verify that the empty field points to a NullRow
-		emptyRow := tx.GetEmptyRow()
+		emptyRow := tx.empty
 		if emptyRow == nil {
 			t.Fatal("Commit() should create a NullRow in the empty field")
 		}
@@ -985,7 +985,7 @@ func Test_S_011_FR_004_CommitReturnsInvalidActionError(t *testing.T) {
 		}
 
 		// Verify the row is now in rows[]
-		rows := tx.GetRows()
+		rows := tx.rows
 		if len(rows) != 1 {
 			t.Fatalf("Expected 1 row after commit, got %d", len(rows))
 		}
@@ -1017,14 +1017,14 @@ func Test_S_011_FR_005_TransactionContainsOneNullRow(t *testing.T) {
 		}
 
 		// Verify the empty field contains a NullRow
-		emptyRow := tx.GetEmptyRow()
+		emptyRow := tx.empty
 		if emptyRow == nil {
 			t.Fatal("Transaction should have a NullRow in empty field after Begin() -> Commit()")
 		}
 
 		// Verify rows slice is empty (NullRows are stored in empty field, not rows)
-		if len(tx.GetRows()) != 0 {
-			t.Errorf("Rows slice should be empty for empty transaction, got %d rows", len(tx.GetRows()))
+		if len(tx.rows) != 0 {
+			t.Errorf("Rows slice should be empty for empty transaction, got %d rows", len(tx.rows))
 		}
 	})
 }
@@ -1049,7 +1049,7 @@ func Test_S_011_FR_006_NullRowValidation(t *testing.T) {
 		}
 
 		// Get the NullRow
-		emptyRow := tx.GetEmptyRow()
+		emptyRow := tx.empty
 		if emptyRow == nil {
 			t.Fatal("Expected NullRow after commit")
 		}
@@ -1079,7 +1079,7 @@ func Test_S_011_FR_006_NullRowValidation(t *testing.T) {
 			t.Fatalf("Commit() failed: %v", err)
 		}
 
-		emptyRow := tx.GetEmptyRow()
+		emptyRow := tx.empty
 		if emptyRow == nil {
 			t.Fatal("Expected NullRow after commit")
 		}
@@ -1172,7 +1172,7 @@ func Test_S_012_FR_002_AddRowFinalizesPartialDataRow(t *testing.T) {
 		}
 
 		// Verify that the first row was finalized with ROW_END_CONTROL (RE)
-		rows := tx.GetRows()
+		rows := tx.rows
 		if len(rows) != 1 {
 			t.Fatalf("Expected 1 finalized row, got %d", len(rows))
 		}
@@ -1206,7 +1206,7 @@ func Test_S_012_FR_003_AddRowMovesPreviousToRows(t *testing.T) {
 		tx.AddRow(key3, json.RawMessage(`{"data":"third"}`))
 
 		// Should have 2 finalized rows (third is still partial)
-		rows := tx.GetRows()
+		rows := tx.rows
 		if len(rows) != 2 {
 			t.Fatalf("Expected 2 finalized rows, got %d", len(rows))
 		}
@@ -1248,7 +1248,7 @@ func Test_S_012_FR_004_AddRowCreatesNewPartialDataRow(t *testing.T) {
 		}
 
 		// Verify the row is now in rows[]
-		rows := tx.GetRows()
+		rows := tx.rows
 		if len(rows) != 1 {
 			t.Fatalf("Expected 1 committed row, got %d", len(rows))
 		}
@@ -1280,7 +1280,7 @@ func Test_S_012_FR_005_AddRowUsesContinueStartControl(t *testing.T) {
 		tx.AddRow(key3, json.RawMessage(`{"data":"third"}`))
 		tx.Commit()
 
-		rows := tx.GetRows()
+		rows := tx.rows
 		if len(rows) != 3 {
 			t.Fatalf("Expected 3 committed rows, got %d", len(rows))
 		}
@@ -1388,7 +1388,7 @@ func Test_S_012_FR_008_CommitFinalizesLastPartialDataRow(t *testing.T) {
 			t.Fatalf("Commit() failed: %v", err)
 		}
 
-		rows := tx.GetRows()
+		rows := tx.rows
 		if len(rows) != 2 {
 			t.Fatalf("Expected 2 rows, got %d", len(rows))
 		}
@@ -1416,7 +1416,7 @@ func Test_S_012_FR_008_CommitFinalizesLastPartialDataRow(t *testing.T) {
 			t.Fatalf("Commit() failed: %v", err)
 		}
 
-		rows := tx.GetRows()
+		rows := tx.rows
 		if len(rows) != 1 {
 			t.Fatalf("Expected 1 row, got %d", len(rows))
 		}
@@ -1448,14 +1448,14 @@ func Test_S_012_FR_009_CommitCreatesNullRowForEmptyTransaction(t *testing.T) {
 		}
 
 		// Verify empty field is set
-		emptyRow := tx.GetEmptyRow()
+		emptyRow := tx.empty
 		if emptyRow == nil {
 			t.Fatal("Empty transaction should have NullRow")
 		}
 
 		// Verify rows field is empty
-		if len(tx.GetRows()) != 0 {
-			t.Errorf("Empty transaction should have no data rows, got %d", len(tx.GetRows()))
+		if len(tx.rows) != 0 {
+			t.Errorf("Empty transaction should have no data rows, got %d", len(tx.rows))
 		}
 	})
 }
@@ -1509,8 +1509,8 @@ func Test_S_012_FR_010_AddRowEnforces100RowLimit(t *testing.T) {
 			t.Fatalf("Commit() failed: %v", err)
 		}
 
-		if len(tx.GetRows()) != 100 {
-			t.Errorf("Expected 100 rows, got %d", len(tx.GetRows()))
+		if len(tx.rows) != 100 {
+			t.Errorf("Expected 100 rows, got %d", len(tx.rows))
 		}
 	})
 }
@@ -1588,7 +1588,7 @@ func Test_S_012_FR_012_AddRowThreadSafety(t *testing.T) {
 		}
 
 		// Verify transaction state is consistent
-		rows := tx.GetRows()
+		rows := tx.rows
 		// Number of finalized rows should be successCount - 1 (last one is still partial)
 		expectedFinalized := successCount - 1
 		if expectedFinalized < 0 {
@@ -1817,7 +1817,7 @@ func Test_S_013_FR_001_SavepointMethodExists(t *testing.T) {
 			t.Fatalf("Second AddRow() failed: %v", err)
 		}
 
-		rows := tx.GetRows()
+		rows := tx.rows
 		if len(rows) != 1 {
 			t.Fatalf("Expected 1 row (first row finalized with savepoint), got %d", len(rows))
 		}
@@ -2051,9 +2051,9 @@ func Test_S_013_FR_002_FullRollbackMethodExists(t *testing.T) {
 			t.Fatalf("Rollback(0) failed: %v", err)
 		}
 
-		rows := tx.GetRows()
+		rows := tx.rows
 		if len(rows) != 2 {
-			t.Fatalf("Expected 2 rows (both rows finalized), got %d", len(rows))
+			t.Fatalf("Expected 2 rows, got %d", len(rows))
 		}
 
 		if rows[1].EndControl[0] != 'R' {
@@ -2156,7 +2156,7 @@ func Test_S_013_FR_010_FullRollbackCreatesNullRowForEmptyTransaction(t *testing.
 			t.Fatalf("Rollback(0) on empty transaction failed: %v", err)
 		}
 
-		emptyRow := tx.GetEmptyRow()
+		emptyRow := tx.empty
 		if emptyRow == nil {
 			t.Fatal("Rollback(0) should create NullRow in empty field for empty transaction")
 		}
@@ -2181,7 +2181,7 @@ func Test_S_013_FR_010_FullRollbackCreatesNullRowForEmptyTransaction(t *testing.
 			t.Fatalf("Rollback(0) failed: %v", err)
 		}
 
-		rows := tx.GetRows()
+		rows := tx.rows
 		if len(rows) != 0 {
 			t.Errorf("Expected 0 rows for empty transaction rollback, got %d", len(rows))
 		}
@@ -2219,7 +2219,7 @@ func Test_S_013_FR_014_FullRollbackUsesR0OrS0EndControl(t *testing.T) {
 			t.Fatalf("Rollback(0) failed: %v", err)
 		}
 
-		rows := tx.GetRows()
+		rows := tx.rows
 		if len(rows) != 2 {
 			t.Fatalf("Expected 2 rows, got %d", len(rows))
 		}
@@ -2271,7 +2271,7 @@ func Test_S_013_FR_014_FullRollbackUsesR0OrS0EndControl(t *testing.T) {
 			t.Fatalf("Rollback(0) failed: %v", err)
 		}
 
-		rows := tx.GetRows()
+		rows := tx.rows
 		if len(rows) != 2 {
 			t.Fatalf("Expected 2 rows, got %d", len(rows))
 		}
@@ -2328,7 +2328,7 @@ func Test_S_013_FR_003_PartialRollbackMethodExists(t *testing.T) {
 			t.Fatalf("Rollback(1) should succeed: %v", err)
 		}
 
-		rows := tx.GetRows()
+		rows := tx.rows
 		if len(rows) != 3 {
 			t.Fatalf("Expected 3 rows, got %d", len(rows))
 		}
@@ -2734,7 +2734,7 @@ func Test_S_013_FR_013_PartialRollbackUsesRnOrSnEndControl(t *testing.T) {
 			t.Fatalf("Rollback(1) failed: %v", err)
 		}
 
-		rows := tx.GetRows()
+		rows := tx.rows
 		lastRow := rows[len(rows)-1]
 		if lastRow.EndControl[0] != 'R' && lastRow.EndControl[0] != 'S' {
 			t.Errorf("Expected last row end control to start with 'R' or 'S', got '%c'", lastRow.EndControl[0])
@@ -4374,7 +4374,7 @@ func Test_S_016_FR_005_TransparencyToTransactions(t *testing.T) {
 
 	// Verify transaction committed successfully with all 10 rows
 	// The checksum row insertion should not have affected the transaction
-	rows := tx.GetRows()
+	rows := tx.rows
 	if len(rows) != 10 {
 		t.Errorf("Expected 10 rows in transaction, got %d", len(rows))
 	}
@@ -4666,7 +4666,7 @@ func Test_S_016_US2_TransactionSpansChecksumBoundary(t *testing.T) {
 	}
 
 	// Verify all 10 rows are in the transaction
-	rows := tx.GetRows()
+	rows := tx.rows
 	if len(rows) != 10 {
 		t.Errorf("Expected 10 rows in transaction, got %d", len(rows))
 	}

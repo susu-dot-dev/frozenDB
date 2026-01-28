@@ -3309,7 +3309,7 @@ func Test_S_018_FR_002_CreateTransactionForInProgressState(t *testing.T) {
 		}
 
 		// Verify transaction has correct rows
-		rows := activeTx.GetRows()
+		rows := activeTx.rows
 		if len(rows) != 1 {
 			t.Errorf("Expected 1 finalized row, got %d", len(rows))
 		}
@@ -3323,7 +3323,7 @@ func Test_S_018_FR_002_CreateTransactionForInProgressState(t *testing.T) {
 		}
 
 		// Verify last partial row exists (second row not yet finalized)
-		if activeTx.GetEmptyRow() != nil {
+		if activeTx.empty != nil {
 			t.Error("Expected nil empty row for open transaction")
 		}
 	})

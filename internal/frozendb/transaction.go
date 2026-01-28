@@ -82,31 +82,6 @@ func NewTransaction(db DBFile, header *Header, finder Finder) (*Transaction, err
 	return tx, nil
 }
 
-// GetRows returns the rows slice for read-only access.
-// Since all fields of DataRow are unexported, modifications to the slice
-// elements won't affect the internal transaction state.
-// Returns empty slice if transaction is tombstoned.
-func (tx *Transaction) GetRows() []DataRow {
-	tx.mu.RLock()
-	defer tx.mu.RUnlock()
-	if tx.tombstone {
-		return []DataRow{}
-	}
-	return tx.rows
-}
-
-// GetEmptyRow returns the empty NullRow if present, nil otherwise.
-// This field is set after a successful empty transaction commit.
-// Returns nil if transaction is tombstoned.
-func (tx *Transaction) GetEmptyRow() *NullRow {
-	tx.mu.RLock()
-	defer tx.mu.RUnlock()
-	if tx.tombstone {
-		return nil
-	}
-	return tx.empty
-}
-
 // IsTombstoned returns true if the transaction has been tombstoned due to a write failure.
 // Once tombstoned, all subsequent public API calls will return TombstonedError.
 func (tx *Transaction) IsTombstoned() bool {

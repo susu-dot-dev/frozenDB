@@ -237,7 +237,7 @@ func (db *FrozenDB) recoverTransaction() error {
 			}
 		}
 		// For read mode, writeChan exists but is not connected to FileManager
-		// Transaction methods that try to write will fail, but GetRows() etc. will work
+		// Transaction methods that try to write will fail, but read access to internal fields will work
 
 		tx := &Transaction{
 			rows:            txRows,

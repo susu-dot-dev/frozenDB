@@ -113,7 +113,7 @@ func TestAddRow_KeyValueStorage(t *testing.T) {
 		tx.AddRow(key, value)
 		tx.Commit()
 
-		rows := tx.GetRows()
+		rows := tx.rows
 		if len(rows) != 1 {
 			t.Fatalf("Expected 1 row, got %d", len(rows))
 		}
@@ -146,7 +146,7 @@ func TestAddRow_KeyValueStorage(t *testing.T) {
 		}
 		tx.Commit()
 
-		rows := tx.GetRows()
+		rows := tx.rows
 		if len(rows) != 5 {
 			t.Fatalf("Expected 5 rows, got %d", len(rows))
 		}
@@ -176,7 +176,7 @@ func TestAddRow_EndControlPatterns(t *testing.T) {
 		}
 		tx.Commit()
 
-		rows := tx.GetRows()
+		rows := tx.rows
 		// All rows except last should have RE
 		for i := 0; i < len(rows)-1; i++ {
 			if rows[i].EndControl != ROW_END_CONTROL {
@@ -276,8 +276,8 @@ func TestAddRow_RowCountLimit(t *testing.T) {
 			t.Fatalf("Commit should succeed: %v", err)
 		}
 
-		if len(tx.GetRows()) != 100 {
-			t.Errorf("Expected 100 rows, got %d", len(tx.GetRows()))
+		if len(tx.rows) != 100 {
+			t.Errorf("Expected 100 rows, got %d", len(tx.rows))
 		}
 	})
 
@@ -416,7 +416,7 @@ func TestAddRow_Concurrency(t *testing.T) {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
-				_ = tx.GetRows()
+				_ = tx.rows
 				_ = tx.IsCommitted()
 			}()
 		}
@@ -437,7 +437,7 @@ func TestAddRow_Concurrency(t *testing.T) {
 		}
 		tx.Commit()
 
-		rows := tx.GetRows()
+		rows := tx.rows
 		for i, row := range rows {
 			if row.GetKey() != keys[i] {
 				t.Errorf("Row %d key mismatch after concurrent operations", i)
@@ -652,7 +652,7 @@ func TestAddRow_IntegrationWithCommit(t *testing.T) {
 		tx.AddRow(key, json.RawMessage(`{"data":"only"}`))
 		tx.Commit()
 
-		rows := tx.GetRows()
+		rows := tx.rows
 		if len(rows) != 1 {
 			t.Fatalf("Expected 1 row, got %d", len(rows))
 		}
@@ -675,7 +675,7 @@ func TestAddRow_IntegrationWithCommit(t *testing.T) {
 		}
 		tx.Commit()
 
-		rows := tx.GetRows()
+		rows := tx.rows
 		if len(rows) != 5 {
 			t.Fatalf("Expected 5 rows, got %d", len(rows))
 		}
@@ -963,7 +963,7 @@ func TestSavepoint_EndControlPatterns(t *testing.T) {
 		key2, _ := uuid.NewV7()
 		tx.AddRow(key2, json.RawMessage(`{"data":"second"}`))
 
-		rows := tx.GetRows()
+		rows := tx.rows
 		if len(rows) != 1 {
 			t.Fatalf("Expected 1 finalized row, got %d", len(rows))
 		}
@@ -983,7 +983,7 @@ func TestSavepoint_EndControlPatterns(t *testing.T) {
 		tx.Savepoint()
 		tx.Commit()
 
-		rows := tx.GetRows()
+		rows := tx.rows
 		if len(rows) != 1 {
 			t.Fatalf("Expected 1 row, got %d", len(rows))
 		}
@@ -1005,7 +1005,7 @@ func TestSavepoint_EndControlPatterns(t *testing.T) {
 		}
 		tx.Commit()
 
-		rows := tx.GetRows()
+		rows := tx.rows
 		if len(rows) != 5 {
 			t.Fatalf("Expected 5 rows, got %d", len(rows))
 		}
@@ -1108,12 +1108,12 @@ func TestRollback_FullRollback(t *testing.T) {
 			t.Fatalf("Rollback(0) on empty transaction should succeed: %v", err)
 		}
 
-		if tx.GetEmptyRow() == nil {
+		if tx.empty == nil {
 			t.Error("Rollback(0) on empty transaction should create NullRow")
 		}
 
-		if len(tx.GetRows()) != 0 {
-			t.Errorf("Rollback(0) on empty transaction should have no data rows, got %d", len(tx.GetRows()))
+		if len(tx.rows) != 0 {
+			t.Errorf("Rollback(0) on empty transaction should have no data rows, got %d", len(tx.rows))
 		}
 	})
 
@@ -1169,7 +1169,7 @@ func TestRollback_FullRollback(t *testing.T) {
 		tx.AddRow(key, json.RawMessage(`{"data":"test"}`))
 		tx.Rollback(0)
 
-		rows := tx.GetRows()
+		rows := tx.rows
 		if len(rows) != 1 {
 			t.Fatalf("Expected 1 row, got %d", len(rows))
 		}
@@ -1191,7 +1191,7 @@ func TestRollback_FullRollback(t *testing.T) {
 		tx.Savepoint()
 		tx.Rollback(0)
 
-		rows := tx.GetRows()
+		rows := tx.rows
 		if len(rows) != 1 {
 			t.Fatalf("Expected 1 row, got %d", len(rows))
 		}
@@ -1292,7 +1292,7 @@ func TestRollback_PartialRollback(t *testing.T) {
 		// No savepoint on second row, so rollback should use 'R'
 		tx.Rollback(1)
 
-		rows := tx.GetRows()
+		rows := tx.rows
 		lastRow := rows[len(rows)-1]
 		if lastRow.EndControl[0] != 'R' {
 			t.Errorf("Expected end control to start with 'R', got '%c'", lastRow.EndControl[0])
@@ -1316,7 +1316,7 @@ func TestRollback_PartialRollback(t *testing.T) {
 
 		tx.Rollback(1)
 
-		rows := tx.GetRows()
+		rows := tx.rows
 		lastRow := rows[len(rows)-1]
 		if lastRow.EndControl[0] != 'S' {
 			t.Errorf("Expected end control to start with 'S', got '%c'", lastRow.EndControl[0])
@@ -1347,7 +1347,7 @@ func TestRollback_PartialRollback(t *testing.T) {
 				t.Errorf("Rollback(%d) should succeed: %v", n, err)
 			}
 
-			rows := tx.GetRows()
+			rows := tx.rows
 			lastRow := rows[len(rows)-1]
 			if lastRow.EndControl[1] != byte('0'+n) {
 				t.Errorf("Rollback(%d) should have end control digit '%c', got '%c'", n, '0'+n, lastRow.EndControl[1])
@@ -1499,7 +1499,7 @@ func TestRollback_IsRowCommitted(t *testing.T) {
 		}
 		tx.Rollback(0)
 
-		for i := 0; i < len(tx.GetRows()); i++ {
+		for i := 0; i < len(tx.rows); i++ {
 			committed, err := tx.IsRowCommitted(i)
 			if err != nil {
 				t.Fatalf("IsRowCommitted(%d) failed: %v", i, err)
@@ -1523,7 +1523,7 @@ func TestRollback_IsRowCommitted(t *testing.T) {
 		}
 		tx.Rollback(1) // Commit rows 0-1
 
-		rows := tx.GetRows()
+		rows := tx.rows
 
 		// Rows 0-1 should be committed
 		for i := 0; i <= 1; i++ {
@@ -1669,7 +1669,7 @@ func TestRollback_EdgeCases(t *testing.T) {
 		tx.AddRow(key, json.RawMessage(`{"data":"only"}`))
 		tx.Rollback(0)
 
-		rows := tx.GetRows()
+		rows := tx.rows
 		if len(rows) != 1 {
 			t.Fatalf("Expected 1 row, got %d", len(rows))
 		}
@@ -1736,7 +1736,7 @@ func TestRollback_ThreadSafety(t *testing.T) {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
-				_ = tx.GetRows()
+				_ = tx.rows
 				_ = tx.GetSavepointIndices()
 			}()
 		}
@@ -1843,7 +1843,7 @@ func TestSavepointRollback_Integration(t *testing.T) {
 		tx.Commit()
 
 		// Should have SC end control
-		rows := tx.GetRows()
+		rows := tx.rows
 		if rows[0].EndControl != SAVEPOINT_COMMIT {
 			t.Errorf("Expected SC end control, got %s", rows[0].EndControl.String())
 		}
@@ -1861,7 +1861,7 @@ func TestSavepointRollback_Integration(t *testing.T) {
 		tx.AddRow(key2, json.RawMessage(`{"data":"second"}`))
 		tx.Commit()
 
-		rows := tx.GetRows()
+		rows := tx.rows
 		if len(rows) != 2 {
 			t.Fatalf("Expected 2 rows, got %d", len(rows))
 		}
@@ -1901,7 +1901,7 @@ func TestSavepointRollback_Integration(t *testing.T) {
 
 		tx.Commit()
 
-		rows := tx.GetRows()
+		rows := tx.rows
 		// Row 0: RE
 		if rows[0].EndControl != ROW_END_CONTROL {
 			t.Errorf("Row 0 should have RE, got %s", rows[0].EndControl.String())
@@ -1945,8 +1945,8 @@ func TestSavepoint_HasDataRowConditions(t *testing.T) {
 		tx.AddRow(key2, json.RawMessage(`{"data":"second"}`))
 
 		// Now the first row is finalized (in tx.rows)
-		if len(tx.GetRows()) != 1 {
-			t.Fatalf("Expected 1 finalized row, got %d", len(tx.GetRows()))
+		if len(tx.rows) != 1 {
+			t.Fatalf("Expected 1 finalized row, got %d", len(tx.rows))
 		}
 
 		// Savepoint should succeed because hasDataRow = true (finalized rows exist)
@@ -1965,8 +1965,8 @@ func TestSavepoint_HasDataRowConditions(t *testing.T) {
 		tx.AddRow(key, json.RawMessage(`{"data":"test"}`))
 
 		// No finalized rows
-		if len(tx.GetRows()) != 0 {
-			t.Fatalf("Expected 0 finalized rows, got %d", len(tx.GetRows()))
+		if len(tx.rows) != 0 {
+			t.Fatalf("Expected 0 finalized rows, got %d", len(tx.rows))
 		}
 
 		// But partial row has payload, so hasDataRow = true
@@ -1998,7 +1998,7 @@ func TestRollback_WithSavepointOnCurrentRow(t *testing.T) {
 		// Rollback to first savepoint
 		tx.Rollback(1)
 
-		rows := tx.GetRows()
+		rows := tx.rows
 		// First row should have SE
 		if rows[0].EndControl[0] != 'S' {
 			t.Errorf("First row should have S prefix, got '%c'", rows[0].EndControl[0])
@@ -2403,7 +2403,7 @@ func TestCommit_DiskPersistence(t *testing.T) {
 		}
 
 		// Verify NullRow was created
-		if tx.GetEmptyRow() == nil {
+		if tx.empty == nil {
 			t.Error("Empty transaction should create NullRow")
 		}
 	})
@@ -2442,7 +2442,7 @@ func TestCommit_DiskPersistence(t *testing.T) {
 		}
 
 		// Verify transaction has committed row
-		rows := tx.GetRows()
+		rows := tx.rows
 		if len(rows) != 1 {
 			t.Errorf("Expected 1 row after commit, got %d", len(rows))
 		}
@@ -2543,7 +2543,7 @@ func TestCommit_DiskPersistence(t *testing.T) {
 		}
 
 		// Verify empty row was not created
-		if tx.GetEmptyRow() != nil {
+		if tx.empty != nil {
 			t.Error("Empty row should not be created when commit write fails")
 		}
 	})
@@ -2642,7 +2642,7 @@ func TestTransactionPersistence_Concurrency(t *testing.T) {
 		// - ...
 		// - Nth AddRow: finalizes (N-1)th row (N-1 rows finalized)
 		// So we should have exactly (successCount - 1) finalized rows
-		rows := tx.GetRows()
+		rows := tx.rows
 		expectedRows := successCount - 1
 		if len(rows) != expectedRows {
 			t.Errorf("Expected %d rows (successCount-1), got %d (successCount=%d)", expectedRows, len(rows), successCount)
@@ -2747,7 +2747,7 @@ func TestTransactionPersistence_Concurrency(t *testing.T) {
 			go func(idx int) {
 				defer wg.Done()
 				// Try to read transaction state
-				_ = tx.GetRows()
+				_ = tx.rows
 				_ = tx.IsCommitted()
 				readErrors[idx] = nil
 			}(i)
@@ -2865,7 +2865,7 @@ func TestTransactionPersistence_ErrorConditions(t *testing.T) {
 		}
 
 		// Verify state is unchanged (no partial data persisted)
-		if len(tx.GetRows()) != 0 {
+		if len(tx.rows) != 0 {
 			t.Error("No rows should be persisted after failed AddRow()")
 		}
 	})
