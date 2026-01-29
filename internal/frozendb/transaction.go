@@ -477,7 +477,7 @@ func (tx *Transaction) AddRow(key uuid.UUID, value json.RawMessage) error {
 		}
 	} else {
 		// Subsequent AddRow(): finalize current partial and create new one (FR-002)
-		// Finalize previous PartialDataRow with ROW_END_CONTROL (RE)
+		// Finalize previous PartialDataRow with ROW_END_CONTROL (RE) or SAVEPOINT_CONTINUE (SE)
 		dataRow, err := tx.last.EndRow()
 		if err != nil {
 			return NewInvalidActionError("failed to finalize previous row", err)
@@ -824,9 +824,23 @@ func (tx *Transaction) Savepoint() error {
 		return NewInvalidActionError("transaction cannot have more than 9 savepoints", nil)
 	}
 
-	// Call PartialDataRow.Savepoint()
+	// Call PartialDataRow.Savepoint() to update state
 	if err := tx.last.Savepoint(); err != nil {
 		return NewInvalidActionError("failed to create savepoint", err)
+	}
+
+	// Marshal the PartialDataRow which now includes the 'S' marker
+	// writeBytes will slice off already-written bytes and write only the 'S'
+	partialBytes, err := tx.last.MarshalText()
+	if err != nil {
+		return NewInvalidActionError("failed to marshal PartialDataRow with savepoint", err)
+	}
+
+	// Write the 'S' marker to disk immediately
+	// writeBytes will automatically slice off the already-written portion and write only the new 'S' byte
+	if err := tx.writeBytes(partialBytes); err != nil {
+		// Transaction is tombstoned by writeBytes on error
+		return err
 	}
 
 	return nil
@@ -878,8 +892,16 @@ func (tx *Transaction) Rollback(savepointId int) error {
 	}
 
 	// Validate savepoint target exists (for partial rollback)
+	// Count savepoints in complete rows
 	savepointIndices := tx.getSavepointIndicesUnlocked()
-	if savepointId > 0 && savepointId > len(savepointIndices) {
+	totalSavepoints := len(savepointIndices)
+
+	// Also count the partial row if it has a savepoint
+	if tx.last != nil && tx.last.GetState() == PartialDataRowWithSavepoint {
+		totalSavepoints++
+	}
+
+	if savepointId > 0 && savepointId > totalSavepoints {
 		return NewInvalidInputError("rollback target savepoint does not exist", nil)
 	}
 

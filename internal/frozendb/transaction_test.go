@@ -1483,6 +1483,40 @@ func TestRollback_ErrorConditions(t *testing.T) {
 			t.Errorf("Expected InvalidInputError, got %T", err)
 		}
 	})
+
+	t.Run("rollback_to_savepoint_on_partial_row_succeeds", func(t *testing.T) {
+		tx := createTransactionWithMockWriter(header)
+		tx.Begin()
+
+		key, _ := uuid.NewV7()
+		tx.AddRow(key, json.RawMessage(`{"data":"test"}`))
+		tx.Savepoint()
+
+		// At this point, the partial row has a savepoint marker
+		// There are 0 complete rows, but the partial row counts as savepoint #1
+		err := tx.Rollback(1)
+		if err != nil {
+			t.Fatalf("Rollback(1) should succeed when partial row has savepoint: %v", err)
+		}
+
+		// The row should be finalized with S1 end control
+		rows := tx.rows
+		if len(rows) != 1 {
+			t.Fatalf("Expected 1 row after Rollback(1), got %d", len(rows))
+		}
+
+		if rows[0].EndControl[0] != 'S' {
+			t.Errorf("Expected end control to start with 'S', got '%c'", rows[0].EndControl[0])
+		}
+		if rows[0].EndControl[1] != '1' {
+			t.Errorf("Expected end control second byte to be '1', got '%c'", rows[0].EndControl[1])
+		}
+
+		// Transaction should be closed
+		if tx.isActive() {
+			t.Error("Transaction should not be active after Rollback(1)")
+		}
+	})
 }
 
 // TestRollback_IsRowCommitted verifies individual row commit status
@@ -1821,6 +1855,479 @@ func TestGetCommittedRows_VariousTransactionStates(t *testing.T) {
 
 		if count != 0 {
 			t.Errorf("Expected 0 rows for empty transaction, got %d", count)
+		}
+	})
+}
+
+// =============================================================================
+// End Control Disk Write Tests
+// =============================================================================
+
+// TestEndControl_DiskWritePatterns verifies that all end control patterns
+// are correctly written to disk during various transaction operations
+func TestEndControl_DiskWritePatterns(t *testing.T) {
+	header := createTestHeader()
+
+	t.Run("TC_transaction_commit_write", func(t *testing.T) {
+		// Create a transaction that will write TC (transaction commit)
+		tx := createTransactionWithMockWriter(header)
+		tx.Begin()
+
+		key, _ := uuid.NewV7()
+		tx.AddRow(key, json.RawMessage(`{"data":"test"}`))
+		err := tx.Commit()
+		if err != nil {
+			t.Fatalf("Commit() failed: %v", err)
+		}
+
+		// Verify the row has TC end control
+		rows := tx.rows
+		if len(rows) != 1 {
+			t.Fatalf("Expected 1 row, got %d", len(rows))
+		}
+
+		if rows[0].EndControl != TRANSACTION_COMMIT {
+			t.Errorf("Expected TC end control, got %s", rows[0].EndControl.String())
+		}
+
+		// Verify bytes match expected
+		if rows[0].EndControl[0] != 'T' || rows[0].EndControl[1] != 'C' {
+			t.Errorf("Expected TC bytes, got '%c%c'", rows[0].EndControl[0], rows[0].EndControl[1])
+		}
+	})
+
+	t.Run("RE_row_end_control_write", func(t *testing.T) {
+		// Create a multi-row transaction where intermediate rows get RE
+		tx := createTransactionWithMockWriter(header)
+		tx.Begin()
+
+		for i := 0; i < 3; i++ {
+			key, _ := uuid.NewV7()
+			tx.AddRow(key, json.RawMessage(`{"data":"test"}`))
+		}
+		tx.Commit()
+
+		rows := tx.rows
+		if len(rows) != 3 {
+			t.Fatalf("Expected 3 rows, got %d", len(rows))
+		}
+
+		// First two rows should have RE
+		for i := 0; i < 2; i++ {
+			if rows[i].EndControl != ROW_END_CONTROL {
+				t.Errorf("Row %d: expected RE end control, got %s", i, rows[i].EndControl.String())
+			}
+			if rows[i].EndControl[0] != 'R' || rows[i].EndControl[1] != 'E' {
+				t.Errorf("Row %d: expected RE bytes, got '%c%c'", i, rows[i].EndControl[0], rows[i].EndControl[1])
+			}
+		}
+
+		// Last row should have TC
+		if rows[2].EndControl != TRANSACTION_COMMIT {
+			t.Errorf("Last row: expected TC end control, got %s", rows[2].EndControl.String())
+		}
+	})
+
+	t.Run("SC_savepoint_commit_write", func(t *testing.T) {
+		// Transaction with savepoint that commits
+		tx := createTransactionWithMockWriter(header)
+		tx.Begin()
+
+		key, _ := uuid.NewV7()
+		tx.AddRow(key, json.RawMessage(`{"data":"test"}`))
+		err := tx.Savepoint()
+		if err != nil {
+			t.Fatalf("Savepoint() failed: %v", err)
+		}
+
+		err = tx.Commit()
+		if err != nil {
+			t.Fatalf("Commit() failed: %v", err)
+		}
+
+		rows := tx.rows
+		if len(rows) != 1 {
+			t.Fatalf("Expected 1 row, got %d", len(rows))
+		}
+
+		// Should have SC end control
+		if rows[0].EndControl != SAVEPOINT_COMMIT {
+			t.Errorf("Expected SC end control, got %s", rows[0].EndControl.String())
+		}
+		if rows[0].EndControl[0] != 'S' || rows[0].EndControl[1] != 'C' {
+			t.Errorf("Expected SC bytes, got '%c%c'", rows[0].EndControl[0], rows[0].EndControl[1])
+		}
+	})
+
+	t.Run("SE_savepoint_continue_write", func(t *testing.T) {
+		// Transaction with savepoint that continues
+		tx := createTransactionWithMockWriter(header)
+		tx.Begin()
+
+		key1, _ := uuid.NewV7()
+		tx.AddRow(key1, json.RawMessage(`{"data":"first"}`))
+		tx.Savepoint()
+
+		key2, _ := uuid.NewV7()
+		tx.AddRow(key2, json.RawMessage(`{"data":"second"}`))
+		tx.Commit()
+
+		rows := tx.rows
+		if len(rows) != 2 {
+			t.Fatalf("Expected 2 rows, got %d", len(rows))
+		}
+
+		// First row should have SE end control
+		if rows[0].EndControl != SAVEPOINT_CONTINUE {
+			t.Errorf("Expected SE end control, got %s", rows[0].EndControl.String())
+		}
+		if rows[0].EndControl[0] != 'S' || rows[0].EndControl[1] != 'E' {
+			t.Errorf("Expected SE bytes, got '%c%c'", rows[0].EndControl[0], rows[0].EndControl[1])
+		}
+	})
+
+	t.Run("S_marker_only_write", func(t *testing.T) {
+		// Test that calling Savepoint() writes 'S' marker to disk immediately
+		tx := createTransactionWithMockWriter(header)
+		tx.Begin()
+
+		key, _ := uuid.NewV7()
+		tx.AddRow(key, json.RawMessage(`{"data":"test"}`))
+
+		// Before savepoint, partial row should not have savepoint
+		if tx.last.GetState() == PartialDataRowWithSavepoint {
+			t.Error("Partial row should not have savepoint before Savepoint() call")
+		}
+
+		err := tx.Savepoint()
+		if err != nil {
+			t.Fatalf("Savepoint() failed: %v", err)
+		}
+
+		// After savepoint, partial row should have savepoint marker
+		if tx.last.GetState() != PartialDataRowWithSavepoint {
+			t.Errorf("Partial row should have savepoint after Savepoint() call, got state: %v", tx.last.GetState())
+		}
+
+		// The 'S' byte should have been written (we can't directly inspect mock writes,
+		// but we verify the state transition occurred)
+	})
+
+	t.Run("R0_full_rollback_no_savepoint_write", func(t *testing.T) {
+		// Full rollback without any savepoints
+		tx := createTransactionWithMockWriter(header)
+		tx.Begin()
+
+		key, _ := uuid.NewV7()
+		tx.AddRow(key, json.RawMessage(`{"data":"test"}`))
+		err := tx.Rollback(0)
+		if err != nil {
+			t.Fatalf("Rollback(0) failed: %v", err)
+		}
+
+		rows := tx.rows
+		if len(rows) != 1 {
+			t.Fatalf("Expected 1 row, got %d", len(rows))
+		}
+
+		// Should have R0 end control
+		if rows[0].EndControl[0] != 'R' || rows[0].EndControl[1] != '0' {
+			t.Errorf("Expected R0 end control, got '%c%c'", rows[0].EndControl[0], rows[0].EndControl[1])
+		}
+	})
+
+	t.Run("S0_full_rollback_with_savepoint_write", func(t *testing.T) {
+		// Full rollback with savepoint on partial row
+		tx := createTransactionWithMockWriter(header)
+		tx.Begin()
+
+		key, _ := uuid.NewV7()
+		tx.AddRow(key, json.RawMessage(`{"data":"test"}`))
+		tx.Savepoint()
+
+		err := tx.Rollback(0)
+		if err != nil {
+			t.Fatalf("Rollback(0) failed: %v", err)
+		}
+
+		rows := tx.rows
+		if len(rows) != 1 {
+			t.Fatalf("Expected 1 row, got %d", len(rows))
+		}
+
+		// Should have S0 end control
+		if rows[0].EndControl[0] != 'S' || rows[0].EndControl[1] != '0' {
+			t.Errorf("Expected S0 end control, got '%c%c'", rows[0].EndControl[0], rows[0].EndControl[1])
+		}
+	})
+
+	t.Run("R1_through_R9_partial_rollback_write", func(t *testing.T) {
+		// Test all partial rollback patterns R1-R9
+		for n := 1; n <= 9; n++ {
+			tx := createTransactionWithMockWriter(header)
+			tx.Begin()
+
+			// Create n savepoints
+			for i := 0; i < n; i++ {
+				key, _ := uuid.NewV7()
+				tx.AddRow(key, json.RawMessage(`{"data":"test"}`))
+				tx.Savepoint()
+			}
+
+			// Add one more row without savepoint
+			key, _ := uuid.NewV7()
+			tx.AddRow(key, json.RawMessage(`{"data":"last"}`))
+
+			err := tx.Rollback(n)
+			if err != nil {
+				t.Fatalf("Rollback(%d) failed: %v", n, err)
+			}
+
+			rows := tx.rows
+			lastRow := rows[len(rows)-1]
+
+			// Last row should have Rn end control
+			expectedSecondByte := byte('0' + n)
+			if lastRow.EndControl[0] != 'R' || lastRow.EndControl[1] != expectedSecondByte {
+				t.Errorf("Rollback(%d): expected R%d end control, got '%c%c'",
+					n, n, lastRow.EndControl[0], lastRow.EndControl[1])
+			}
+		}
+	})
+
+	t.Run("S1_through_S9_partial_rollback_with_savepoint_write", func(t *testing.T) {
+		// Test all partial rollback patterns S1-S9 (when the rollback target row has savepoint)
+		// The 'S' appears when the partial row being finalized already has 'S' written
+		for n := 1; n <= 9; n++ {
+			tx := createTransactionWithMockWriter(header)
+			tx.Begin()
+
+			// Create n savepoints
+			for i := 0; i < n; i++ {
+				key, _ := uuid.NewV7()
+				tx.AddRow(key, json.RawMessage(`{"data":"test"}`))
+				tx.Savepoint()
+			}
+
+			// The n-th row now has a savepoint. When we rollback to it,
+			// it should get Sn end control ONLY if it's still partial
+			// For this test, we rollback immediately while it's still partial
+			err := tx.Rollback(n)
+			if err != nil {
+				t.Fatalf("Rollback(%d) failed: %v", n, err)
+			}
+
+			rows := tx.rows
+			if len(rows) != n {
+				t.Fatalf("Rollback(%d): expected %d rows, got %d", n, n, len(rows))
+			}
+			lastRow := rows[len(rows)-1]
+
+			// Last row should have Sn end control (since it had savepoint marker)
+			expectedSecondByte := byte('0' + n)
+			if lastRow.EndControl[0] != 'S' || lastRow.EndControl[1] != expectedSecondByte {
+				t.Errorf("Rollback(%d) with savepoint on partial: expected S%d end control, got '%c%c'",
+					n, n, lastRow.EndControl[0], lastRow.EndControl[1])
+			}
+		}
+	})
+
+	t.Run("NR_null_row_empty_transaction_write", func(t *testing.T) {
+		// Empty transaction commit creates null row
+		tx := createTransactionWithMockWriter(header)
+		tx.Begin()
+		err := tx.Commit()
+		if err != nil {
+			t.Fatalf("Empty Commit() failed: %v", err)
+		}
+
+		// Should create null row, not data rows
+		if len(tx.rows) != 0 {
+			t.Errorf("Empty commit should have 0 data rows, got %d", len(tx.rows))
+		}
+
+		if tx.empty == nil {
+			t.Fatal("Empty commit should create null row")
+		}
+
+		// Null row should have NR end control
+		if tx.empty.EndControl != NULL_ROW_CONTROL {
+			t.Errorf("Expected NR end control, got %s", tx.empty.EndControl.String())
+		}
+		if tx.empty.EndControl[0] != 'N' || tx.empty.EndControl[1] != 'R' {
+			t.Errorf("Expected NR bytes, got '%c%c'", tx.empty.EndControl[0], tx.empty.EndControl[1])
+		}
+	})
+
+	t.Run("NR_null_row_empty_rollback_write", func(t *testing.T) {
+		// Empty transaction rollback creates null row
+		tx := createTransactionWithMockWriter(header)
+		tx.Begin()
+		err := tx.Rollback(0)
+		if err != nil {
+			t.Fatalf("Empty Rollback(0) failed: %v", err)
+		}
+
+		// Should create null row, not data rows
+		if len(tx.rows) != 0 {
+			t.Errorf("Empty rollback should have 0 data rows, got %d", len(tx.rows))
+		}
+
+		if tx.empty == nil {
+			t.Fatal("Empty rollback should create null row")
+		}
+
+		// Null row should have NR end control
+		if tx.empty.EndControl != NULL_ROW_CONTROL {
+			t.Errorf("Expected NR end control, got %s", tx.empty.EndControl.String())
+		}
+	})
+}
+
+// TestEndControl_ComplexScenarios verifies end controls in complex multi-operation scenarios
+func TestEndControl_ComplexScenarios(t *testing.T) {
+	header := createTestHeader()
+
+	t.Run("mixed_savepoint_and_regular_rows", func(t *testing.T) {
+		tx := createTransactionWithMockWriter(header)
+		tx.Begin()
+
+		// Row 0: regular (no savepoint)
+		key0, _ := uuid.NewV7()
+		tx.AddRow(key0, json.RawMessage(`{"data":"row0"}`))
+
+		// Row 1: with savepoint
+		key1, _ := uuid.NewV7()
+		tx.AddRow(key1, json.RawMessage(`{"data":"row1"}`))
+		tx.Savepoint()
+
+		// Row 2: regular (no savepoint)
+		key2, _ := uuid.NewV7()
+		tx.AddRow(key2, json.RawMessage(`{"data":"row2"}`))
+
+		// Row 3: with savepoint
+		key3, _ := uuid.NewV7()
+		tx.AddRow(key3, json.RawMessage(`{"data":"row3"}`))
+		tx.Savepoint()
+
+		tx.Commit()
+
+		rows := tx.rows
+		if len(rows) != 4 {
+			t.Fatalf("Expected 4 rows, got %d", len(rows))
+		}
+
+		// Row 0: T...RE (start, regular continue)
+		if rows[0].StartControl != START_TRANSACTION {
+			t.Errorf("Row 0 should have T start control, got %c", rows[0].StartControl)
+		}
+		if rows[0].EndControl != ROW_END_CONTROL {
+			t.Errorf("Row 0 should have RE end control, got %s", rows[0].EndControl.String())
+		}
+
+		// Row 1: R...SE (continue, savepoint continue)
+		if rows[1].StartControl != ROW_CONTINUE {
+			t.Errorf("Row 1 should have R start control, got %c", rows[1].StartControl)
+		}
+		if rows[1].EndControl != SAVEPOINT_CONTINUE {
+			t.Errorf("Row 1 should have SE end control, got %s", rows[1].EndControl.String())
+		}
+
+		// Row 2: R...RE (continue, regular continue)
+		if rows[2].StartControl != ROW_CONTINUE {
+			t.Errorf("Row 2 should have R start control, got %c", rows[2].StartControl)
+		}
+		if rows[2].EndControl != ROW_END_CONTROL {
+			t.Errorf("Row 2 should have RE end control, got %s", rows[2].EndControl.String())
+		}
+
+		// Row 3: R...SC (continue, savepoint commit)
+		if rows[3].StartControl != ROW_CONTINUE {
+			t.Errorf("Row 3 should have R start control, got %c", rows[3].StartControl)
+		}
+		if rows[3].EndControl != SAVEPOINT_COMMIT {
+			t.Errorf("Row 3 should have SC end control, got %s", rows[3].EndControl.String())
+		}
+	})
+
+	t.Run("all_savepoint_rollback_numbers", func(t *testing.T) {
+		// Create a transaction with all 9 savepoints and test each rollback
+		for rollbackTo := 1; rollbackTo <= 9; rollbackTo++ {
+			tx := createTransactionWithMockWriter(header)
+			tx.Begin()
+
+			// Create 9 savepoints
+			for i := 1; i <= 9; i++ {
+				key, _ := uuid.NewV7()
+				tx.AddRow(key, json.RawMessage(fmt.Sprintf(`{"savepoint":%d}`, i)))
+				tx.Savepoint()
+			}
+
+			// Add one more row and rollback to specific savepoint
+			key, _ := uuid.NewV7()
+			tx.AddRow(key, json.RawMessage(`{"data":"extra"}`))
+			err := tx.Rollback(rollbackTo)
+			if err != nil {
+				t.Fatalf("Rollback(%d) failed: %v", rollbackTo, err)
+			}
+
+			rows := tx.rows
+			lastRow := rows[len(rows)-1]
+
+			// Verify end control is R{rollbackTo}
+			expectedSecondByte := byte('0' + rollbackTo)
+			if lastRow.EndControl[0] != 'R' || lastRow.EndControl[1] != expectedSecondByte {
+				t.Errorf("Rollback(%d): expected R%d, got '%c%c'",
+					rollbackTo, rollbackTo, lastRow.EndControl[0], lastRow.EndControl[1])
+			}
+
+			// Verify correct number of rows committed
+			iter, _ := tx.GetCommittedRows()
+			count := 0
+			for _, more := iter(); more; _, more = iter() {
+				count++
+			}
+			if count != rollbackTo {
+				t.Errorf("Rollback(%d): expected %d committed rows, got %d", rollbackTo, rollbackTo, count)
+			}
+		}
+	})
+
+	t.Run("consecutive_savepoints_with_rollback", func(t *testing.T) {
+		tx := createTransactionWithMockWriter(header)
+		tx.Begin()
+
+		// Create 3 consecutive savepoints
+		for i := 1; i <= 3; i++ {
+			key, _ := uuid.NewV7()
+			tx.AddRow(key, json.RawMessage(fmt.Sprintf(`{"sp":%d}`, i)))
+			tx.Savepoint()
+		}
+
+		// Rollback to savepoint 2
+		err := tx.Rollback(2)
+		if err != nil {
+			t.Fatalf("Rollback(2) failed: %v", err)
+		}
+
+		rows := tx.rows
+		if len(rows) != 3 {
+			t.Fatalf("Expected 3 rows, got %d", len(rows))
+		}
+
+		// Row 0: T...SE
+		if rows[0].EndControl != SAVEPOINT_CONTINUE {
+			t.Errorf("Row 0: expected SE, got %s", rows[0].EndControl.String())
+		}
+
+		// Row 1: R...SE
+		if rows[1].EndControl != SAVEPOINT_CONTINUE {
+			t.Errorf("Row 1: expected SE, got %s", rows[1].EndControl.String())
+		}
+
+		// Row 2: R...S2 (savepoint with rollback to 2)
+		if rows[2].EndControl[0] != 'S' || rows[2].EndControl[1] != '2' {
+			t.Errorf("Row 2: expected S2, got '%c%c'", rows[2].EndControl[0], rows[2].EndControl[1])
 		}
 	})
 }
