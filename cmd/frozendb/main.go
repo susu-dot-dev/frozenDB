@@ -2,10 +2,10 @@ package main
 
 import (
 	"encoding/json"
-	"flag"
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 
 	"github.com/google/uuid"
 	internal_frozendb "github.com/susu-dot-dev/frozenDB/internal/frozendb"
@@ -18,6 +18,101 @@ const (
 	defaultSkewMs  = 5000 // Default time skew in milliseconds (5 seconds)
 )
 
+// globalFlags represents parsed global flags from os.Args
+// Per data-model.md: Parsed from os.Args using flexible positioning algorithm
+type globalFlags struct {
+	path       string   // Database file path (required for all commands except create)
+	finder     string   // Finder strategy value (optional, defaults to "binary")
+	subcommand string   // The CLI subcommand to execute
+	args       []string // Remaining positional arguments for the subcommand
+}
+
+// parseGlobalFlags extracts --path, --finder, and subcommand from os.Args with flexible positioning
+// Per FR-001: Flags can appear before or after subcommand
+// Per VR-001 through VR-006: Validates required flags and detects duplicates
+func parseGlobalFlags(osArgs []string) (*globalFlags, error) {
+	flags := &globalFlags{
+		finder: "", // Empty string means use default (binary)
+	}
+
+	seenPath := false
+	seenFinder := false
+
+	i := 1 // Skip program name (os.Args[0])
+	for i < len(osArgs) {
+		arg := osArgs[i]
+
+		// Check for --path flag
+		if arg == "--path" {
+			if seenPath {
+				return nil, pkg_frozendb.NewInvalidInputError("duplicate flag: --path", nil)
+			}
+			if i+1 >= len(osArgs) {
+				return nil, pkg_frozendb.NewInvalidInputError("--path requires a value", nil)
+			}
+			flags.path = osArgs[i+1]
+			seenPath = true
+			i += 2
+			continue
+		}
+
+		// Check for --finder flag
+		if arg == "--finder" {
+			if seenFinder {
+				return nil, pkg_frozendb.NewInvalidInputError("duplicate flag: --finder", nil)
+			}
+			if i+1 >= len(osArgs) {
+				return nil, pkg_frozendb.NewInvalidInputError("--finder requires a value", nil)
+			}
+			flags.finder = osArgs[i+1]
+			seenFinder = true
+			i += 2
+			continue
+		}
+
+		// If not a flag and subcommand is empty, this is the subcommand
+		if !strings.HasPrefix(arg, "--") && flags.subcommand == "" {
+			flags.subcommand = arg
+			i++
+			continue
+		}
+
+		// Otherwise, this is a positional argument for the subcommand
+		flags.args = append(flags.args, arg)
+		i++
+	}
+
+	// VR-005: At least one subcommand MUST be present
+	if flags.subcommand == "" {
+		return nil, pkg_frozendb.NewInvalidInputError("missing subcommand", nil)
+	}
+
+	return flags, nil
+}
+
+// parseFinderStrategy maps case-insensitive finder values to FinderStrategy constants
+// Per FR-005: Default to BinarySearchFinder if empty/missing
+// Per A-003: Case-insensitive normalization
+// Per VR-004: Validate finder value is one of: simple, inmemory, binary
+func parseFinderStrategy(value string) (pkg_frozendb.FinderStrategy, error) {
+	// Normalize to lowercase for case-insensitive matching
+	normalized := strings.ToLower(value)
+
+	switch normalized {
+	case "", "binary":
+		return pkg_frozendb.FinderStrategyBinarySearch, nil
+	case "simple":
+		return pkg_frozendb.FinderStrategySimple, nil
+	case "inmemory":
+		return pkg_frozendb.FinderStrategyInMemory, nil
+	default:
+		return "", pkg_frozendb.NewInvalidInputError(
+			fmt.Sprintf("invalid finder strategy: %s (valid: simple, inmemory, binary)", value),
+			nil,
+		)
+	}
+}
+
 // main is the CLI entry point. Routes to subcommand handlers.
 // Follows Unix conventions: silent success, errors to stderr, exit codes 0/1.
 func main() {
@@ -26,35 +121,55 @@ func main() {
 		fmt.Fprintln(os.Stderr, "Usage: frozendb <command> [arguments]")
 		fmt.Fprintln(os.Stderr, "")
 		fmt.Fprintln(os.Stderr, "Commands:")
-		fmt.Fprintln(os.Stderr, "  create <path>                  - Initialize new database")
-		fmt.Fprintln(os.Stderr, "  begin --path <file>            - Start transaction")
-		fmt.Fprintln(os.Stderr, "  commit --path <file>           - Commit transaction")
-		fmt.Fprintln(os.Stderr, "  savepoint --path <file>        - Create savepoint")
-		fmt.Fprintln(os.Stderr, "  rollback --path <file> [id]    - Rollback transaction")
-		fmt.Fprintln(os.Stderr, "  add --path <file> <key> <val>  - Insert key-value pair")
-		fmt.Fprintln(os.Stderr, "  get --path <file> <key>        - Retrieve value by key")
+		fmt.Fprintln(os.Stderr, "  create <path>                                    - Initialize new database")
+		fmt.Fprintln(os.Stderr, "  [--path <file>] [--finder <strategy>] begin     - Start transaction")
+		fmt.Fprintln(os.Stderr, "  [--path <file>] [--finder <strategy>] commit    - Commit transaction")
+		fmt.Fprintln(os.Stderr, "  [--path <file>] [--finder <strategy>] savepoint - Create savepoint")
+		fmt.Fprintln(os.Stderr, "  [--path <file>] [--finder <strategy>] rollback [id] - Rollback transaction")
+		fmt.Fprintln(os.Stderr, "  [--path <file>] [--finder <strategy>] add <key|NOW> <val> - Insert key-value pair")
+		fmt.Fprintln(os.Stderr, "  [--path <file>] [--finder <strategy>] get <key>         - Retrieve value by key")
 		os.Exit(1)
 	}
 
-	// Route to subcommand handler
-	subcommand := os.Args[1]
-	switch subcommand {
-	case "create":
+	// Special case: 'create' command uses positional argument, not --path flag
+	if os.Args[1] == "create" {
 		handleCreate()
+		return
+	}
+
+	// Parse global flags with flexible positioning
+	flags, err := parseGlobalFlags(os.Args)
+	if err != nil {
+		printError(err)
+	}
+
+	// VR-001: Validate --path is present for commands requiring it
+	if flags.path == "" {
+		printError(pkg_frozendb.NewInvalidInputError("missing required flag: --path", nil))
+	}
+
+	// Parse finder strategy (validates and provides default)
+	finderStrategy, err := parseFinderStrategy(flags.finder)
+	if err != nil {
+		printError(err)
+	}
+
+	// Route to subcommand handler with parsed flags
+	switch flags.subcommand {
 	case "begin":
-		handleBegin()
+		handleBegin(flags.path, finderStrategy)
 	case "commit":
-		handleCommit()
+		handleCommit(flags.path, finderStrategy)
 	case "savepoint":
-		handleSavepoint()
+		handleSavepoint(flags.path, finderStrategy)
 	case "rollback":
-		handleRollback()
+		handleRollback(flags.path, finderStrategy, flags.args)
 	case "add":
-		handleAdd()
+		handleAdd(flags.path, finderStrategy, flags.args)
 	case "get":
-		handleGet()
+		handleGet(flags.path, finderStrategy, flags.args)
 	default:
-		printError(pkg_frozendb.NewInvalidInputError(fmt.Sprintf("unknown command: %s", subcommand), nil))
+		printError(pkg_frozendb.NewInvalidInputError(fmt.Sprintf("unknown command: %s", flags.subcommand), nil))
 	}
 }
 
@@ -86,18 +201,9 @@ func handleCreate() {
 
 // handleBegin implements the 'begin' command.
 // Starts a new transaction on the specified database.
-func handleBegin() {
-	// Parse --path flag
-	fs := flag.NewFlagSet("begin", flag.ExitOnError)
-	pathFlag := fs.String("path", "", "database file path")
-	_ = fs.Parse(os.Args[2:]) // ExitOnError flag set, no need to check error
-
-	if *pathFlag == "" {
-		printError(pkg_frozendb.NewInvalidInputError("missing required flag: --path", nil))
-	}
-
+func handleBegin(path string, finderStrategy pkg_frozendb.FinderStrategy) {
 	// Open database in write mode
-	db, err := pkg_frozendb.NewFrozenDB(*pathFlag, pkg_frozendb.MODE_WRITE, pkg_frozendb.FinderStrategySimple)
+	db, err := pkg_frozendb.NewFrozenDB(path, pkg_frozendb.MODE_WRITE, finderStrategy)
 	if err != nil {
 		printError(err)
 	}
@@ -120,18 +226,9 @@ func handleBegin() {
 
 // handleCommit implements the 'commit' command.
 // Commits the active transaction.
-func handleCommit() {
-	// Parse --path flag
-	fs := flag.NewFlagSet("commit", flag.ExitOnError)
-	pathFlag := fs.String("path", "", "database file path")
-	_ = fs.Parse(os.Args[2:]) // ExitOnError flag set, no need to check error
-
-	if *pathFlag == "" {
-		printError(pkg_frozendb.NewInvalidInputError("missing required flag: --path", nil))
-	}
-
+func handleCommit(path string, finderStrategy pkg_frozendb.FinderStrategy) {
 	// Open database in write mode
-	db, err := pkg_frozendb.NewFrozenDB(*pathFlag, pkg_frozendb.MODE_WRITE, pkg_frozendb.FinderStrategySimple)
+	db, err := pkg_frozendb.NewFrozenDB(path, pkg_frozendb.MODE_WRITE, finderStrategy)
 	if err != nil {
 		printError(err)
 	}
@@ -154,18 +251,9 @@ func handleCommit() {
 
 // handleSavepoint implements the 'savepoint' command.
 // Creates a savepoint at the current position in the active transaction.
-func handleSavepoint() {
-	// Parse --path flag
-	fs := flag.NewFlagSet("savepoint", flag.ExitOnError)
-	pathFlag := fs.String("path", "", "database file path")
-	_ = fs.Parse(os.Args[2:]) // ExitOnError flag set, no need to check error
-
-	if *pathFlag == "" {
-		printError(pkg_frozendb.NewInvalidInputError("missing required flag: --path", nil))
-	}
-
+func handleSavepoint(path string, finderStrategy pkg_frozendb.FinderStrategy) {
 	// Open database in write mode
-	db, err := pkg_frozendb.NewFrozenDB(*pathFlag, pkg_frozendb.MODE_WRITE, pkg_frozendb.FinderStrategySimple)
+	db, err := pkg_frozendb.NewFrozenDB(path, pkg_frozendb.MODE_WRITE, finderStrategy)
 	if err != nil {
 		printError(err)
 	}
@@ -188,18 +276,8 @@ func handleSavepoint() {
 
 // handleRollback implements the 'rollback' command.
 // Rolls back the active transaction to a savepoint or to the beginning.
-func handleRollback() {
-	// Parse --path flag
-	fs := flag.NewFlagSet("rollback", flag.ExitOnError)
-	pathFlag := fs.String("path", "", "database file path")
-	_ = fs.Parse(os.Args[2:]) // ExitOnError flag set, no need to check error
-
-	if *pathFlag == "" {
-		printError(pkg_frozendb.NewInvalidInputError("missing required flag: --path", nil))
-	}
-
+func handleRollback(path string, finderStrategy pkg_frozendb.FinderStrategy, args []string) {
 	// Parse optional savepoint_id positional argument (default: 0 = full rollback)
-	args := fs.Args()
 	savepointId := 0
 	if len(args) > 0 {
 		var err error
@@ -213,7 +291,7 @@ func handleRollback() {
 	}
 
 	// Open database in write mode
-	db, err := pkg_frozendb.NewFrozenDB(*pathFlag, pkg_frozendb.MODE_WRITE, pkg_frozendb.FinderStrategySimple)
+	db, err := pkg_frozendb.NewFrozenDB(path, pkg_frozendb.MODE_WRITE, finderStrategy)
 	if err != nil {
 		printError(err)
 	}
@@ -236,18 +314,8 @@ func handleRollback() {
 
 // handleAdd implements the 'add' command.
 // Inserts a key-value pair into the active transaction.
-func handleAdd() {
-	// Parse --path flag
-	fs := flag.NewFlagSet("add", flag.ExitOnError)
-	pathFlag := fs.String("path", "", "database file path")
-	_ = fs.Parse(os.Args[2:]) // ExitOnError flag set, no need to check error
-
-	if *pathFlag == "" {
-		printError(pkg_frozendb.NewInvalidInputError("missing required flag: --path", nil))
-	}
-
+func handleAdd(path string, finderStrategy pkg_frozendb.FinderStrategy, args []string) {
 	// Parse positional arguments: key and value
-	args := fs.Args()
 	if len(args) < 2 {
 		if len(args) < 1 {
 			printError(pkg_frozendb.NewInvalidInputError("missing required argument: key", nil))
@@ -258,10 +326,21 @@ func handleAdd() {
 	keyStr := args[0]
 	valueStr := args[1]
 
-	// Validate UUIDv7 format (FR-003)
-	key, err := validateUUIDv7(keyStr)
-	if err != nil {
-		printError(err)
+	// Check for NOW keyword (case-insensitive per FR-003, A-002)
+	var key uuid.UUID
+	var err error
+	if strings.ToLower(keyStr) == "now" {
+		// Generate UUIDv7 using current timestamp
+		key, err = uuid.NewV7()
+		if err != nil {
+			printError(pkg_frozendb.NewInvalidInputError("failed to generate UUIDv7", err))
+		}
+	} else {
+		// Validate user-provided UUIDv7 format
+		key, err = validateUUIDv7(keyStr)
+		if err != nil {
+			printError(err)
+		}
 	}
 
 	// Validate JSON format (FR-004)
@@ -271,7 +350,7 @@ func handleAdd() {
 	}
 
 	// Open database in write mode
-	db, err := pkg_frozendb.NewFrozenDB(*pathFlag, pkg_frozendb.MODE_WRITE, pkg_frozendb.FinderStrategySimple)
+	db, err := pkg_frozendb.NewFrozenDB(path, pkg_frozendb.MODE_WRITE, finderStrategy)
 	if err != nil {
 		printError(err)
 	}
@@ -288,24 +367,15 @@ func handleAdd() {
 		printError(err)
 	}
 
-	// Success: exit silently with code 0 (per FR-005)
+	// Success: output the key to stdout (FR-004, VR-009 through VR-012)
+	fmt.Println(key.String())
 	os.Exit(0)
 }
 
 // handleGet implements the 'get' command.
 // Retrieves a value by UUIDv7 key and prints it as pretty-formatted JSON.
-func handleGet() {
-	// Parse --path flag
-	fs := flag.NewFlagSet("get", flag.ExitOnError)
-	pathFlag := fs.String("path", "", "database file path")
-	_ = fs.Parse(os.Args[2:]) // ExitOnError flag set, no need to check error
-
-	if *pathFlag == "" {
-		printError(pkg_frozendb.NewInvalidInputError("missing required flag: --path", nil))
-	}
-
+func handleGet(path string, finderStrategy pkg_frozendb.FinderStrategy, args []string) {
 	// Parse positional argument: key
-	args := fs.Args()
 	if len(args) < 1 {
 		printError(pkg_frozendb.NewInvalidInputError("missing required argument: key", nil))
 	}
@@ -319,7 +389,7 @@ func handleGet() {
 	}
 
 	// Open database in read mode
-	db, err := pkg_frozendb.NewFrozenDB(*pathFlag, pkg_frozendb.MODE_READ, pkg_frozendb.FinderStrategySimple)
+	db, err := pkg_frozendb.NewFrozenDB(path, pkg_frozendb.MODE_READ, finderStrategy)
 	if err != nil {
 		printError(err)
 	}
