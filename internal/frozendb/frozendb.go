@@ -197,35 +197,38 @@ func (db *FrozenDB) recoverTransaction() error {
 		partialRow.d.RowSize = rowSize // Set row size for validation
 
 		// Create transaction with recovered PartialDataRow
-		// For recovery, we need to read the transaction rows that came before
-		// Read up to 101 rows backwards to find transaction start (100 data rows + 1 checksum row)
+		// Check if this is a new transaction (START_TRANSACTION) or continuation (ROW_CONTINUE)
 		var txRows []DataRow
-		if rowsInData > 0 {
-			rowsToRead := rowsInData
-			if rowsToRead > 101 {
-				rowsToRead = 101
-			}
+		if partialRow.d.StartControl == ROW_CONTINUE {
+			// Transaction has preceding rows - read them
+			// Read up to 101 rows backwards to find transaction start (100 data rows + 1 checksum row)
+			if rowsInData > 0 {
+				rowsToRead := rowsInData
+				if rowsToRead > 101 {
+					rowsToRead = 101
+				}
 
-			// Read the last rows to reconstruct transaction
-			scanStart := dataStart + ((rowsInData - rowsToRead) * int64(rowSize))
-			bytesToRead := rowsToRead * int64(rowSize)
-			const maxInt32 = int64(^uint32(0) >> 1) // 2^31 - 1
-			if bytesToRead > maxInt32 {
-				return NewCorruptDatabaseError("too many bytes to read for transaction recovery", nil)
-			}
-			var scanBytes []byte
-			scanBytes, err = db.file.Read(scanStart, int32(bytesToRead))
-			if err != nil {
-				return NewCorruptDatabaseError("failed to read rows for transaction recovery", err)
-			}
+				// Read the last rows to reconstruct transaction
+				scanStart := dataStart + ((rowsInData - rowsToRead) * int64(rowSize))
+				bytesToRead := rowsToRead * int64(rowSize)
+				const maxInt32 = int64(^uint32(0) >> 1) // 2^31 - 1
+				if bytesToRead > maxInt32 {
+					return NewCorruptDatabaseError("too many bytes to read for transaction recovery", nil)
+				}
+				var scanBytes []byte
+				scanBytes, err = db.file.Read(scanStart, int32(bytesToRead))
+				if err != nil {
+					return NewCorruptDatabaseError("failed to read rows for transaction recovery", err)
+				}
 
-			// Parse rows and find transaction start
-			txRows, _, err = db.parseTransactionRows(scanBytes, rowSize, int(rowsToRead))
-			if err != nil {
-				return err
+				// Parse rows and find transaction start
+				txRows, _, err = db.parseTransactionRows(scanBytes, rowSize, int(rowsToRead))
+				if err != nil {
+					return err
+				}
 			}
 		}
-		// If rowsInData == 0, transaction starts with the PartialDataRow itself, so txRows is empty
+		// If partialRow has START_TRANSACTION, the transaction starts with this row - no preceding rows
 
 		// Create transaction with recovered state
 		// For read-only mode, create a dummy channel that won't be used
@@ -394,8 +397,12 @@ func (db *FrozenDB) parseTransactionRows(bytes []byte, rowSize int, numRows int)
 			continue
 		}
 
-		// Check for transaction start
+		// Check for transaction start (both DataRow and NullRow can have START_TRANSACTION)
 		if ru.DataRow != nil && ru.DataRow.StartControl == START_TRANSACTION {
+			txStartIndex = i
+			break
+		}
+		if ru.NullRow != nil && ru.NullRow.StartControl == START_TRANSACTION {
 			txStartIndex = i
 			break
 		}

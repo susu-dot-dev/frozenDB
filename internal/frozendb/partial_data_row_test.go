@@ -837,3 +837,140 @@ func TestPartialDataRow_UnmarshalTextWithoutRowSize(t *testing.T) {
 		}
 	})
 }
+
+func Test_PartialDataRow_SavepointMarshaling(t *testing.T) {
+	key, _ := uuid.NewV7()
+	value := json.RawMessage(`{"test":"value"}`)
+
+	t.Run("MarshalText_WithSavepoint_EndsWithS", func(t *testing.T) {
+		pdr, err := NewPartialDataRow(1024, START_TRANSACTION)
+		if err != nil {
+			t.Fatalf("NewPartialDataRow failed: %v", err)
+		}
+
+		// Add row and savepoint
+		if err := pdr.AddRow(key, value); err != nil {
+			t.Fatalf("AddRow failed: %v", err)
+		}
+		if err := pdr.Savepoint(); err != nil {
+			t.Fatalf("Savepoint failed: %v", err)
+		}
+
+		// Marshal with savepoint state
+		bytes, err := pdr.MarshalText()
+		if err != nil {
+			t.Fatalf("MarshalText failed: %v", err)
+		}
+
+		// Should end with 'S'
+		if bytes[len(bytes)-1] != 'S' {
+			t.Errorf("Expected PartialDataRow with savepoint to end with 'S', got 0x%02X", bytes[len(bytes)-1])
+		}
+
+		// Should be less than full row size (partial)
+		if len(bytes) >= 1024 {
+			t.Errorf("PartialDataRow should be less than row size, got %d bytes", len(bytes))
+		}
+
+		t.Logf("PartialDataRow with savepoint: %d bytes, ends with 'S'", len(bytes))
+	})
+
+	t.Run("Commit_After_Savepoint_Creates_SC_EndControl", func(t *testing.T) {
+		pdr, err := NewPartialDataRow(1024, START_TRANSACTION)
+		if err != nil {
+			t.Fatalf("NewPartialDataRow failed: %v", err)
+		}
+
+		// Add row and savepoint
+		if err := pdr.AddRow(key, value); err != nil {
+			t.Fatalf("AddRow failed: %v", err)
+		}
+		if err := pdr.Savepoint(); err != nil {
+			t.Fatalf("Savepoint failed: %v", err)
+		}
+
+		// Marshal before commit (should have 'S' at end)
+		partialBytes, err := pdr.MarshalText()
+		if err != nil {
+			t.Fatalf("MarshalText failed: %v", err)
+		}
+		partialLen := len(partialBytes)
+
+		// Now commit
+		dataRow, err := pdr.Commit()
+		if err != nil {
+			t.Fatalf("Commit failed: %v", err)
+		}
+
+		// Marshal complete row
+		completeBytes, err := dataRow.MarshalText()
+		if err != nil {
+			t.Fatalf("DataRow.MarshalText failed: %v", err)
+		}
+
+		// Should be exactly row size
+		if len(completeBytes) != 1024 {
+			t.Errorf("Complete DataRow should be exactly 1024 bytes, got %d", len(completeBytes))
+		}
+
+		// End control should be SC
+		if dataRow.EndControl != SAVEPOINT_COMMIT {
+			t.Errorf("Expected SAVEPOINT_COMMIT (SC), got %s", dataRow.EndControl.String())
+		}
+
+		t.Logf("Partial bytes: %d, Complete bytes: %d, Difference: %d",
+			partialLen, len(completeBytes), len(completeBytes)-partialLen)
+		t.Logf("Expected to write %d more bytes after 'S' to complete the row",
+			len(completeBytes)-partialLen)
+	})
+
+	t.Run("Rollback_After_Savepoint_Creates_S1_EndControl", func(t *testing.T) {
+		pdr, err := NewPartialDataRow(1024, START_TRANSACTION)
+		if err != nil {
+			t.Fatalf("NewPartialDataRow failed: %v", err)
+		}
+
+		// Add row and savepoint
+		if err := pdr.AddRow(key, value); err != nil {
+			t.Fatalf("AddRow failed: %v", err)
+		}
+		if err := pdr.Savepoint(); err != nil {
+			t.Fatalf("Savepoint failed: %v", err)
+		}
+
+		// Marshal before rollback (should have 'S' at end)
+		partialBytes, err := pdr.MarshalText()
+		if err != nil {
+			t.Fatalf("MarshalText failed: %v", err)
+		}
+		partialLen := len(partialBytes)
+
+		// Now rollback to savepoint 1
+		dataRow, err := pdr.Rollback(1)
+		if err != nil {
+			t.Fatalf("Rollback failed: %v", err)
+		}
+
+		// Marshal complete row
+		completeBytes, err := dataRow.MarshalText()
+		if err != nil {
+			t.Fatalf("DataRow.MarshalText failed: %v", err)
+		}
+
+		// Should be exactly row size
+		if len(completeBytes) != 1024 {
+			t.Errorf("Complete DataRow should be exactly 1024 bytes, got %d", len(completeBytes))
+		}
+
+		// End control should be S1
+		expectedEndControl := EndControl{'S', '1'}
+		if dataRow.EndControl != expectedEndControl {
+			t.Errorf("Expected end control S1, got %s", dataRow.EndControl.String())
+		}
+
+		t.Logf("Partial bytes: %d, Complete bytes: %d, Difference: %d",
+			partialLen, len(completeBytes), len(completeBytes)-partialLen)
+		t.Logf("Expected to write %d more bytes after 'S' to complete the row",
+			len(completeBytes)-partialLen)
+	})
+}
