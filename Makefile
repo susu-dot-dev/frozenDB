@@ -1,6 +1,6 @@
 # frozenDB Makefile
 
-.PHONY: ci deps tidy fmt lint test build build-cli build-examples clean clean-cli
+.PHONY: ci deps tidy fmt lint test build build-cli build-examples clean clean-cli bump-version
 
 # Build output directory
 DIST_DIR := dist
@@ -83,6 +83,16 @@ clean-cli:
 	@echo "Cleaning frozendb CLI binary..."
 	rm -f $(DIST_DIR)/frozendb
 
+## Bump version and create release branch
+bump-version:
+	@if [ -z "$(VERSION)" ]; then \
+		echo "Error: VERSION is required"; \
+		echo "Usage: make bump-version VERSION=v0.1.0"; \
+		exit 1; \
+	fi
+	@echo "Bumping version to $(VERSION)..."
+	@bash scripts/bump-version.sh $(VERSION)
+
 ## Help target
 help:
 	@echo "Available targets:"
@@ -100,4 +110,5 @@ help:
 	@echo "  build-examples- Build example binaries (output: dist/examples/)"
 	@echo "  clean         - Clean all build artifacts"
 	@echo "  clean-cli     - Clean CLI binary only"
+	@echo "  bump-version  - Bump version and create release branch (Usage: make bump-version VERSION=v0.1.0)"
 	@echo "  help          - Show this help message"

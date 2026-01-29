@@ -698,3 +698,191 @@ func Test_S_032_FR_006_FinderAppliesGet(t *testing.T) {
 	t.Skip("Skipping: Test requires database creation with sudo privileges. " +
 		"This test validates FR-006 (finder applies to get) and can be manually verified with sudo access.")
 }
+
+// ============================================================================
+// Spec 033: Release Scripts & Version Management - CLI Version Command Tests
+// ============================================================================
+
+// Test_S_033_FR_006_CLIVersionSubcommand verifies that the CLI supports a "version" subcommand
+//
+// Functional Requirement FR-006: frozendb CLI MUST support a "version" subcommand that displays the current version
+// Success Criteria SC-002: frozendb CLI version command executes in <100ms for 100% of invocations
+func Test_S_033_FR_006_CLIVersionSubcommand(t *testing.T) {
+	// Get repository root
+	repoRoot, err := filepath.Abs("../..")
+	if err != nil {
+		t.Fatalf("Failed to get repository root: %v", err)
+	}
+
+	// Build the CLI binary
+	tmpDir := t.TempDir()
+	binaryPath := filepath.Join(tmpDir, "frozendb")
+
+	buildCmd := exec.Command("go", "build", "-o", binaryPath, "./cmd/frozendb")
+	buildCmd.Dir = repoRoot
+	if output, err := buildCmd.CombinedOutput(); err != nil {
+		t.Fatalf("Failed to build CLI: %v\nOutput: %s", err, output)
+	}
+
+	// Execute the version subcommand
+	cmd := exec.Command(binaryPath, "version")
+	output, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("Failed to execute 'frozendb version': %v", err)
+	}
+
+	// Verify output format: "frozendb <version>"
+	outputStr := strings.TrimSpace(string(output))
+	if !strings.HasPrefix(outputStr, "frozendb ") {
+		t.Errorf("Version output should start with 'frozendb ', got: %s", outputStr)
+	}
+
+	// Verify some version string is present (even if it's "(development)")
+	parts := strings.SplitN(outputStr, " ", 2)
+	if len(parts) < 2 || parts[1] == "" {
+		t.Errorf("Version output should contain a version string after 'frozendb ', got: %s", outputStr)
+	}
+
+	t.Logf("✓ CLI version subcommand works: %s", outputStr)
+}
+
+// Test_S_033_FR_007_CLIVersionFlag verifies that the CLI supports a --version flag
+//
+// Functional Requirement FR-007: frozendb CLI MUST support a --version flag that displays the current version
+// Success Criteria SC-002: frozendb CLI version command executes in <100ms for 100% of invocations
+func Test_S_033_FR_007_CLIVersionFlag(t *testing.T) {
+	// Get repository root
+	repoRoot, err := filepath.Abs("../..")
+	if err != nil {
+		t.Fatalf("Failed to get repository root: %v", err)
+	}
+
+	// Build the CLI binary
+	tmpDir := t.TempDir()
+	binaryPath := filepath.Join(tmpDir, "frozendb")
+
+	buildCmd := exec.Command("go", "build", "-o", binaryPath, "./cmd/frozendb")
+	buildCmd.Dir = repoRoot
+	if output, err := buildCmd.CombinedOutput(); err != nil {
+		t.Fatalf("Failed to build CLI: %v\nOutput: %s", err, output)
+	}
+
+	// Execute with --version flag
+	cmd := exec.Command(binaryPath, "--version")
+	output, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("Failed to execute 'frozendb --version': %v", err)
+	}
+
+	// Verify output format: "frozendb <version>"
+	outputStr := strings.TrimSpace(string(output))
+	if !strings.HasPrefix(outputStr, "frozendb ") {
+		t.Errorf("Version output should start with 'frozendb ', got: %s", outputStr)
+	}
+
+	t.Logf("✓ CLI --version flag works: %s", outputStr)
+}
+
+// Test_S_033_FR_008_VersionOutputFormat verifies the version output format
+//
+// Functional Requirement FR-008: Version command MUST display version in format "frozendb <version>" where version is from version.go
+// Success Criteria SC-002: frozendb CLI version command executes in <100ms for 100% of invocations
+func Test_S_033_FR_008_VersionOutputFormat(t *testing.T) {
+	// Get repository root
+	repoRoot, err := filepath.Abs("../..")
+	if err != nil {
+		t.Fatalf("Failed to get repository root: %v", err)
+	}
+
+	// Build the CLI binary
+	tmpDir := t.TempDir()
+	binaryPath := filepath.Join(tmpDir, "frozendb")
+
+	buildCmd := exec.Command("go", "build", "-o", binaryPath, "./cmd/frozendb")
+	buildCmd.Dir = repoRoot
+	if output, err := buildCmd.CombinedOutput(); err != nil {
+		t.Fatalf("Failed to build CLI: %v\nOutput: %s", err, output)
+	}
+
+	// Execute version command
+	cmd := exec.Command(binaryPath, "version")
+	output, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("Failed to execute 'frozendb version': %v", err)
+	}
+
+	// Verify exact format
+	outputStr := strings.TrimSpace(string(output))
+
+	// Should be exactly "frozendb <version>" with no trailing characters
+	lines := strings.Split(outputStr, "\n")
+	if len(lines) != 1 {
+		t.Errorf("Version output should be a single line, got %d lines: %s", len(lines), outputStr)
+	}
+
+	// Verify format: "frozendb" + space + version
+	parts := strings.SplitN(outputStr, " ", 2)
+	if len(parts) != 2 {
+		t.Errorf("Version output should be 'frozendb <version>', got: %s", outputStr)
+	}
+
+	if parts[0] != "frozendb" {
+		t.Errorf("First part should be 'frozendb', got: %s", parts[0])
+	}
+
+	// Version can be either a semantic version (v0.1.0) or "(development)"
+	version := parts[1]
+	isSemanticVersion := strings.HasPrefix(version, "v") &&
+		(strings.Count(version, ".") == 2 || strings.Contains(version, "-"))
+	isDevelopment := version == "(development)"
+
+	if !isSemanticVersion && !isDevelopment {
+		t.Errorf("Version should be semantic version (vX.Y.Z) or '(development)', got: %s", version)
+	}
+
+	t.Logf("✓ Version output format is correct: %s", outputStr)
+}
+
+// ============================================================================
+// Spec 033: Release Scripts - GitHub Actions Workflow Tests (Manual Testing)
+// ============================================================================
+
+// Test_S_033_FR_010_GitHubWorkflowTriggersOnRelease documents that the workflow
+// must trigger on GitHub release publication events
+//
+// Functional Requirement FR-010: GitHub Actions workflow MUST trigger automatically when a release is published
+func Test_S_033_FR_010_GitHubWorkflowTriggersOnRelease(t *testing.T) {
+	t.Skip("GitHub Actions workflows are manually tested")
+}
+
+// Test_S_033_FR_011_WorkflowBuildsMacOSBinaries documents that the workflow
+// must build binaries for macOS platforms (both amd64 and arm64)
+//
+// Functional Requirement FR-011: Workflow MUST build frozendb CLI binaries for macOS (darwin/amd64 and darwin/arm64)
+func Test_S_033_FR_011_WorkflowBuildsMacOSBinaries(t *testing.T) {
+	t.Skip("GitHub Actions workflows are manually tested")
+}
+
+// Test_S_033_FR_012_WorkflowBuildsLinuxBinaries documents that the workflow
+// must build binaries for Linux platforms (both amd64 and arm64)
+//
+// Functional Requirement FR-012: Workflow MUST build frozendb CLI binaries for Linux (linux/amd64 and linux/arm64)
+func Test_S_033_FR_012_WorkflowBuildsLinuxBinaries(t *testing.T) {
+	t.Skip("GitHub Actions workflows are manually tested")
+}
+
+// Test_S_033_FR_013_WorkflowAttachesBinariesToRelease documents that the workflow
+// must upload all built binaries and attach them to the GitHub release
+//
+// Functional Requirement FR-013: Workflow MUST attach all built binaries to the GitHub release as downloadable assets
+func Test_S_033_FR_013_WorkflowAttachesBinariesToRelease(t *testing.T) {
+	t.Skip("GitHub Actions workflows are manually tested")
+}
+
+// Test_S_033_FR_014_BinaryArtifactsNamedCorrectly documents that binary artifacts
+// must follow the naming convention frozendb-{os}-{arch}
+//
+// Functional Requirement FR-014: Binary artifacts MUST be named "frozendb-{os}-{arch}" (e.g., frozendb-darwin-amd64)
+func Test_S_033_FR_014_BinaryArtifactsNamedCorrectly(t *testing.T) {
+	t.Skip("GitHub Actions workflows are manually tested")
+}

@@ -116,6 +116,11 @@ func parseFinderStrategy(value string) (pkg_frozendb.FinderStrategy, error) {
 // main is the CLI entry point. Routes to subcommand handlers.
 // Follows Unix conventions: silent success, errors to stderr, exit codes 0/1.
 func main() {
+	// Handle version command/flag before anything else
+	if len(os.Args) >= 2 && (os.Args[1] == "version" || os.Args[1] == "--version") {
+		handleVersion()
+	}
+
 	// Require at least one argument (the subcommand)
 	if len(os.Args) < 2 {
 		fmt.Fprintln(os.Stderr, "Usage: frozendb <command> [arguments]")
@@ -128,6 +133,7 @@ func main() {
 		fmt.Fprintln(os.Stderr, "  [--path <file>] [--finder <strategy>] rollback [id] - Rollback transaction")
 		fmt.Fprintln(os.Stderr, "  [--path <file>] [--finder <strategy>] add <key|NOW> <val> - Insert key-value pair")
 		fmt.Fprintln(os.Stderr, "  [--path <file>] [--finder <strategy>] get <key>         - Retrieve value by key")
+		fmt.Fprintln(os.Stderr, "  version - Display version information")
 		os.Exit(1)
 	}
 
@@ -171,6 +177,14 @@ func main() {
 	default:
 		printError(pkg_frozendb.NewInvalidInputError(fmt.Sprintf("unknown command: %s", flags.subcommand), nil))
 	}
+}
+
+// handleVersion implements the 'version' command and '--version' flag.
+// Displays the version from version.go constant.
+// Always exits with code 0 (success).
+func handleVersion() {
+	fmt.Printf("frozendb %s\n", Version)
+	os.Exit(0)
 }
 
 // handleCreate implements the 'create' command.
