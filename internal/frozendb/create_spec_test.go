@@ -1957,3 +1957,106 @@ func Test_S_004_FR_003_ConstructorCallsValidate(t *testing.T) {
 		t.Errorf("Expected InvalidInputError from validation, got: %T", err)
 	}
 }
+
+// ==============================================================================
+// Spec 030: Fix Sudo Detection Logic
+// ==============================================================================
+
+// Test_S_030_FR_001_AllowSudoExecution tests FR-001: System MUST allow execution when SUDO_USER environment variable is set, even if effective UID is root
+func Test_S_030_FR_001_AllowSudoExecution(t *testing.T) {
+	tempDir := t.TempDir()
+	dbPath := filepath.Join(tempDir, "test_sudo.fdb")
+
+	// Mock UID to return 0 (root) - simulating sudo execution
+	setupMockFS(fsOperations{
+		Getuid: func() int { return 0 },
+		Lookup: func(username string) (*user.User, error) {
+			return &user.User{
+				Uid:      "1000",
+				Gid:      "1000",
+				Username: username,
+				Name:     "Test User",
+				HomeDir:  "/home/testuser",
+			}, nil
+		},
+		Open:  os.OpenFile,
+		Stat:  os.Stat,
+		Mkdir: os.Mkdir,
+		Chown: func(path string, uid, gid int) error {
+			return nil
+		},
+		Ioctl: func(trap uintptr, a1 uintptr, a2 uintptr, a3 uintptr) (r1 uintptr, r2 uintptr, err syscall.Errno) {
+			switch a2 {
+			case FS_IOC_GETFLAGS:
+				return 0, 0, 0
+			case FS_IOC_SETFLAGS:
+				return 0, 0, 0
+			default:
+				return 0, 0, syscall.EINVAL
+			}
+		},
+	})
+	defer restoreRealFS()
+
+	// Set valid SUDO environment variables
+	t.Setenv("SUDO_USER", "testuser")
+	t.Setenv("SUDO_UID", "1000")
+	t.Setenv("SUDO_GID", "1000")
+
+	config := CreateConfig{
+		path:    dbPath,
+		rowSize: 1024,
+		skewMs:  5000,
+	}
+
+	// Expected: With current bug, this will FAIL with "direct root execution not allowed"
+	// After fix: This should SUCCEED
+	err := Create(config)
+	if err != nil {
+		t.Errorf("Create() should succeed when running with sudo (UID=0 but valid SUDO_USER), got error: %v", err)
+	}
+
+	// Verify file was created
+	if _, statErr := os.Stat(dbPath); statErr != nil {
+		t.Errorf("Database file should exist after successful sudo creation: %v", statErr)
+	}
+}
+
+// Test_S_030_FR_002_RejectDirectRootExecution tests FR-002: System MUST reject execution when effective UID is root and SUDO_USER is not set (direct root execution)
+func Test_S_030_FR_002_RejectDirectRootExecution(t *testing.T) {
+	tempDir := t.TempDir()
+	dbPath := filepath.Join(tempDir, "test_root.fdb")
+
+	// Mock UID to return 0 (root) - simulating direct root execution
+	setupMockFS(fsOperations{
+		Getuid: func() int { return 0 },
+	})
+	defer restoreRealFS()
+
+	// Clear SUDO environment variables to simulate direct root login
+	t.Setenv("SUDO_USER", "")
+	t.Setenv("SUDO_UID", "")
+	t.Setenv("SUDO_GID", "")
+
+	config := CreateConfig{
+		path:    dbPath,
+		rowSize: 1024,
+		skewMs:  5000,
+	}
+
+	// Expected: This should FAIL with "direct root execution not allowed"
+	err := Create(config)
+	if err == nil {
+		t.Error("Create() should reject direct root execution (UID=0 with no SUDO_USER)")
+	} else {
+		expectedMsg := "direct root execution not allowed"
+		if !strings.Contains(err.Error(), expectedMsg) {
+			t.Errorf("Expected error message to contain '%s', got '%s'", expectedMsg, err.Error())
+		}
+	}
+
+	// Verify file was NOT created
+	if _, statErr := os.Stat(dbPath); !os.IsNotExist(statErr) {
+		t.Error("Database file should NOT exist after rejected direct root execution")
+	}
+}

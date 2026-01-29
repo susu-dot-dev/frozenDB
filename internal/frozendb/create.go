@@ -267,15 +267,15 @@ func Create(config CreateConfig) error {
 		return err
 	}
 
-	// Check for direct root execution (FR-003)
-	if fsInterface.Getuid() == 0 {
-		return NewWriteError("direct root execution not allowed", nil)
-	}
-
-	// Detect sudo context (required for proper operation)
+	// Detect sudo context first (required for proper operation)
 	sudoCtx, err := detectSudoContext()
 	if err != nil {
 		return err
+	}
+
+	// Check for direct root execution - only reject if no sudo context
+	if fsInterface.Getuid() == 0 && sudoCtx == nil {
+		return NewWriteError("direct root execution not allowed", nil)
 	}
 
 	// Validate that we have proper sudo context for append-only setting
