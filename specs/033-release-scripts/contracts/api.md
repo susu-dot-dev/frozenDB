@@ -27,11 +27,10 @@ This document specifies the contracts (interfaces) for the release management in
 - `1`: Error - validation failed, git operation failed, or file operation failed
 
 **Side Effects**:
-1. Updates `go.mod` module version
-2. Creates/overwrites `cmd/frozendb/version.go` with new version constant
-3. Creates new git branch `release/{version}`
-4. Commits changes with message "Bump version to {version}"
-5. Pushes branch to remote repository
+1. Creates/overwrites `cmd/frozendb/version.go` with new version constant
+2. Creates new git branch `release/{version}`
+3. Commits changes with message "Bump version to {version}"
+4. Pushes branch to remote repository
 
 **Standard Output**:
 ```
@@ -40,7 +39,6 @@ Version format valid: v0.1.0
 Checking for uncommitted changes...
 Working directory is clean
 Creating release branch: release/v0.1.0
-Updating go.mod...
 Generating cmd/frozendb/version.go...
 Committing changes...
 Pushing to remote...
@@ -259,7 +257,7 @@ const Version = "v0.1.0"
 - MUST be valid Go source code that compiles
 - MUST declare `package main`
 - MUST export constant named `Version` of type `string`
-- Value MUST match version in go.mod
+- Value MUST follow semantic versioning format
 - MUST include comment warning about auto-generation
 
 **Access Pattern**:

@@ -28,10 +28,9 @@ This feature introduces version management entities and release workflow state. 
 - Invalid: 0.1.0 (no 'v'), v1.2 (missing patch), V1.0.0 (uppercase), v1.2.3.4 (too many parts)
 
 **Storage Locations**:
-1. **go.mod**: Module version field
-2. **cmd/frozendb/version.go**: Go constant `Version`
+1. **cmd/frozendb/version.go**: Go constant `Version`
+2. **Git tag**: Created when release is published (e.g., `v0.1.0`) - canonical source for Go module versioning
 3. **Git branch**: Encoded in branch name `release/{version}`
-4. **Git tag**: Created when release is published (e.g., `v0.1.0`)
 
 ### Validation Rules
 
@@ -64,14 +63,13 @@ This feature introduces version management entities and release workflow state. 
 ```
 1. [main branch] → Check for uncommitted changes
 2. [main branch] → Create release branch
-3. [release branch] → Update go.mod
-4. [release branch] → Generate version.go
-5. [release branch] → Commit changes
-6. [release branch] → Push to remote
-7. [User action] → Create PR
-8. [User action] → Merge PR to main
-9. [User action] → Create GitHub release
-10. [GitHub Actions] → Build and attach binaries
+3. [release branch] → Generate version.go
+4. [release branch] → Commit changes
+5. [release branch] → Push to remote
+6. [User action] → Create PR
+7. [User action] → Merge PR to main
+8. [User action] → Create GitHub release with git tag
+9. [GitHub Actions] → Build and attach binaries
 ```
 
 ### Validation Rules
@@ -84,7 +82,7 @@ This feature introduces version management entities and release workflow state. 
 
 **BR-004**: Exactly one commit MUST be present on the branch (beyond base)
 
-**BR-005**: Commit MUST include exactly two changed files: go.mod and cmd/frozendb/version.go
+**BR-005**: Commit MUST include exactly one changed file: cmd/frozendb/version.go
 
 ## Build Artifact Entity
 
@@ -146,7 +144,7 @@ const Version = "v0.1.0"
 
 **VF-001**: File MUST be valid Go source code that compiles
 
-**VF-002**: Version constant MUST match version in go.mod
+**VF-002**: Version constant value MUST follow semantic versioning format
 
 **VF-003**: Package declaration MUST be `package main`
 
@@ -173,7 +171,7 @@ const Version = "v0.1.0"
 - Handling: Exit with code 1, display git error message, note that local changes remain
 
 **ER-005: File Generation Failed**
-- Condition: Cannot write version.go or update go.mod
+- Condition: Cannot write version.go
 - Handling: Exit with code 1, display file operation error
 
 **ER-006: Remote Push Failed**
@@ -212,7 +210,6 @@ const Version = "v0.1.0"
                       ├─> Validate version format (VR-001 to VR-005)
                       ├─> Check working directory (ER-003)
                       ├─> Create branch (BR-001 to BR-003)
-                      ├─> Update go.mod (VF-002)
                       ├─> Generate version.go (VF-001, VF-003, VF-004)
                       ├─> Commit changes (BR-004, BR-005)
                       └─> Push to remote (ER-006)
@@ -258,7 +255,7 @@ State: CREATING_BRANCH
 │   └─> SUCCESS → State: BRANCH_CREATED
 │
 State: BRANCH_CREATED
-├─> Action: Update go.mod and generate version.go
+├─> Action: Generate version.go
 │   ├─> FAIL → State: ERROR (ER-005)
 │   └─> SUCCESS → State: FILES_UPDATED
 │

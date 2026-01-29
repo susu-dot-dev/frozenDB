@@ -13,12 +13,12 @@ A maintainer needs to prepare a new release of frozenDB. They run a script that 
 
 **Why this priority**: This is the foundation of the entire release workflow. Without the ability to properly version and branch, no releases can happen. This is the first step every maintainer will take.
 
-**Independent Test**: Can be fully tested by running the version bump script and verifying that: (1) go.mod and version.go are created/updated with the new version, (2) a new branch is created with the version changes committed, (3) the branch is pushed to the remote repository. Delivers immediate value by establishing version tracking.
+**Independent Test**: Can be fully tested by running the version bump script and verifying that: (1) version.go is created/updated with the new version, (2) a new branch is created with the version changes committed, (3) the branch is pushed to the remote repository. Delivers immediate value by establishing version tracking.
 
 **Acceptance Scenarios**:
 
-1. **Given** a frozenDB repository on the main branch with no existing version.go file, **When** maintainer runs the version bump script with target version "v0.1.0", **Then** go.mod and version.go are created/updated with "v0.1.0", a new branch "release/v0.1.0" is created, the changes are committed with message "Bump version to v0.1.0", and the branch is pushed to remote
-2. **Given** a frozenDB repository with existing version "v0.1.0", **When** maintainer runs the version bump script with target version "v0.2.0", **Then** go.mod and version.go are updated to "v0.2.0", a new branch "release/v0.2.0" is created, the changes are committed, and the branch is pushed to remote
+1. **Given** a frozenDB repository on the main branch with no existing version.go file, **When** maintainer runs the version bump script with target version "v0.1.0", **Then** version.go is created with "v0.1.0", a new branch "release/v0.1.0" is created, the changes are committed with message "Bump version to v0.1.0", and the branch is pushed to remote
+2. **Given** a frozenDB repository with existing version "v0.1.0", **When** maintainer runs the version bump script with target version "v0.2.0", **Then** version.go is updated to "v0.2.0", a new branch "release/v0.2.0" is created, the changes are committed, and the branch is pushed to remote
 3. **Given** a repository where the remote push fails, **When** version bump script attempts to push, **Then** the script reports the error clearly and indicates that local changes (branch and commit) remain, allowing the user to manually resolve and push
 
 ---
@@ -68,9 +68,9 @@ A maintainer creates a GitHub release from the main branch (after merging the re
 
 ### Functional Requirements
 
-- **FR-001**: System MUST provide a script that accepts a target version string and updates both go.mod and a generated version.go file to contain that version
+- **FR-001**: System MUST provide a script that accepts a target version string and updates a generated version.go file to contain that version
 - **FR-002**: System MUST create a new git branch with naming pattern "release/{version}" when version bump script runs
-- **FR-003**: System MUST commit the go.mod and version.go changes with a descriptive commit message including the version number
+- **FR-003**: System MUST commit the version.go changes with a descriptive commit message including the version number
 - **FR-004**: System MUST push the release branch to the remote repository
 - **FR-005**: System MUST report errors clearly if any step of the version bump process fails (branch creation, commit, push)
 - **FR-006**: frozendb CLI MUST support a "version" subcommand that displays the current version
@@ -87,7 +87,7 @@ A maintainer creates a GitHub release from the main branch (after merging the re
 
 ### Key Entities
 
-- **Version Files**: The go.mod file and a generated version.go source file, both containing the current version string in semantic version format (e.g., "v0.1.0"). The version.go file provides a constant that can be accessed by the CLI at runtime.
+- **Version Files**: A generated version.go source file containing the current version string in semantic version format (e.g., "v0.1.0"). The version.go file provides a constant that can be accessed by the CLI at runtime. The project version is also tracked via git tags (e.g., v0.1.0) following Go module conventions.
 - **Release Branch**: A git branch created specifically for preparing a release, named "release/{version}", containing the version bump commit
 - **CLI Binary**: The compiled frozendb executable for a specific platform/architecture combination, with version information embedded
 - **GitHub Release**: A GitHub release object with an associated git tag, triggering automated build processes
