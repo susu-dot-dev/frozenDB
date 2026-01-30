@@ -67,12 +67,12 @@ const Version = "v0.1.0"
 
 ### 3. Script Language for Version Bump
 
-**Decision**: Bash script for Unix-like systems (Linux, macOS)
+**Decision**: Bash script for Unix-like systems (Linux)
 
 **Rationale**:
-- Bash is standard on Unix-like systems (Linux, macOS) where all Go development for this project occurs
+- Bash is standard on Linux where all Go development for this project occurs
 - GitHub Actions runners have Bash available by default
-- Maintainers work on Unix-like systems
+- Maintainers work on Linux systems
 - No Windows support required (out of scope)
 
 **Implementation Approach**:
@@ -160,10 +160,6 @@ on:
 strategy:
   matrix:
     include:
-      - os: darwin
-        arch: amd64
-      - os: darwin
-        arch: arm64
       - os: linux
         arch: amd64
       - os: linux
@@ -182,9 +178,8 @@ GOOS=${{ matrix.os }} GOARCH=${{ matrix.arch }} go build -o dist/frozendb-${{ ma
 - Faster and simpler than separate platform builds
 
 **Alternatives Considered**:
-1. **Platform-specific runners**: Build on macOS for darwin, Linux for linux
+1. **Platform-specific runners**: Build on separate platform-specific runners
    - Rejected: Slower (needs multiple runners), more complex workflow
-   - Rejected: macOS runners are more expensive in CI minutes
 2. **Docker-based builds**: Build in containers
    - Rejected: Unnecessary complexity for Go cross-compilation
 
@@ -193,8 +188,6 @@ GOOS=${{ matrix.os }} GOARCH=${{ matrix.arch }} go build -o dist/frozendb-${{ ma
 **Decision**: `frozendb-{os}-{arch}` format
 
 **Examples**:
-- frozendb-darwin-amd64
-- frozendb-darwin-arm64
 - frozendb-linux-amd64
 - frozendb-linux-arm64
 
@@ -205,10 +198,10 @@ GOOS=${{ matrix.os }} GOARCH=${{ matrix.arch }} go build -o dist/frozendb-${{ ma
 - Sorts naturally in file listings
 
 **Alternatives Considered**:
-1. **Include version in name**: `frozendb-v0.1.0-darwin-amd64`
+1. **Include version in name**: `frozendb-v0.1.0-linux-amd64`
    - Rejected: Redundant (release already has version)
    - Rejected: Makes download URLs more complex
-2. **Platform-specific extensions**: `frozendb-darwin.bin`, `frozendb-linux.elf`
+2. **Platform-specific extensions**: `frozendb-linux.bin`, `frozendb-linux.elf`
    - Rejected: Non-standard, confusing for users
 
 ### 9. CLI Version Command Integration

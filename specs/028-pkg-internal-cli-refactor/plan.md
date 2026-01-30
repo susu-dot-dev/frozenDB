@@ -15,7 +15,7 @@ Refactor frozenDB codebase to establish clean architectural boundaries with publ
 **Primary Dependencies**: `github.com/google/uuid` (required), Go standard library  
 **Storage**: Single-file append-only database format (.fdb files)  
 **Testing**: Go testing framework (`go test`), table-driven tests, spec tests in `*_spec_test.go` files  
-**Target Platform**: Linux (primary), macOS/Unix-like systems  
+**Target Platform**: Linux (amd64, arm64)  
 **Project Type**: Single library project with CLI component  
 **Performance Goals**: Fixed memory usage regardless of database size, maintain current build time within 10%  
 **Constraints**: Zero breaking changes to existing public API, all existing tests must pass with only import path updates  

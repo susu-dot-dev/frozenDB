@@ -110,7 +110,7 @@ import (
 **CLI Binary**: `frozendb` (at repository root)
 
 **Attributes**:
-- **Platform**: linux/amd64 (primary), darwin/amd64 (secondary)
+- **Platform**: linux/amd64, linux/arm64
 - **Build Command**: `go build -o frozendb ./cmd/frozendb`
 - **Size**: <10MB (Go binary, minimal dependencies)
 - **Permissions**: 0755 (executable)

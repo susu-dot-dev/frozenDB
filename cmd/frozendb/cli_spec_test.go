@@ -855,14 +855,6 @@ func Test_S_033_FR_010_GitHubWorkflowTriggersOnRelease(t *testing.T) {
 	t.Skip("GitHub Actions workflows are manually tested")
 }
 
-// Test_S_033_FR_011_WorkflowBuildsMacOSBinaries documents that the workflow
-// must build binaries for macOS platforms (both amd64 and arm64)
-//
-// Functional Requirement FR-011: Workflow MUST build frozendb CLI binaries for macOS (darwin/amd64 and darwin/arm64)
-func Test_S_033_FR_011_WorkflowBuildsMacOSBinaries(t *testing.T) {
-	t.Skip("GitHub Actions workflows are manually tested")
-}
-
 // Test_S_033_FR_012_WorkflowBuildsLinuxBinaries documents that the workflow
 // must build binaries for Linux platforms (both amd64 and arm64)
 //
@@ -885,4 +877,62 @@ func Test_S_033_FR_013_WorkflowAttachesBinariesToRelease(t *testing.T) {
 // Functional Requirement FR-014: Binary artifacts MUST be named "frozendb-{os}-{arch}" (e.g., frozendb-darwin-amd64)
 func Test_S_033_FR_014_BinaryArtifactsNamedCorrectly(t *testing.T) {
 	t.Skip("GitHub Actions workflows are manually tested")
+}
+
+// Test_S_035_FR_001_WorkflowBuildsLinuxOnly verifies that the release workflow
+// builds binaries only for Linux platforms (linux/amd64 and linux/arm64)
+//
+// Functional Requirement FR-001: GitHub Actions release workflow MUST build
+// binaries only for Linux (linux/amd64 and linux/arm64)
+//
+// Success Criteria SC-001: Release workflow completes in under 5 minutes
+// Success Criteria SC-005: Workflow configuration contains exactly 2 platform entries
+func Test_S_035_FR_001_WorkflowBuildsLinuxOnly(t *testing.T) {
+	t.Skip("GitHub Actions workflows are manually tested")
+}
+
+// Test_S_035_FR_002_WorkflowNoDarwinBuilds verifies that the release workflow
+// does not build macOS (darwin) binaries for any architecture
+//
+// Functional Requirement FR-002: GitHub Actions release workflow MUST NOT build
+// binaries for macOS (darwin) or any other non-Linux platforms
+//
+// Success Criteria SC-003: Zero macOS-related build failures occur
+// Success Criteria SC-005: Workflow configuration contains no darwin entries
+func Test_S_035_FR_002_WorkflowNoDarwinBuilds(t *testing.T) {
+	t.Skip("GitHub Actions workflows are manually tested")
+}
+
+// Test_S_035_FR_003_S033FR011Removed verifies that Spec S_033 functional
+// requirement FR-011 (macOS builds) has been removed or marked as obsolete
+//
+// Functional Requirement FR-003: Spec S_033 functional requirements FR-011
+// (macOS darwin/amd64 and darwin/arm64 builds) MUST be removed or marked as obsolete
+//
+// Success Criteria SC-006: Spec S_033 contains no active requirements for macOS builds
+func Test_S_035_FR_003_S033FR011Removed(t *testing.T) {
+	t.Skip("Documentation and spec updates are manually verified")
+}
+
+// Test_S_035_FR_004_DocumentationLinuxOnly verifies that documentation and spec
+// files consistently reference Linux-only platform support with no cross-platform claims
+//
+// Functional Requirement FR-004: Documentation and spec files referencing
+// cross-platform support MUST be updated to indicate Linux-only support
+//
+// Success Criteria SC-004: All documentation consistently references Linux-only support
+func Test_S_035_FR_004_DocumentationLinuxOnly(t *testing.T) {
+	t.Skip("Documentation and spec updates are manually verified")
+}
+
+// Test_S_035_FR_005_S033MacOSTestsRemoved verifies that spec tests for S_033
+// FR-011 (macOS build requirements) have been removed or updated
+//
+// Functional Requirement FR-005: Spec tests for S_033 FR-011 (macOS build
+// requirements) MUST be removed or updated to reflect Linux-only builds
+//
+// Success Criteria SC-007: All spec tests related to macOS builds are removed
+// or properly skipped with documentation
+func Test_S_035_FR_005_S033MacOSTestsRemoved(t *testing.T) {
+	t.Skip("Documentation and spec updates are manually verified")
 }

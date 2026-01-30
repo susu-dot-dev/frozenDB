@@ -146,7 +146,7 @@ func Verify(path string) error
 
 **File Locking**: Verify does not acquire exclusive locks. It's safe to verify files opened in read mode by other processes. However, verifying a file being actively written may produce false corruption errors if write is in progress.
 
-**Platform Support**: Works on all platforms supporting Go standard library (Linux, macOS, Windows, etc.)
+**Platform Support**: Linux (amd64, arm64)
 
 **File Size Limits**: No practical limit - can verify files from empty (64 bytes + initial checksum) to terabytes
 

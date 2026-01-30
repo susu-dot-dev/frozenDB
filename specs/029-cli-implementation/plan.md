@@ -15,7 +15,7 @@ Implement a command-line interface for frozenDB providing seven commands for dat
 **Primary Dependencies**: github.com/google/uuid (UUIDv7 support), Go standard library  
 **Storage**: frozenDB single-file append-only database format (.fdb files)  
 **Testing**: Go test with spec tests (Test_S_ prefix for functional requirements)  
-**Target Platform**: Linux/macOS/Unix systems (requires file locking via syscall)  
+**Target Platform**: Linux (amd64, arm64)  
 **Project Type**: Single project (CLI tool + library)  
 **Performance Goals**: Database creation <1 second, command execution immediate (<100ms for simple operations)  
 **Constraints**: Fixed memory usage regardless of database size, atomic transaction semantics, UUIDv7 timestamp ordering  

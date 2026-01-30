@@ -77,7 +77,7 @@ frozendb (development)
 
 ### Requirements
 
-- Bash shell (Linux, macOS, or WSL on Windows)
+- Bash shell (Linux)
 - Git repository with at least one commit
 - Go 1.25.5 or later
 - Write access to remote repository (for push)

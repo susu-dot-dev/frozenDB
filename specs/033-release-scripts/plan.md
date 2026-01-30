@@ -15,7 +15,7 @@ This feature adds version management and automated release infrastructure to fro
 **Primary Dependencies**: Standard library, github.com/google/uuid (existing)  
 **Storage**: Version information stored in go.mod and generated version.go file  
 **Testing**: go test with spec tests following docs/spec_testing.md conventions  
-**Target Platform**: CLI scripts (Bash for maintainers on Unix-like systems), GitHub Actions (Linux runners), CLI binaries (darwin/amd64, darwin/arm64, linux/amd64, linux/arm64)  
+**Target Platform**: CLI scripts (Bash for maintainers on Linux systems), GitHub Actions (Linux runners), CLI binaries (linux/amd64, linux/arm64)  
 **Project Type**: Infrastructure tooling - scripts, GitHub Actions workflows, and CLI commands  
 **Performance Goals**: Version bump script completes <2 minutes, version command <100ms, GitHub Actions builds <10 minutes  
 **Constraints**: Script must be idempotent, no external dependencies for scripts, GitHub Actions standard runner limits  
