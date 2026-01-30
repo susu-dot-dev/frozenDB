@@ -41,7 +41,7 @@ A user who has installed the frozendb CLI wants to check which version they are 
 
 ### User Story 3 - Automated Release Builds (Priority: P3)
 
-A maintainer creates a GitHub release from the main branch (after merging the release PR). GitHub Actions automatically builds frozendb CLI binaries for macOS and Linux, attaches them to the release, making them available for download by users.
+A maintainer creates a GitHub release from the main branch (after merging the release PR). GitHub Actions automatically builds frozendb CLI binaries for Linux, attaches them to the release, making them available for download by users.
 
 **Why this priority**: This automates the distribution process, but depends on the version system (P1) being in place and the version command (P2) being implemented. Users can manually build from source until this is ready.
 
@@ -49,7 +49,7 @@ A maintainer creates a GitHub release from the main branch (after merging the re
 
 **Acceptance Scenarios**:
 
-1. **Given** a GitHub release is created with tag "v0.1.0" from main branch, **When** the release workflow triggers, **Then** macOS (darwin/amd64, darwin/arm64) and Linux (linux/amd64, linux/arm64) binaries are built, and all four binaries are attached to the release as downloadable assets
+1. **Given** a GitHub release is created with tag "v0.1.0" from main branch, **When** the release workflow triggers, **Then** Linux (linux/amd64, linux/arm64) binaries are built, and both binaries are attached to the release as downloadable assets
 2. **Given** the build process for any platform fails, **When** the workflow runs, **Then** the workflow fails with clear error messages indicating which platform failed and why
 3. **Given** a release is created for a pre-release version (e.g., "v0.1.0-rc1"), **When** the workflow runs, **Then** binaries are built and attached, and the release is marked as a pre-release
 
@@ -78,10 +78,10 @@ A maintainer creates a GitHub release from the main branch (after merging the re
 - **FR-008**: Version output MUST be in a clear, readable format (e.g., "frozendb v0.1.0")
 - **FR-009**: Version information MUST be embedded in the binary through a generated version.go file that is created/updated by the version bump script
 - **FR-010**: System MUST provide a GitHub Actions workflow that triggers on release creation
-- **FR-011**: GitHub Actions workflow MUST build frozendb CLI binaries for macOS (darwin/amd64 and darwin/arm64)
+- **FR-011**: ~~GitHub Actions workflow MUST build frozendb CLI binaries for macOS (darwin/amd64 and darwin/arm64)~~ **OBSOLETE**: Superseded by S_035 (Linux-only platform restriction)
 - **FR-012**: GitHub Actions workflow MUST build frozendb CLI binaries for Linux (linux/amd64 and linux/arm64)
 - **FR-013**: All built binaries MUST be attached to the GitHub release as downloadable assets
-- **FR-014**: Binary artifacts MUST be named clearly to indicate platform and architecture (e.g., "frozendb-darwin-amd64", "frozendb-linux-arm64")
+- **FR-014**: Binary artifacts MUST be named clearly to indicate platform and architecture (e.g., "frozendb-linux-amd64", "frozendb-linux-arm64")
 - **FR-015**: Version bump script MUST validate that the provided version string follows semantic versioning format (vX.Y.Z or vX.Y.Z-prerelease)
 - **FR-016**: Version bump script MUST check for uncommitted changes and warn the user before proceeding
 
@@ -136,7 +136,7 @@ See `docs/spec_testing.md` for complete spec testing guidelines.
 - **A-005**: Release process follows a workflow: version bump → PR → merge to main → create GitHub release → automated builds
 - **A-006**: Binary size limits for GitHub release attachments are sufficient (typically 2GB per file)
 - **A-007**: The version bump script is idempotent - running it multiple times with the same version is safe
-- **A-008**: Cross-compilation for macOS and Linux from GitHub Actions runners is supported by Go toolchain
+- **A-008**: Cross-compilation for Linux from GitHub Actions runners is supported by Go toolchain
 
 ## Dependencies
 
@@ -148,9 +148,9 @@ See `docs/spec_testing.md` for complete spec testing guidelines.
 ## Out of Scope
 
 - Automated version number determination (semantic auto-increment based on commit messages)
-- Building binaries for Windows platform (macOS and Linux only)
+- Building binaries for Windows platform (Linux only)
 - Windows version of bump-version script (Bash script for Unix-like systems only)
-- Signing or notarizing binaries for macOS
+- Signing or notarizing binaries
 - Publishing binaries to package managers (Homebrew, apt, etc.)
 - Automated testing of binaries on target platforms within the workflow
 - Rollback mechanism for releases or version bumps

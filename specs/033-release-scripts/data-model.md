@@ -95,15 +95,13 @@ This feature introduces version management entities and release workflow state. 
 **Supported Platforms**:
 | OS | Architecture | Artifact Name |
 |----|-------------|---------------|
-| darwin | amd64 | frozendb-darwin-amd64 |
-| darwin | arm64 | frozendb-darwin-arm64 |
 | linux | amd64 | frozendb-linux-amd64 |
 | linux | arm64 | frozendb-linux-arm64 |
 
 **Attributes**:
 - **Executable**: Binary file (no extension)
 - **Embedded version**: Contains version string from version.go
-- **Platform**: Operating system (darwin, linux)
+- **Platform**: Operating system (linux)
 - **Architecture**: CPU architecture (amd64, arm64)
 - **Build environment**: Go 1.25.5 in GitHub Actions
 
@@ -113,7 +111,7 @@ This feature introduces version management entities and release workflow state. 
 
 **BA-002**: Binary MUST report correct version when `frozendb version` is executed
 
-**BA-003**: Binary filename MUST match pattern `frozendb-(darwin|linux)-(amd64|arm64)`
+**BA-003**: Binary filename MUST match pattern `frozendb-linux-(amd64|arm64)`
 
 **BA-004**: Binary MUST be attached to corresponding GitHub release
 
@@ -220,8 +218,6 @@ const Version = "v0.1.0"
                                                       |
                                                       └─> [GitHub Actions Workflow]
                                                                |
-                                                               ├─> Build darwin/amd64 (BA-001 to BA-004)
-                                                               ├─> Build darwin/arm64 (BA-001 to BA-004)
                                                                ├─> Build linux/amd64 (BA-001 to BA-004)
                                                                ├─> Build linux/arm64 (BA-001 to BA-004)
                                                                └─> Attach all artifacts to release
@@ -286,12 +282,6 @@ State: TRIGGERED
 └─> State: ENVIRONMENT_READY
 
 State: ENVIRONMENT_READY
-├─> Action: Build darwin/amd64
-│   ├─> FAIL → State: BUILD_FAILED (ER-009)
-│   └─> SUCCESS → Continue
-├─> Action: Build darwin/arm64
-│   ├─> FAIL → State: BUILD_FAILED (ER-009)
-│   └─> SUCCESS → Continue
 ├─> Action: Build linux/amd64
 │   ├─> FAIL → State: BUILD_FAILED (ER-009)
 │   └─> SUCCESS → Continue

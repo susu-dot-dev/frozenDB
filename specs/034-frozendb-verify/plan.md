@@ -15,7 +15,7 @@ Implement a verify operation for frozenDB that validates file integrity by check
 **Primary Dependencies**: github.com/google/uuid, Go standard library (encoding/base64, encoding/json, hash/crc32)  
 **Storage**: Single-file append-only database format (frozenDB v1)  
 **Testing**: Go test framework with spec tests in verify_spec_test.go  
-**Target Platform**: Linux/macOS/Windows (cross-platform)  
+**Target Platform**: Linux (amd64, arm64)  
 **Project Type**: Single project (database library)  
 **Performance Goals**: N/A (correctness-focused, no specific performance targets per spec)  
 **Constraints**: Read-only operation, must not modify database file, fail-fast on first corruption  

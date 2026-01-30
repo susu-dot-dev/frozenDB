@@ -674,7 +674,7 @@ fi
 - Get operations: O(n) scan time (acceptable for CLI use case)
 
 ### Compatibility
-- Requires Linux/macOS/Unix (file locking via syscall)
+- Requires Linux (file locking via syscall)
 - Go 1.25.5 for UUIDv7 support
 - Shell must support argument quoting for JSON values
 

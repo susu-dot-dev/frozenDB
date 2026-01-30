@@ -147,10 +147,6 @@ on:
 strategy:
   matrix:
     include:
-      - os: darwin
-        arch: amd64
-      - os: darwin
-        arch: arm64
       - os: linux
         arch: amd64
       - os: linux
@@ -166,13 +162,11 @@ strategy:
 4. Attach all binaries to the GitHub release
 
 **Output Artifacts**:
-- `frozendb-darwin-amd64` - macOS Intel binary
-- `frozendb-darwin-arm64` - macOS Apple Silicon binary
 - `frozendb-linux-amd64` - Linux x86_64 binary
 - `frozendb-linux-arm64` - Linux ARM64 binary
 
 **Success Criteria**:
-- All four builds complete without errors
+- All two builds complete without errors
 - All binaries successfully attached to release
 - Workflow completes within 10 minutes
 
@@ -313,7 +307,6 @@ func handleVersion() {
 
 **Test Functions** (per spec requirements):
 - `Test_S_033_FR_010_GitHubWorkflowTriggersOnRelease`
-- `Test_S_033_FR_011_WorkflowBuildsMacOSBinaries`
 - `Test_S_033_FR_012_WorkflowBuildsLinuxBinaries`
 - `Test_S_033_FR_013_WorkflowAttachesBinariesToRelease`
 - `Test_S_033_FR_014_BinaryArtifactsNamedCorrectly`
