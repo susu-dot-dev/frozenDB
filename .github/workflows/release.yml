@@ -5,11 +5,14 @@ on:
   release:
     types: [published]
 
+permissions:
+  contents: write
+
 jobs:
   build:
     name: Build ${{ matrix.os }}-${{ matrix.arch }}
     runs-on: ubuntu-latest
-    
+
     strategy:
       matrix:
         include:
