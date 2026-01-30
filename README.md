@@ -4,9 +4,13 @@ A single-file key-value database that exploits two guarantees: OS-level append-o
 
 ## Why frozenDB?
 
-frozenDB is an exploration of database design under interesting constraints. We hope you'll find value in exploring this codebase with us—learning about append-only architectures, time-ordered indexing, and spec-driven development.
+frozenDB's origin story starts with the desire to have data that cannot change once inserted. Postgres can do this - with e.g. [GRANT UPDATE role](https://www.postgresql.org/docs/current/ddl-priv.html), but I didn't want to have an entire separate database deployment for my simple use case. Sqlite doesn't have this kind of functionality, and as I was thinking about this that generally makes sense. The file is literally on-disk - there's _some_, but not a lot of security value in blocking writes from within sqlite, when an attacker could just modify the disk itself.
 
-The append-only architecture provides fundamental advantages that are difficult to achieve through application logic alone:
+Ah, but linux does provide OS-level guarantees about files with the [append file attribute](https://www.man7.org/linux/man-pages/man1/chattr.1.html). So, down the rabbit hole I went. First you start with "I'll just append a series of events (basically a WAL), to "but then how would transactions work" and also "linear scans make me sad". And that, my friends, is how you end up with your own database library for funsies.
+
+So, if you're interested in an exploration of a database with interesting constraints - single file, append-only, sub-linear search, then keep on exploring. If you're here for the spec-driven-development of the repository, then this is definitely the right place for you. If you want to deploy this to production, maybe don't?
+
+Anyways, here's what you get with frozenDB:
 
 **Concurrent reads without coordination**: Because all writes append to the end of the file, readers can safely access any committed data without locks, waiting, or coordination with writers.
 
