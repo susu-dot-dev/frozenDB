@@ -126,14 +126,16 @@ func main() {
 		fmt.Fprintln(os.Stderr, "Usage: frozendb <command> [arguments]")
 		fmt.Fprintln(os.Stderr, "")
 		fmt.Fprintln(os.Stderr, "Commands:")
-		fmt.Fprintln(os.Stderr, "  create <path>                                    - Initialize new database")
-		fmt.Fprintln(os.Stderr, "  [--path <file>] [--finder <strategy>] begin     - Start transaction")
-		fmt.Fprintln(os.Stderr, "  [--path <file>] [--finder <strategy>] commit    - Commit transaction")
-		fmt.Fprintln(os.Stderr, "  [--path <file>] [--finder <strategy>] savepoint - Create savepoint")
-		fmt.Fprintln(os.Stderr, "  [--path <file>] [--finder <strategy>] rollback [id] - Rollback transaction")
+		fmt.Fprintln(os.Stderr, "  create <path>                                             - Initialize new database")
+		fmt.Fprintln(os.Stderr, "  [--path <file>] [--finder <strategy>] begin              - Start transaction")
+		fmt.Fprintln(os.Stderr, "  [--path <file>] [--finder <strategy>] commit             - Commit transaction")
+		fmt.Fprintln(os.Stderr, "  [--path <file>] [--finder <strategy>] savepoint          - Create savepoint")
+		fmt.Fprintln(os.Stderr, "  [--path <file>] [--finder <strategy>] rollback [id]      - Rollback transaction")
 		fmt.Fprintln(os.Stderr, "  [--path <file>] [--finder <strategy>] add <key|NOW> <val> - Insert key-value pair")
-		fmt.Fprintln(os.Stderr, "  [--path <file>] [--finder <strategy>] get <key>         - Retrieve value by key")
-		fmt.Fprintln(os.Stderr, "  version - Display version information")
+		fmt.Fprintln(os.Stderr, "  [--path <file>] [--finder <strategy>] get <key>          - Retrieve value by key")
+		fmt.Fprintln(os.Stderr, "  [--path <file>] inspect [--offset N] [--limit N] [--print-header BOOL] - Display database contents")
+		fmt.Fprintln(os.Stderr, "  [--path <file>] verify                                   - Verify database integrity")
+		fmt.Fprintln(os.Stderr, "  version                                                  - Display version information")
 		os.Exit(1)
 	}
 
@@ -174,6 +176,8 @@ func main() {
 		handleAdd(flags.path, finderStrategy, flags.args)
 	case "get":
 		handleGet(flags.path, finderStrategy, flags.args)
+	case "inspect":
+		handleInspect(flags.path, finderStrategy, flags.args)
 	default:
 		printError(pkg_frozendb.NewInvalidInputError(fmt.Sprintf("unknown command: %s", flags.subcommand), nil))
 	}
@@ -457,4 +461,386 @@ func prettyPrintJSON(value interface{}) error {
 	}
 	fmt.Println(string(pretty))
 	return nil
+}
+
+// handleInspect implements the 'inspect' command.
+// Displays database contents in tab-separated format.
+func handleInspect(path string, finderStrategy pkg_frozendb.FinderStrategy, args []string) {
+	// Parse inspect-specific flags
+	offset, limit, printHeader, err := parseInspectFlags(args)
+	if err != nil {
+		printError(err)
+	}
+
+	// Open database file in read mode
+	file, err := internal_frozendb.NewDBFile(path, internal_frozendb.MODE_READ)
+	if err != nil {
+		printError(err)
+	}
+	defer func() { _ = file.Close() }()
+
+	// Read and parse header
+	headerBytes, err := file.Read(0, internal_frozendb.HEADER_SIZE)
+	if err != nil {
+		printError(err)
+	}
+
+	header := &internal_frozendb.Header{}
+	if err := header.UnmarshalText(headerBytes); err != nil {
+		printError(err)
+	}
+
+	// Print optional header table
+	if printHeader {
+		printHeaderTable(header)
+	}
+
+	// Print row data table header
+	printRowTableHeader()
+
+	// Calculate total rows: (fileSize - 64) / rowSize
+	fileSize := file.Size()
+	rowSize := int64(header.GetRowSize())
+	totalRows := (fileSize - 64) / rowSize
+
+	// Validate offset
+	if offset < 0 {
+		printError(pkg_frozendb.NewInvalidInputError("offset cannot be negative", nil))
+	}
+
+	// Determine end index based on limit
+	var endIndex int64
+	if limit < 0 {
+		endIndex = totalRows // Display all remaining rows
+	} else {
+		endIndex = offset + limit
+		if endIndex > totalRows {
+			endIndex = totalRows
+		}
+	}
+
+	// Track errors for exit code
+	hasErrors := false
+
+	// Iterate through rows
+	for index := offset; index < endIndex; index++ {
+		row, err := readAndParseRow(file, index, int(rowSize))
+		if err != nil {
+			// Mark as error but continue processing
+			hasErrors = true
+			row.Type = "error"
+			row.Index = index
+		}
+		printInspectRow(row)
+	}
+
+	// Exit with appropriate code
+	if hasErrors {
+		os.Exit(1)
+	}
+	os.Exit(0)
+}
+
+// parseInspectFlags parses inspect-specific command flags
+func parseInspectFlags(args []string) (offset int64, limit int64, printHeader bool, err error) {
+	// Set defaults
+	offset = 0
+	limit = -1
+	printHeader = false
+
+	// Parse flags
+	i := 0
+	for i < len(args) {
+		if i >= len(args) {
+			break
+		}
+
+		arg := args[i]
+
+		if arg == "--offset" {
+			if i+1 >= len(args) {
+				return 0, 0, false, pkg_frozendb.NewInvalidInputError("--offset requires a value", nil)
+			}
+			val, parseErr := strconv.ParseInt(args[i+1], 10, 64)
+			if parseErr != nil {
+				return 0, 0, false, pkg_frozendb.NewInvalidInputError("--offset must be a number", parseErr)
+			}
+			offset = val
+			i += 2
+			continue
+		}
+
+		if arg == "--limit" {
+			if i+1 >= len(args) {
+				return 0, 0, false, pkg_frozendb.NewInvalidInputError("--limit requires a value", nil)
+			}
+			val, parseErr := strconv.ParseInt(args[i+1], 10, 64)
+			if parseErr != nil {
+				return 0, 0, false, pkg_frozendb.NewInvalidInputError("--limit must be a number", parseErr)
+			}
+			limit = val
+			i += 2
+			continue
+		}
+
+		if arg == "--print-header" {
+			if i+1 >= len(args) {
+				return 0, 0, false, pkg_frozendb.NewInvalidInputError("--print-header requires a value", nil)
+			}
+			val := strings.ToLower(args[i+1])
+			switch val {
+			case "true", "t", "1":
+				printHeader = true
+			case "false", "f", "0":
+				printHeader = false
+			default:
+				return 0, 0, false, pkg_frozendb.NewInvalidInputError("--print-header must be true or false", nil)
+			}
+			i += 2
+			continue
+		}
+
+		// Unknown flag
+		return 0, 0, false, pkg_frozendb.NewInvalidInputError(fmt.Sprintf("unknown flag: %s", arg), nil)
+	}
+
+	return offset, limit, printHeader, nil
+}
+
+// printHeaderTable prints the database header information table
+func printHeaderTable(header *internal_frozendb.Header) {
+	fmt.Printf("Row Size\tClock Skew\tFile Version\n")
+	fmt.Printf("%d\t%d\t%d\n", header.GetRowSize(), header.GetSkewMs(), header.GetVersion())
+	fmt.Println() // Blank line separator
+}
+
+// printRowTableHeader prints the row data table column headers
+func printRowTableHeader() {
+	fmt.Printf("index\ttype\tkey\tvalue\tsavepoint\ttx start\ttx end\trollback\tparity\n")
+}
+
+// InspectRow represents a single row for display
+type InspectRow struct {
+	Index     int64
+	Type      string
+	Key       string
+	Value     string
+	Savepoint string
+	TxStart   string
+	TxEnd     string
+	Rollback  string
+	Parity    string
+}
+
+// printInspectRow prints a single row in TSV format
+func printInspectRow(row InspectRow) {
+	fmt.Printf("%d\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+		row.Index, row.Type, row.Key, row.Value,
+		row.Savepoint, row.TxStart, row.TxEnd, row.Rollback, row.Parity)
+}
+
+// readAndParseRow reads and parses a single row from the database
+func readAndParseRow(file internal_frozendb.DBFile, index int64, rowSize int) (InspectRow, error) {
+	// Calculate offset: 64 (header) + index * rowSize
+	offset := int64(64) + index*int64(rowSize)
+
+	// Read row bytes
+	rowBytes, err := file.Read(offset, int32(rowSize))
+	if err != nil {
+		// Check if this is a partial row at end of file
+		if strings.Contains(err.Error(), "exceeds file size") {
+			// Try to read remaining bytes
+			remaining := file.Size() - offset
+			if remaining > 0 && remaining < int64(rowSize) {
+				partialBytes, readErr := file.Read(offset, int32(remaining))
+				if readErr == nil {
+					return parsePartialRow(index, partialBytes, rowSize)
+				}
+			}
+		}
+		// Return error row
+		return InspectRow{
+			Index: index,
+			Type:  "error",
+		}, err
+	}
+
+	// Extract parity before parsing
+	parity := extractParity(rowBytes)
+
+	// Parse row with RowUnion
+	ru := &internal_frozendb.RowUnion{}
+	if err := ru.UnmarshalText(rowBytes); err != nil {
+		// Return error row with parity
+		return InspectRow{
+			Index:  index,
+			Type:   "error",
+			Parity: parity,
+		}, err
+	}
+
+	// Determine row type and extract fields
+	if ru.ChecksumRow != nil {
+		checksumValue, _ := ru.ChecksumRow.RowPayload.MarshalText()
+		return InspectRow{
+			Index:  index,
+			Type:   "Checksum",
+			Key:    "",
+			Value:  string(checksumValue),
+			Parity: parity,
+		}, nil
+	}
+
+	if ru.NullRow != nil {
+		return InspectRow{
+			Index:     index,
+			Type:      "NullRow",
+			Key:       ru.NullRow.RowPayload.Key.String(),
+			Value:     "",
+			Savepoint: "false",
+			TxStart:   "true",
+			TxEnd:     "true",
+			Rollback:  "false",
+			Parity:    parity,
+		}, nil
+	}
+
+	if ru.DataRow != nil {
+		payload := ru.DataRow.RowPayload
+		startControl := ru.DataRow.StartControl
+		endControl := ru.DataRow.EndControl
+
+		savepoint, txStart, txEnd, rollback := extractTransactionFields(startControl, endControl)
+
+		return InspectRow{
+			Index:     index,
+			Type:      "Data",
+			Key:       payload.Key.String(),
+			Value:     string(payload.Value),
+			Savepoint: savepoint,
+			TxStart:   txStart,
+			TxEnd:     txEnd,
+			Rollback:  rollback,
+			Parity:    parity,
+		}, nil
+	}
+
+	if ru.NullRow != nil {
+		return InspectRow{
+			Index:     index,
+			Type:      "NullRow",
+			Key:       ru.NullRow.RowPayload.Key.String(),
+			Value:     "",
+			Savepoint: "false",
+			TxStart:   "true",
+			TxEnd:     "true",
+			Rollback:  "false",
+			Parity:    parity,
+		}, nil
+	}
+
+	if ru.DataRow != nil {
+		payload := ru.DataRow.RowPayload
+		startControl := ru.DataRow.StartControl
+		endControl := ru.DataRow.EndControl
+
+		savepoint, txStart, txEnd, rollback := extractTransactionFields(startControl, endControl)
+
+		return InspectRow{
+			Index:     index,
+			Type:      "Data",
+			Key:       payload.Key.String(),
+			Value:     string(payload.Value),
+			Savepoint: savepoint,
+			TxStart:   txStart,
+			TxEnd:     txEnd,
+			Rollback:  rollback,
+			Parity:    parity,
+		}, nil
+	}
+
+	// Unknown row type
+	return InspectRow{
+		Index:  index,
+		Type:   "error",
+		Parity: parity,
+	}, fmt.Errorf("unknown row type")
+}
+
+// parsePartialRow parses a partial row at end of file
+func parsePartialRow(index int64, rowBytes []byte, fullRowSize int) (InspectRow, error) {
+	// Parse with PartialDataRow
+	partial := &internal_frozendb.PartialDataRow{}
+	if err := partial.UnmarshalText(rowBytes); err != nil {
+		return InspectRow{
+			Index: index,
+			Type:  "error",
+		}, err
+	}
+
+	row := InspectRow{
+		Index: index,
+		Type:  "partial",
+	}
+
+	state := partial.GetState()
+
+	// For PartialDataRow, we need to access the internal DataRow fields
+	// Since these are not exported, we can only determine state-based information
+
+	// We can't directly access the internal fields of PartialDataRow
+	// So we'll just show the state-based information we have
+
+	// State 1: Only start_control available
+	// State 2: start_control + payload available
+	// State 3: start_control + payload + savepoint marker available
+
+	if state == 3 { // PartialDataRowWithSavepoint
+		row.Savepoint = "true"
+	}
+
+	return row, nil
+}
+
+// extractParity extracts parity bytes from row bytes
+func extractParity(rowBytes []byte) string {
+	rowSize := len(rowBytes)
+	if rowSize < 4 {
+		return ""
+	}
+	// Parity is at positions [N-3:N-1]
+	return string(rowBytes[rowSize-3 : rowSize-1])
+}
+
+// extractTransactionFields extracts transaction control fields from control bytes
+func extractTransactionFields(startControl internal_frozendb.StartControl, endControl internal_frozendb.EndControl) (savepoint, txStart, txEnd, rollback string) {
+	// TxStart: true if start_control is 'T'
+	if startControl == internal_frozendb.START_TRANSACTION {
+		txStart = "true"
+	} else {
+		txStart = "false"
+	}
+
+	// TxEnd: true if end_control[1] is 'C'
+	if endControl[1] == 'C' {
+		txEnd = "true"
+	} else {
+		txEnd = "false"
+	}
+
+	// Savepoint: true if end_control[0] is 'S'
+	if endControl[0] == 'S' {
+		savepoint = "true"
+	} else {
+		savepoint = "false"
+	}
+
+	// Rollback: true if end_control[1] is '0'-'9'
+	if endControl[1] >= '0' && endControl[1] <= '9' {
+		rollback = "true"
+	} else {
+		rollback = "false"
+	}
+
+	return
 }
