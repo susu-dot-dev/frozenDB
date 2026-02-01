@@ -81,33 +81,6 @@ type Finder interface {
 	// Thread-safe: May be called concurrently with other Get* methods
 	GetTransactionStart(index int64) (int64, error)
 
-	// OnRowAdded is called when a new row is successfully written to the database.
-	// Updates finder internal state to include the new row for subsequent operations.
-	// Called within transaction write lock context; implementation must not attempt
-	// to acquire additional transaction locks.
-	//
-	// Parameters:
-	//   - index: Index of the newly added row (must follow sequential ordering)
-	//   - row: Complete row data of the newly added row
-	//
-	// Returns:
-	//   - error: InvalidInputError if index validation fails or gaps in sequential ordering,
-	//            CorruptDatabaseError if row data cannot be parsed
-	//
-	// Preconditions:
-	//   - Row data is successfully written and persistent on disk
-	//   - Called within transaction write lock context
-	//   - Index follows zero-based scheme and sequential ordering
-	//
-	// Postconditions:
-	//   - GetIndex() can locate the new row by its UUID key
-	//   - Transaction boundary methods handle the new index correctly
-	//   - Confirmed file size updated to include new row
-	//
-	// Not thread-safe with itself: Calls are guaranteed sequential (no self-racing)
-	// Blocks until completion before returning to caller
-	OnRowAdded(index int64, row *RowUnion) error
-
 	// MaxTimestamp returns the maximum timestamp among all complete data and null rows
 	// in O(1) time. Returns 0 if no complete data or null rows exist.
 	//

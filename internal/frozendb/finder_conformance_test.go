@@ -30,7 +30,12 @@ func simpleFinderFactory(t *testing.T, path string, rowSize int32) (Finder, func
 	if err != nil {
 		t.Fatalf("NewDBFile: %v", err)
 	}
-	f, err := NewSimpleFinder(dbFile, int32(rowSize))
+	rowEmitter, err := NewRowEmitter(dbFile, int(rowSize))
+	if err != nil {
+		dbFile.Close()
+		t.Fatalf("NewRowEmitter: %v", err)
+	}
+	f, err := NewSimpleFinder(dbFile, int32(rowSize), rowEmitter)
 	if err != nil {
 		dbFile.Close()
 		t.Fatalf("NewSimpleFinder: %v", err)
@@ -44,7 +49,12 @@ func binarySearchFinderFactory(t *testing.T, path string, rowSize int32) (Finder
 	if err != nil {
 		t.Fatalf("NewDBFile: %v", err)
 	}
-	f, err := NewBinarySearchFinder(dbFile, int32(rowSize))
+	rowEmitter, err := NewRowEmitter(dbFile, int(rowSize))
+	if err != nil {
+		dbFile.Close()
+		t.Fatalf("NewRowEmitter: %v", err)
+	}
+	f, err := NewBinarySearchFinder(dbFile, int32(rowSize), rowEmitter)
 	if err != nil {
 		dbFile.Close()
 		t.Fatalf("NewBinarySearchFinder: %v", err)
@@ -326,7 +336,9 @@ func runScenario(t *testing.T, id string, factory FinderFactory) {
 	case id >= "FC-GTE-001" && id <= "FC-GTE-012":
 		got.index, got.err = runGetTransactionEnd(t, id, finder, env)
 	case id >= "FC-ORA-001" && id <= "FC-ORA-006":
-		_, got.err = runOnRowAdded(t, id, finder, env)
+		// OnRowAdded tests disabled - OnRowAdded is no longer public API
+		// Notification functionality is now handled via RowEmitter subscriptions
+		t.Skip("OnRowAdded tests disabled - functionality moved to internal RowEmitter subscriptions")
 	default:
 		t.Fatalf("unknown scenario %s", id)
 	}
@@ -621,6 +633,11 @@ func runGetTransactionEnd(t *testing.T, id string, f Finder, env *fixtureEnv) (i
 	return f.GetTransactionEnd(idx)
 }
 
+// runOnRowAdded is disabled because OnRowAdded is no longer part of the public Finder interface.
+// Notification functionality is now handled internally via RowEmitter subscriptions.
+// The OnRowAdded method has been renamed to onRowAdded (internal) in finder implementations.
+// Tests for notification functionality are in Test_S_038_FR_007_RowEmitter_Delivers_Notifications_Correctly.
+/*
 func runOnRowAdded(t *testing.T, id string, f Finder, env *fixtureEnv) (int64, error) {
 	t.Helper()
 	// FC-ORA-001: (0, nil)
@@ -646,6 +663,7 @@ func runOnRowAdded(t *testing.T, id string, f Finder, env *fixtureEnv) (int64, e
 		return 0, nil
 	}
 }
+*/
 
 func assertExpected(t *testing.T, id string, got scenarioResult, env *fixtureEnv) {
 	t.Helper()

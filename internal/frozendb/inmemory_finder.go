@@ -27,12 +27,15 @@ type InMemoryFinder struct {
 
 // NewInMemoryFinder builds an InMemoryFinder by scanning the database and
 // populating uuid and transaction boundary maps. O(n) init, O(1) lookups after.
-func NewInMemoryFinder(dbFile DBFile, rowSize int32) (*InMemoryFinder, error) {
+func NewInMemoryFinder(dbFile DBFile, rowSize int32, rowEmitter *RowEmitter) (*InMemoryFinder, error) {
 	if dbFile == nil {
 		return nil, NewInvalidInputError("dbFile cannot be nil", nil)
 	}
 	if rowSize < 128 || rowSize > 65536 {
 		return nil, NewInvalidInputError(fmt.Sprintf("rowSize must be between 128 and 65536, got %d", rowSize), nil)
+	}
+	if rowEmitter == nil {
+		return nil, NewInvalidInputError("rowEmitter cannot be nil", nil)
 	}
 	size := dbFile.Size()
 	imf := &InMemoryFinder{
@@ -47,6 +50,13 @@ func NewInMemoryFinder(dbFile DBFile, rowSize int32) (*InMemoryFinder, error) {
 	if err := imf.buildIndex(); err != nil {
 		return nil, err
 	}
+
+	// Subscribe to RowEmitter for future row notifications
+	_, err := rowEmitter.Subscribe(imf.onRowAdded)
+	if err != nil {
+		return nil, err
+	}
+
 	return imf, nil
 }
 
@@ -170,7 +180,7 @@ func (imf *InMemoryFinder) GetTransactionEnd(index int64) (int64, error) {
 	return end, nil
 }
 
-func (imf *InMemoryFinder) OnRowAdded(index int64, row *RowUnion) error {
+func (imf *InMemoryFinder) onRowAdded(index int64, row *RowUnion) error {
 	if row == nil {
 		return NewInvalidInputError("row cannot be nil", nil)
 	}

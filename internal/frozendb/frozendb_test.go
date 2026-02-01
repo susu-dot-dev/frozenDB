@@ -96,6 +96,15 @@ func (m *mockGetDBFile) Subscribe(callback func() error) (func() error, error) {
 	return func() error { return nil }, nil
 }
 
+// Helper to create a SimpleFinder with row emitter for testing
+func newTestSimpleFinderForGet(dbFile DBFile, rowSize int32) (*SimpleFinder, error) {
+	rowEmitter, err := NewRowEmitter(dbFile, int(rowSize))
+	if err != nil {
+		return nil, err
+	}
+	return NewSimpleFinder(dbFile, rowSize, rowEmitter)
+}
+
 // Simulate closing the file mid-operation
 func (m *mockGetDBFile) simulateClose() {
 	m.mu.Lock()
@@ -247,7 +256,7 @@ func TestGet_ValidInputs(t *testing.T) {
 		data, keys, header := buildTestDatabase(rowSize, rows)
 
 		dbFile := newMockGetDBFile(data, MODE_READ)
-		finder, _ := NewSimpleFinder(dbFile, rowSize)
+		finder, _ := newTestSimpleFinderForGet(dbFile, rowSize)
 
 		db := &FrozenDB{
 			file:   dbFile,
@@ -277,7 +286,7 @@ func TestGet_ValidInputs(t *testing.T) {
 		data, keys, header := buildTestDatabase(rowSize, rows)
 
 		dbFile := newMockGetDBFile(data, MODE_READ)
-		finder, _ := NewSimpleFinder(dbFile, rowSize)
+		finder, _ := newTestSimpleFinderForGet(dbFile, rowSize)
 
 		db := &FrozenDB{
 			file:   dbFile,
@@ -314,7 +323,7 @@ func TestGet_ValidInputs(t *testing.T) {
 		data, keys, header := buildTestDatabase(rowSize, rows)
 
 		dbFile := newMockGetDBFile(data, MODE_READ)
-		finder, _ := NewSimpleFinder(dbFile, rowSize)
+		finder, _ := newTestSimpleFinderForGet(dbFile, rowSize)
 
 		db := &FrozenDB{
 			file:   dbFile,
@@ -349,7 +358,7 @@ func TestGet_InvalidInputs(t *testing.T) {
 		data, _, header := buildTestDatabase(rowSize, rows)
 
 		dbFile := newMockGetDBFile(data, MODE_READ)
-		finder, _ := NewSimpleFinder(dbFile, rowSize)
+		finder, _ := newTestSimpleFinderForGet(dbFile, rowSize)
 
 		db := &FrozenDB{
 			file:   dbFile,
@@ -376,7 +385,7 @@ func TestGet_InvalidInputs(t *testing.T) {
 		data, keys, header := buildTestDatabase(rowSize, rows)
 
 		dbFile := newMockGetDBFile(data, MODE_READ)
-		finder, _ := NewSimpleFinder(dbFile, rowSize)
+		finder, _ := newTestSimpleFinderForGet(dbFile, rowSize)
 
 		db := &FrozenDB{
 			file:   dbFile,
@@ -402,7 +411,7 @@ func TestGet_InvalidInputs(t *testing.T) {
 		data, keys, header := buildTestDatabase(rowSize, rows)
 
 		dbFile := newMockGetDBFile(data, MODE_READ)
-		finder, _ := NewSimpleFinder(dbFile, rowSize)
+		finder, _ := newTestSimpleFinderForGet(dbFile, rowSize)
 
 		db := &FrozenDB{
 			file:   dbFile,
@@ -435,7 +444,7 @@ func TestGet_KeyNotFound(t *testing.T) {
 		data, _, header := buildTestDatabase(rowSize, rows)
 
 		dbFile := newMockGetDBFile(data, MODE_READ)
-		finder, _ := NewSimpleFinder(dbFile, rowSize)
+		finder, _ := newTestSimpleFinderForGet(dbFile, rowSize)
 
 		db := &FrozenDB{
 			file:   dbFile,
@@ -463,7 +472,7 @@ func TestGet_KeyNotFound(t *testing.T) {
 		data, _, header := buildTestDatabase(rowSize, rows)
 
 		dbFile := newMockGetDBFile(data, MODE_READ)
-		finder, _ := NewSimpleFinder(dbFile, rowSize)
+		finder, _ := newTestSimpleFinderForGet(dbFile, rowSize)
 
 		db := &FrozenDB{
 			file:   dbFile,
@@ -497,7 +506,7 @@ func TestGet_TransactionStates(t *testing.T) {
 		data, keys, header := buildTestDatabase(rowSize, rows)
 
 		dbFile := newMockGetDBFile(data, MODE_READ)
-		finder, _ := NewSimpleFinder(dbFile, rowSize)
+		finder, _ := newTestSimpleFinderForGet(dbFile, rowSize)
 
 		db := &FrozenDB{
 			file:   dbFile,
@@ -523,7 +532,7 @@ func TestGet_TransactionStates(t *testing.T) {
 		data, keys, header := buildTestDatabase(rowSize, rows)
 
 		dbFile := newMockGetDBFile(data, MODE_READ)
-		finder, _ := NewSimpleFinder(dbFile, rowSize)
+		finder, _ := newTestSimpleFinderForGet(dbFile, rowSize)
 
 		db := &FrozenDB{
 			file:   dbFile,
@@ -549,7 +558,7 @@ func TestGet_TransactionStates(t *testing.T) {
 		data, keys, header := buildTestDatabase(rowSize, rows)
 
 		dbFile := newMockGetDBFile(data, MODE_READ)
-		finder, _ := NewSimpleFinder(dbFile, rowSize)
+		finder, _ := newTestSimpleFinderForGet(dbFile, rowSize)
 
 		db := &FrozenDB{
 			file:   dbFile,
@@ -576,7 +585,7 @@ func TestGet_TransactionStates(t *testing.T) {
 		data, keys, header := buildTestDatabase(rowSize, rows)
 
 		dbFile := newMockGetDBFile(data, MODE_READ)
-		finder, _ := NewSimpleFinder(dbFile, rowSize)
+		finder, _ := newTestSimpleFinderForGet(dbFile, rowSize)
 
 		db := &FrozenDB{
 			file:   dbFile,
@@ -603,7 +612,7 @@ func TestGet_TransactionStates(t *testing.T) {
 		data, keys, header := buildTestDatabase(rowSize, rows)
 
 		dbFile := newMockGetDBFile(data, MODE_READ)
-		finder, _ := NewSimpleFinder(dbFile, rowSize)
+		finder, _ := newTestSimpleFinderForGet(dbFile, rowSize)
 
 		db := &FrozenDB{
 			file:   dbFile,
@@ -631,7 +640,7 @@ func TestGet_TransactionStates(t *testing.T) {
 		data, keys, header := buildTestDatabase(rowSize, rows)
 
 		dbFile := newMockGetDBFile(data, MODE_READ)
-		finder, _ := NewSimpleFinder(dbFile, rowSize)
+		finder, _ := newTestSimpleFinderForGet(dbFile, rowSize)
 
 		db := &FrozenDB{
 			file:   dbFile,
@@ -666,7 +675,7 @@ func TestGet_PartialRollback(t *testing.T) {
 		data, keys, header := buildTestDatabase(rowSize, rows)
 
 		dbFile := newMockGetDBFile(data, MODE_READ)
-		finder, _ := NewSimpleFinder(dbFile, rowSize)
+		finder, _ := newTestSimpleFinderForGet(dbFile, rowSize)
 
 		db := &FrozenDB{
 			file:   dbFile,
@@ -705,7 +714,7 @@ func TestGet_PartialRollback(t *testing.T) {
 		data, keys, header := buildTestDatabase(rowSize, rows)
 
 		dbFile := newMockGetDBFile(data, MODE_READ)
-		finder, _ := NewSimpleFinder(dbFile, rowSize)
+		finder, _ := newTestSimpleFinderForGet(dbFile, rowSize)
 
 		db := &FrozenDB{
 			file:   dbFile,
@@ -744,7 +753,7 @@ func TestGet_PartialRollback(t *testing.T) {
 		data, keys, header := buildTestDatabase(rowSize, rows)
 
 		dbFile := newMockGetDBFile(data, MODE_READ)
-		finder, _ := NewSimpleFinder(dbFile, rowSize)
+		finder, _ := newTestSimpleFinderForGet(dbFile, rowSize)
 
 		db := &FrozenDB{
 			file:   dbFile,
@@ -779,7 +788,7 @@ func TestGet_PartialRollback(t *testing.T) {
 		data, keys, header := buildTestDatabase(rowSize, rows)
 
 		dbFile := newMockGetDBFile(data, MODE_READ)
-		finder, _ := NewSimpleFinder(dbFile, rowSize)
+		finder, _ := newTestSimpleFinderForGet(dbFile, rowSize)
 
 		db := &FrozenDB{
 			file:   dbFile,
@@ -817,7 +826,7 @@ func TestGet_ErrorHandling(t *testing.T) {
 		data, keys, header := buildTestDatabase(rowSize, rows)
 
 		dbFile := newMockGetDBFile(data, MODE_READ)
-		finder, _ := NewSimpleFinder(dbFile, rowSize)
+		finder, _ := newTestSimpleFinderForGet(dbFile, rowSize)
 
 		db := &FrozenDB{
 			file:   dbFile,
@@ -845,7 +854,7 @@ func TestGet_ErrorHandling(t *testing.T) {
 		data, keys, header := buildTestDatabase(rowSize, rows)
 
 		dbFile := newMockGetDBFile(data, MODE_READ)
-		finder, _ := NewSimpleFinder(dbFile, rowSize)
+		finder, _ := newTestSimpleFinderForGet(dbFile, rowSize)
 
 		db := &FrozenDB{
 			file:   dbFile,
@@ -878,7 +887,7 @@ func TestGet_ErrorHandling(t *testing.T) {
 		// So inject error on read #3 (during GetIndex in Get())
 		dbFile.injectReadError(3, NewReadError("simulated disk failure", nil))
 
-		finder, finderErr := NewSimpleFinder(dbFile, rowSize)
+		finder, finderErr := newTestSimpleFinderForGet(dbFile, rowSize)
 		if finderErr != nil {
 			t.Fatalf("NewSimpleFinder failed: %v", finderErr)
 		}
@@ -908,7 +917,7 @@ func TestGet_ErrorHandling(t *testing.T) {
 		data, keys, header := buildTestDatabase(rowSize, rows)
 
 		dbFile := newMockGetDBFile(data, MODE_READ)
-		finder, _ := NewSimpleFinder(dbFile, rowSize)
+		finder, _ := newTestSimpleFinderForGet(dbFile, rowSize)
 
 		db := &FrozenDB{
 			file:   dbFile,
@@ -948,7 +957,7 @@ func TestGet_ErrorHandling(t *testing.T) {
 		data = append(data, buildNullRow(rowSize, START_TRANSACTION, NULL_ROW_CONTROL)...)
 
 		dbFile := newMockGetDBFile(data, MODE_READ)
-		finder, _ := NewSimpleFinder(dbFile, rowSize)
+		finder, _ := newTestSimpleFinderForGet(dbFile, rowSize)
 
 		db := &FrozenDB{
 			file:   dbFile,
@@ -984,7 +993,7 @@ func TestGet_Concurrency(t *testing.T) {
 		data, keys, header := buildTestDatabase(rowSize, rows)
 
 		dbFile := newMockGetDBFile(data, MODE_READ)
-		finder, _ := NewSimpleFinder(dbFile, rowSize)
+		finder, _ := newTestSimpleFinderForGet(dbFile, rowSize)
 
 		db := &FrozenDB{
 			file:   dbFile,
@@ -1047,7 +1056,7 @@ func TestGet_Concurrency(t *testing.T) {
 		data, keys, header := buildTestDatabase(rowSize, rows)
 
 		dbFile := newMockGetDBFile(data, MODE_READ)
-		finder, _ := NewSimpleFinder(dbFile, rowSize)
+		finder, _ := newTestSimpleFinderForGet(dbFile, rowSize)
 
 		db := &FrozenDB{
 			file:   dbFile,
@@ -1096,7 +1105,7 @@ func TestGet_Concurrency(t *testing.T) {
 		data, keys, header := buildTestDatabase(rowSize, rows)
 
 		dbFile := newMockGetDBFile(data, MODE_READ)
-		finder, _ := NewSimpleFinder(dbFile, rowSize)
+		finder, _ := newTestSimpleFinderForGet(dbFile, rowSize)
 
 		db := &FrozenDB{
 			file:   dbFile,
@@ -1153,7 +1162,7 @@ func TestGet_WithPartialDataRow(t *testing.T) {
 		data, keys, header := buildTestDatabase(rowSize, rows)
 
 		dbFile := newMockGetDBFile(data, MODE_READ)
-		finder, _ := NewSimpleFinder(dbFile, rowSize)
+		finder, _ := newTestSimpleFinderForGet(dbFile, rowSize)
 
 		db := &FrozenDB{
 			file:   dbFile,
@@ -1182,7 +1191,7 @@ func TestGet_WithPartialDataRow(t *testing.T) {
 		data, keys, header := buildTestDatabase(rowSize, rows)
 
 		dbFile := newMockGetDBFile(data, MODE_READ)
-		finder, _ := NewSimpleFinder(dbFile, rowSize)
+		finder, _ := newTestSimpleFinderForGet(dbFile, rowSize)
 
 		db := &FrozenDB{
 			file:   dbFile,
@@ -1221,7 +1230,7 @@ func TestGet_ComplexScenarios(t *testing.T) {
 		data, keys, header := buildTestDatabase(rowSize, rows)
 
 		dbFile := newMockGetDBFile(data, MODE_READ)
-		finder, _ := NewSimpleFinder(dbFile, rowSize)
+		finder, _ := newTestSimpleFinderForGet(dbFile, rowSize)
 
 		db := &FrozenDB{
 			file:   dbFile,
@@ -1282,7 +1291,7 @@ func TestGet_ComplexScenarios(t *testing.T) {
 		data, keys, header := buildTestDatabase(rowSize, rows)
 
 		dbFile := newMockGetDBFile(data, MODE_READ)
-		finder, _ := NewSimpleFinder(dbFile, rowSize)
+		finder, _ := newTestSimpleFinderForGet(dbFile, rowSize)
 
 		db := &FrozenDB{
 			file:   dbFile,
@@ -1321,7 +1330,7 @@ func TestGet_ComplexScenarios(t *testing.T) {
 		data, keys, header := buildTestDatabase(rowSize, rows)
 
 		dbFile := newMockGetDBFile(data, MODE_READ)
-		finder, _ := NewSimpleFinder(dbFile, rowSize)
+		finder, _ := newTestSimpleFinderForGet(dbFile, rowSize)
 
 		db := &FrozenDB{
 			file:   dbFile,
@@ -1352,7 +1361,7 @@ func TestGet_ComplexScenarios(t *testing.T) {
 		data, keys, header := buildTestDatabase(rowSize, rows)
 
 		dbFile := newMockGetDBFile(data, MODE_READ)
-		finder, _ := NewSimpleFinder(dbFile, rowSize)
+		finder, _ := newTestSimpleFinderForGet(dbFile, rowSize)
 
 		db := &FrozenDB{
 			file:   dbFile,
@@ -1392,7 +1401,7 @@ func BenchmarkGet_SingleRow(b *testing.B) {
 	data, keys, header := buildTestDatabase(rowSize, rows)
 
 	dbFile := newMockGetDBFile(data, MODE_READ)
-	finder, _ := NewSimpleFinder(dbFile, rowSize)
+	finder, _ := newTestSimpleFinderForGet(dbFile, rowSize)
 
 	db := &FrozenDB{
 		file:   dbFile,
@@ -1429,7 +1438,7 @@ func BenchmarkGet_LargeTransaction(b *testing.B) {
 	data, keys, header := buildTestDatabase(rowSize, rows)
 
 	dbFile := newMockGetDBFile(data, MODE_READ)
-	finder, _ := NewSimpleFinder(dbFile, rowSize)
+	finder, _ := newTestSimpleFinderForGet(dbFile, rowSize)
 
 	db := &FrozenDB{
 		file:   dbFile,
@@ -1455,7 +1464,7 @@ func BenchmarkGet_WithSavepoints(b *testing.B) {
 	data, keys, header := buildTestDatabase(rowSize, rows)
 
 	dbFile := newMockGetDBFile(data, MODE_READ)
-	finder, _ := NewSimpleFinder(dbFile, rowSize)
+	finder, _ := newTestSimpleFinderForGet(dbFile, rowSize)
 
 	db := &FrozenDB{
 		file:   dbFile,

@@ -35,19 +35,23 @@ type BinarySearchFinder struct {
 // Parameters:
 //   - dbFile: DBFile interface for reading database rows
 //   - rowSize: Size of each row in bytes (from database header)
+//   - rowEmitter: RowEmitter instance for subscribing to row notifications
 //
 // Returns:
 //   - *BinarySearchFinder: Initialized finder instance
 //   - error: InvalidInputError if parameters are invalid
 //
 // The finder initializes with the current database file size from dbFile.Size(),
-// representing the extent of data confirmed via OnRowAdded() callbacks.
-func NewBinarySearchFinder(dbFile DBFile, rowSize int32) (*BinarySearchFinder, error) {
+// representing the extent of data confirmed via onRowAdded() callbacks.
+func NewBinarySearchFinder(dbFile DBFile, rowSize int32, rowEmitter *RowEmitter) (*BinarySearchFinder, error) {
 	if dbFile == nil {
 		return nil, NewInvalidInputError("dbFile cannot be nil", nil)
 	}
 	if rowSize < 128 || rowSize > 65536 {
 		return nil, NewInvalidInputError(fmt.Sprintf("rowSize must be between 128 and 65536, got %d", rowSize), nil)
+	}
+	if rowEmitter == nil {
+		return nil, NewInvalidInputError("rowEmitter cannot be nil", nil)
 	}
 
 	// Read header to get skewMs
@@ -77,6 +81,12 @@ func NewBinarySearchFinder(dbFile DBFile, rowSize int32) (*BinarySearchFinder, e
 
 	// Initialize maxTimestamp by scanning existing rows
 	if err := bsf.initializeMaxTimestamp(); err != nil {
+		return nil, err
+	}
+
+	// Subscribe to RowEmitter for future row notifications
+	_, err = rowEmitter.Subscribe(bsf.onRowAdded)
+	if err != nil {
 		return nil, err
 	}
 
@@ -421,7 +431,7 @@ func (bsf *BinarySearchFinder) GetTransactionEnd(index int64) (int64, error) {
 	return -1, NewTransactionActiveError("transaction has no ending row", nil)
 }
 
-// OnRowAdded updates the finder's internal state when a new row is added to the database.
+// onRowAdded updates the finder's internal state when a new row is added to the database.
 // This method is called within transaction write lock context and must not attempt
 // to acquire additional locks.
 //
@@ -429,7 +439,7 @@ func (bsf *BinarySearchFinder) GetTransactionEnd(index int64) (int64, error) {
 //
 // Time Complexity: O(1) constant time
 // Space Complexity: O(1) memory update
-func (bsf *BinarySearchFinder) OnRowAdded(index int64, row *RowUnion) error {
+func (bsf *BinarySearchFinder) onRowAdded(index int64, row *RowUnion) error {
 	if row == nil {
 		return NewInvalidInputError("row cannot be nil", nil)
 	}

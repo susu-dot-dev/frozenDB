@@ -82,6 +82,20 @@ func (m *mockSimpleFinderDBFile) appendRow(row []byte) {
 	m.size = int64(len(m.data))
 }
 
+// Helper to create a row emitter for testing
+func newTestRowEmitter(dbFile DBFile, rowSize int32) (*RowEmitter, error) {
+	return NewRowEmitter(dbFile, int(rowSize))
+}
+
+// Helper to create a SimpleFinder with row emitter for testing
+func newTestSimpleFinderWithRowEmitter(dbFile DBFile, rowSize int32) (*SimpleFinder, error) {
+	rowEmitter, err := newTestRowEmitter(dbFile, rowSize)
+	if err != nil {
+		return nil, err
+	}
+	return NewSimpleFinder(dbFile, rowSize, rowEmitter)
+}
+
 // =============================================================================
 // NewSimpleFinder Constructor Tests
 // =============================================================================
@@ -102,7 +116,7 @@ func TestNewSimpleFinder_ValidInputs(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			dbFile := newMockDBFileWithHeader(tt.rowSize)
-			sf, err := NewSimpleFinder(dbFile, tt.rowSize)
+			sf, err := newTestSimpleFinderWithRowEmitter(dbFile, tt.rowSize)
 			if err != nil {
 				t.Fatalf("NewSimpleFinder failed: %v", err)
 			}
@@ -162,7 +176,7 @@ func TestNewSimpleFinder_InvalidInputs(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			sf, err := NewSimpleFinder(tt.dbFile, tt.rowSize)
+			sf, err := newTestSimpleFinderWithRowEmitter(tt.dbFile, tt.rowSize)
 			if err == nil {
 				t.Error("NewSimpleFinder should return error")
 			}
@@ -191,7 +205,7 @@ func TestNewSimpleFinder_InitializesSize(t *testing.T) {
 		dbFile.appendRow(row)
 	}
 
-	sf, err := NewSimpleFinder(dbFile, rowSize)
+	sf, err := newTestSimpleFinderWithRowEmitter(dbFile, rowSize)
 	if err != nil {
 		t.Fatalf("NewSimpleFinder failed: %v", err)
 	}
@@ -216,7 +230,7 @@ func TestGetIndex_EmptyDatabase(t *testing.T) {
 	checksumRow := createMockChecksumRow(rowSize)
 	dbFile.appendRow(checksumRow)
 
-	sf, _ := NewSimpleFinder(dbFile, rowSize)
+	sf, _ := newTestSimpleFinderWithRowEmitter(dbFile, rowSize)
 
 	testKey := uuid.Must(uuid.NewV7())
 	_, err := sf.GetIndex(testKey)
@@ -243,7 +257,7 @@ func TestGetIndex_SingleRow(t *testing.T) {
 	dataRow := createMockDataRow(rowSize, testKey, json.RawMessage(`{"value":"test"}`))
 	dbFile.appendRow(dataRow)
 
-	sf, _ := NewSimpleFinder(dbFile, rowSize)
+	sf, _ := newTestSimpleFinderWithRowEmitter(dbFile, rowSize)
 
 	index, err := sf.GetIndex(testKey)
 	if err != nil {
@@ -271,7 +285,7 @@ func TestGetIndex_MultipleRows(t *testing.T) {
 		dbFile.appendRow(dataRow)
 	}
 
-	sf, _ := NewSimpleFinder(dbFile, rowSize)
+	sf, _ := newTestSimpleFinderWithRowEmitter(dbFile, rowSize)
 
 	// Test finding each key
 	for i, key := range keys {
@@ -306,7 +320,7 @@ func TestGetIndex_SkipsNonDataRows(t *testing.T) {
 	otherKey := uuid.Must(uuid.NewV7())
 	dbFile.appendRow(createMockDataRow(rowSize, otherKey, json.RawMessage(`{"value":"other"}`)))
 
-	sf, _ := NewSimpleFinder(dbFile, rowSize)
+	sf, _ := newTestSimpleFinderWithRowEmitter(dbFile, rowSize)
 
 	// Should find target key at index 1
 	index, err := sf.GetIndex(targetKey)
@@ -340,7 +354,7 @@ func TestGetIndex_ReturnsFirstMatch(t *testing.T) {
 	dbFile.appendRow(createMockDataRow(rowSize, duplicateKey, json.RawMessage(`{"instance":"first"}`)))
 	dbFile.appendRow(createMockDataRow(rowSize, duplicateKey, json.RawMessage(`{"instance":"second"}`)))
 
-	sf, _ := NewSimpleFinder(dbFile, rowSize)
+	sf, _ := newTestSimpleFinderWithRowEmitter(dbFile, rowSize)
 
 	index, err := sf.GetIndex(duplicateKey)
 	if err != nil {
@@ -358,7 +372,7 @@ func TestGetIndex_InvalidInputs(t *testing.T) {
 	dbFile := newMockDBFileWithHeader(rowSize)
 	dbFile.appendRow(createMockChecksumRow(rowSize))
 
-	sf, _ := NewSimpleFinder(dbFile, rowSize)
+	sf, _ := newTestSimpleFinderWithRowEmitter(dbFile, rowSize)
 
 	tests := []struct {
 		name    string
@@ -407,7 +421,7 @@ func TestGetIndex_CorruptRowReturnsError(t *testing.T) {
 	targetKey := uuid.Must(uuid.NewV7())
 	dbFile.appendRow(createMockDataRow(rowSize, targetKey, json.RawMessage(`{"value":"valid"}`)))
 
-	sf, _ := NewSimpleFinder(dbFile, rowSize)
+	sf, _ := newTestSimpleFinderWithRowEmitter(dbFile, rowSize)
 
 	// Should return CorruptDatabaseError when encountering corrupt row
 	_, err := sf.GetIndex(targetKey)
@@ -442,7 +456,7 @@ func TestGetIndex_WithPartialDataRowAtEnd(t *testing.T) {
 	partialBytes[1] = 'T'
 	dbFile.appendRow(partialBytes)
 
-	sf, _ := NewSimpleFinder(dbFile, rowSize)
+	sf, _ := newTestSimpleFinderWithRowEmitter(dbFile, rowSize)
 
 	// Should find the complete row
 	index, err := sf.GetIndex(completeKey)
@@ -486,7 +500,7 @@ func TestNewSimpleFinder_DatabaseEndsWithPartialDataRow(t *testing.T) {
 	dbFile.appendRow(partialBytes)
 
 	// Create SimpleFinder - should handle partial row gracefully
-	sf, err := NewSimpleFinder(dbFile, rowSize)
+	sf, err := newTestSimpleFinderWithRowEmitter(dbFile, rowSize)
 	if err != nil {
 		t.Fatalf("NewSimpleFinder failed: %v", err)
 	}
@@ -525,7 +539,7 @@ func TestGetTransactionBoundaries_WithPartialDataRow(t *testing.T) {
 	partialBytes[1] = 'T'
 	dbFile.appendRow(partialBytes)
 
-	sf, _ := NewSimpleFinder(dbFile, rowSize)
+	sf, _ := newTestSimpleFinderWithRowEmitter(dbFile, rowSize)
 
 	// GetTransactionStart/End should work on complete transaction
 	start, err := sf.GetTransactionStart(1)
@@ -564,7 +578,7 @@ func TestGetTransactionStart_SingleRowTransaction(t *testing.T) {
 	dbFile.appendRow(createMockChecksumRow(rowSize))
 	dbFile.appendRow(createMockSingleRowTransaction(rowSize))
 
-	sf, _ := NewSimpleFinder(dbFile, rowSize)
+	sf, _ := newTestSimpleFinderWithRowEmitter(dbFile, rowSize)
 
 	start, err := sf.GetTransactionStart(1)
 	if err != nil {
@@ -588,7 +602,7 @@ func TestGetTransactionStart_MultiRowTransaction(t *testing.T) {
 	dbFile.appendRow(createMockTransactionContinueRow(rowSize)) // Index 2: start_control='R', end_control='RE'
 	dbFile.appendRow(createMockTransactionEndRow(rowSize))      // Index 3: start_control='R', end_control='TC'
 
-	sf, _ := NewSimpleFinder(dbFile, rowSize)
+	sf, _ := newTestSimpleFinderWithRowEmitter(dbFile, rowSize)
 
 	// All rows in transaction should point to start at index 1
 	for i := int64(1); i <= 3; i++ {
@@ -620,7 +634,7 @@ func TestGetTransactionStart_SkipsChecksumRows(t *testing.T) {
 	// Index 3: Transaction continue (should scan backward past checksum)
 	dbFile.appendRow(createMockTransactionContinueRow(rowSize))
 
-	sf, _ := NewSimpleFinder(dbFile, rowSize)
+	sf, _ := newTestSimpleFinderWithRowEmitter(dbFile, rowSize)
 
 	// Calling on index 3 should skip checksum at 2 and find start at 1
 	start, err := sf.GetTransactionStart(3)
@@ -641,7 +655,7 @@ func TestGetTransactionStart_InvalidInputs(t *testing.T) {
 	dbFile.appendRow(createMockChecksumRow(rowSize))
 	dbFile.appendRow(createMockSingleRowTransaction(rowSize))
 
-	sf, _ := NewSimpleFinder(dbFile, rowSize)
+	sf, _ := newTestSimpleFinderWithRowEmitter(dbFile, rowSize)
 
 	tests := []struct {
 		name    string
@@ -679,7 +693,7 @@ func TestGetTransactionEnd_SingleRowTransaction(t *testing.T) {
 	dbFile.appendRow(createMockChecksumRow(rowSize))
 	dbFile.appendRow(createMockSingleRowTransaction(rowSize))
 
-	sf, _ := NewSimpleFinder(dbFile, rowSize)
+	sf, _ := newTestSimpleFinderWithRowEmitter(dbFile, rowSize)
 
 	end, err := sf.GetTransactionEnd(1)
 	if err != nil {
@@ -703,7 +717,7 @@ func TestGetTransactionEnd_MultiRowTransaction(t *testing.T) {
 	dbFile.appendRow(createMockTransactionContinueRow(rowSize))
 	dbFile.appendRow(createMockTransactionEndRow(rowSize))
 
-	sf, _ := NewSimpleFinder(dbFile, rowSize)
+	sf, _ := newTestSimpleFinderWithRowEmitter(dbFile, rowSize)
 
 	// All rows in transaction should point to end at index 3
 	for i := int64(1); i <= 3; i++ {
@@ -726,7 +740,7 @@ func TestGetTransactionEnd_NullRowTransaction(t *testing.T) {
 	dbFile.appendRow(createMockChecksumRow(rowSize))
 	dbFile.appendRow(createMockNullRow(rowSize)) // Index 1: NullRow ends transaction
 
-	sf, _ := NewSimpleFinder(dbFile, rowSize)
+	sf, _ := newTestSimpleFinderWithRowEmitter(dbFile, rowSize)
 
 	end, err := sf.GetTransactionEnd(1)
 	if err != nil {
@@ -749,7 +763,7 @@ func TestGetTransactionEnd_ActiveTransaction(t *testing.T) {
 	dbFile.appendRow(createMockTransactionStartRow(rowSize))
 	dbFile.appendRow(createMockTransactionContinueRow(rowSize))
 
-	sf, _ := NewSimpleFinder(dbFile, rowSize)
+	sf, _ := newTestSimpleFinderWithRowEmitter(dbFile, rowSize)
 
 	_, err := sf.GetTransactionEnd(1)
 	if err == nil {
@@ -771,7 +785,7 @@ func TestGetTransactionEnd_SkipsChecksumRows(t *testing.T) {
 	dbFile.appendRow(createMockChecksumRow(rowSize))         // Index 2
 	dbFile.appendRow(createMockTransactionEndRow(rowSize))   // Index 3
 
-	sf, _ := NewSimpleFinder(dbFile, rowSize)
+	sf, _ := newTestSimpleFinderWithRowEmitter(dbFile, rowSize)
 
 	end, err := sf.GetTransactionEnd(1)
 	if err != nil {
@@ -791,7 +805,7 @@ func TestGetTransactionEnd_InvalidInputs(t *testing.T) {
 	dbFile.appendRow(createMockChecksumRow(rowSize))
 	dbFile.appendRow(createMockSingleRowTransaction(rowSize))
 
-	sf, _ := NewSimpleFinder(dbFile, rowSize)
+	sf, _ := newTestSimpleFinderWithRowEmitter(dbFile, rowSize)
 
 	tests := []struct {
 		name  string
@@ -826,7 +840,7 @@ func TestOnRowAdded_UpdatesSize(t *testing.T) {
 	dbFile := newMockDBFileWithHeader(rowSize)
 	dbFile.appendRow(createMockChecksumRow(rowSize))
 
-	sf, _ := NewSimpleFinder(dbFile, rowSize)
+	sf, _ := newTestSimpleFinderWithRowEmitter(dbFile, rowSize)
 
 	initialSize := sf.size
 
@@ -862,7 +876,7 @@ func TestOnRowAdded_ValidatesIndex(t *testing.T) {
 
 	rowSize := int32(256)
 	dbFile := newMockDBFileWithHeader(rowSize)
-	sf, _ := NewSimpleFinder(dbFile, rowSize)
+	sf, _ := newTestSimpleFinderWithRowEmitter(dbFile, rowSize)
 
 	row := &RowUnion{
 		DataRow: &DataRow{
@@ -909,7 +923,7 @@ func TestOnRowAdded_RejectsNilRow(t *testing.T) {
 
 	rowSize := int32(256)
 	dbFile := newMockDBFileWithHeader(rowSize)
-	sf, _ := NewSimpleFinder(dbFile, rowSize)
+	sf, _ := newTestSimpleFinderWithRowEmitter(dbFile, rowSize)
 
 	err := sf.OnRowAdded(0, nil)
 	if err == nil {
@@ -925,7 +939,7 @@ func TestOnRowAdded_SequentialIndexing(t *testing.T) {
 
 	rowSize := int32(256)
 	dbFile := newMockDBFileWithHeader(rowSize)
-	sf, _ := NewSimpleFinder(dbFile, rowSize)
+	sf, _ := newTestSimpleFinderWithRowEmitter(dbFile, rowSize)
 
 	// Add rows sequentially
 	for i := int64(0); i < 10; i++ {
@@ -974,7 +988,7 @@ func TestSimpleFinder_ConcurrentReads(t *testing.T) {
 		dbFile.appendRow(createMockDataRow(rowSize, keys[i], json.RawMessage(fmt.Sprintf(`{"i":%d}`, i))))
 	}
 
-	sf, _ := NewSimpleFinder(dbFile, rowSize)
+	sf, _ := newTestSimpleFinderWithRowEmitter(dbFile, rowSize)
 
 	// Concurrent GetIndex calls
 	const numGoroutines = 10
