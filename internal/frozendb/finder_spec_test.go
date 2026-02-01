@@ -8,6 +8,16 @@ import (
 	"github.com/google/uuid"
 )
 
+// createTestRowEmitterForFinder creates a RowEmitter for testing purposes
+func createTestRowEmitterForFinder(t *testing.T, dbFile DBFile, rowSize int32) *RowEmitter {
+	t.Helper()
+	emitter, err := NewRowEmitter(dbFile, int(rowSize))
+	if err != nil {
+		t.Fatalf("Failed to create RowEmitter: %v", err)
+	}
+	return emitter
+}
+
 // Test_S_023_FR_001_MaxTimestamp_Method_Required validates that the Finder interface
 // includes the MaxTimestamp() method as required by FR-001.
 func Test_S_023_FR_001_MaxTimestamp_Method_Required(t *testing.T) {
@@ -27,7 +37,8 @@ func Test_S_023_FR_001_MaxTimestamp_Method_Required(t *testing.T) {
 	defer dbFile.Close()
 
 	// Create SimpleFinder and verify it implements Finder interface with MaxTimestamp()
-	sf, err := NewSimpleFinder(dbFile, 1024)
+	rowEmitter := createTestRowEmitterForFinder(t, dbFile, 1024)
+	sf, err := NewSimpleFinder(dbFile, 1024, rowEmitter)
 	if err != nil {
 		t.Fatalf("Failed to create SimpleFinder: %v", err)
 	}
@@ -39,7 +50,8 @@ func Test_S_023_FR_001_MaxTimestamp_Method_Required(t *testing.T) {
 	_ = finder.MaxTimestamp()
 
 	// Create InMemoryFinder and verify it also implements MaxTimestamp()
-	imf, err := NewInMemoryFinder(dbFile, 1024)
+	rowEmitter2 := createTestRowEmitterForFinder(t, dbFile, 1024)
+	imf, err := NewInMemoryFinder(dbFile, 1024, rowEmitter2)
 	if err != nil {
 		t.Fatalf("Failed to create InMemoryFinder: %v", err)
 	}
@@ -95,12 +107,14 @@ func Test_S_023_FR_002_O1_Time_Complexity(t *testing.T) {
 	}
 	defer dbFile.Close()
 
-	sf, err := NewSimpleFinder(dbFile, 1024)
+	rowEmitter := createTestRowEmitterForFinder(t, dbFile, 1024)
+	sf, err := NewSimpleFinder(dbFile, 1024, rowEmitter)
 	if err != nil {
 		t.Fatalf("Failed to create SimpleFinder: %v", err)
 	}
 
-	imf, err := NewInMemoryFinder(dbFile, 1024)
+	rowEmitter2 := createTestRowEmitterForFinder(t, dbFile, 1024)
+	imf, err := NewInMemoryFinder(dbFile, 1024, rowEmitter2)
 	if err != nil {
 		t.Fatalf("Failed to create InMemoryFinder: %v", err)
 	}
@@ -136,7 +150,8 @@ func Test_S_023_FR_003_Returns_Zero_Empty(t *testing.T) {
 	defer dbFile.Close()
 
 	// Test SimpleFinder
-	sf, err := NewSimpleFinder(dbFile, 1024)
+	rowEmitter := createTestRowEmitterForFinder(t, dbFile, 1024)
+	sf, err := NewSimpleFinder(dbFile, 1024, rowEmitter)
 	if err != nil {
 		t.Fatalf("Failed to create SimpleFinder: %v", err)
 	}
@@ -147,7 +162,8 @@ func Test_S_023_FR_003_Returns_Zero_Empty(t *testing.T) {
 	}
 
 	// Test InMemoryFinder
-	imf, err := NewInMemoryFinder(dbFile, 1024)
+	rowEmitter2 := createTestRowEmitterForFinder(t, dbFile, 1024)
+	imf, err := NewInMemoryFinder(dbFile, 1024, rowEmitter2)
 	if err != nil {
 		t.Fatalf("Failed to create InMemoryFinder: %v", err)
 	}

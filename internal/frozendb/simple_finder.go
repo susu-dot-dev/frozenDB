@@ -33,6 +33,7 @@ type SimpleFinder struct {
 // Parameters:
 //   - dbFile: DBFile interface for reading database rows
 //   - rowSize: Size of each row in bytes (from database header)
+//   - rowEmitter: RowEmitter for receiving row completion notifications
 //
 // Returns:
 //   - *SimpleFinder: Initialized finder instance
@@ -40,12 +41,15 @@ type SimpleFinder struct {
 //
 // The finder initializes with the current database file size from dbFile.Size(),
 // representing the extent of data confirmed via OnRowAdded() callbacks.
-func NewSimpleFinder(dbFile DBFile, rowSize int32) (*SimpleFinder, error) {
+func NewSimpleFinder(dbFile DBFile, rowSize int32, rowEmitter *RowEmitter) (*SimpleFinder, error) {
 	if dbFile == nil {
 		return nil, NewInvalidInputError("dbFile cannot be nil", nil)
 	}
 	if rowSize < 128 || rowSize > 65536 {
 		return nil, NewInvalidInputError(fmt.Sprintf("rowSize must be between 128 and 65536, got %d", rowSize), nil)
+	}
+	if rowEmitter == nil {
+		return nil, NewInvalidInputError("rowEmitter cannot be nil", nil)
 	}
 
 	sf := &SimpleFinder{
@@ -57,6 +61,12 @@ func NewSimpleFinder(dbFile DBFile, rowSize int32) (*SimpleFinder, error) {
 
 	// Initialize maxTimestamp by scanning existing rows
 	if err := sf.initializeMaxTimestamp(); err != nil {
+		return nil, err
+	}
+
+	// Subscribe to row emitter to update size when rows are added
+	_, err := rowEmitter.Subscribe(sf.OnRowAdded)
+	if err != nil {
 		return nil, err
 	}
 

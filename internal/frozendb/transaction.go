@@ -182,12 +182,6 @@ func (tx *Transaction) insertChecksum(bytes []byte) error {
 		return err
 	}
 
-	// Notify finder of new checksum row
-	rowUnion := &RowUnion{ChecksumRow: checksumRow}
-	if err := tx.notifyFinderRowAdded(rowUnion); err != nil {
-		return err
-	}
-
 	return nil
 }
 
@@ -294,18 +288,6 @@ func (tx *Transaction) writeBytes(fullBytes []byte) error {
 		tx.tombstone = true
 		return NewWriteError("write channel is full or closed", nil)
 	}
-}
-
-// notifyFinderRowAdded notifies the finder that a complete row was added, if finder is set.
-// Should be called after a complete row (DataRow, NullRow, or ChecksumRow) is successfully written.
-func (tx *Transaction) notifyFinderRowAdded(row *RowUnion) error {
-	// Calculate the row index based on current file size
-	fileSize := tx.db.Size()
-	rowSize := tx.Header.GetRowSize()
-	// Index of the row that was just written
-	index := (fileSize - int64(HEADER_SIZE) - int64(rowSize)) / int64(rowSize)
-
-	return tx.finder.OnRowAdded(index, row)
 }
 
 // Begin initializes an empty transaction by creating a PartialDataRow in
@@ -501,12 +483,6 @@ func (tx *Transaction) AddRow(key uuid.UUID, value json.RawMessage) error {
 		tx.rows = append(tx.rows, *dataRow)
 		tx.rowBytesWritten = 0 // Reset for new partial row
 
-		// Notify finder of new row
-		rowUnion := &RowUnion{DataRow: dataRow}
-		if err := tx.notifyFinderRowAdded(rowUnion); err != nil {
-			return err
-		}
-
 		// Check and insert checksum row if needed (after complete DataRow write)
 		if err := tx.checkAndInsertChecksum(); err != nil {
 			return err
@@ -635,12 +611,6 @@ func (tx *Transaction) Commit() error {
 		tx.last = nil
 		tx.rowBytesWritten = 0
 
-		// Notify finder of new row
-		rowUnion := &RowUnion{NullRow: nullRow}
-		if err := tx.notifyFinderRowAdded(rowUnion); err != nil {
-			return err
-		}
-
 		// Check and insert checksum row if needed (after NullRow write)
 		if err := tx.checkAndInsertChecksum(); err != nil {
 			return err
@@ -688,13 +658,7 @@ func (tx *Transaction) Commit() error {
 	tx.last = nil
 	tx.rowBytesWritten = 0
 
-	// Notify finder of new row
-	rowUnion := &RowUnion{DataRow: dataRow}
-	if err := tx.notifyFinderRowAdded(rowUnion); err != nil {
-		return err
-	}
-
-	// Check and insert checksum row if needed (after DataRow commit)
+	// Check and insert checksum row if needed (after NullRow write)
 	if err := tx.checkAndInsertChecksum(); err != nil {
 		return err
 	}
@@ -949,12 +913,6 @@ func (tx *Transaction) Rollback(savepointId int) error {
 		tx.last = nil
 		tx.rowBytesWritten = 0
 
-		// Notify finder of new row
-		rowUnion := &RowUnion{NullRow: nullRow}
-		if err := tx.notifyFinderRowAdded(rowUnion); err != nil {
-			return err
-		}
-
 		// Check and insert checksum row if needed (after NullRow write)
 		if err := tx.checkAndInsertChecksum(); err != nil {
 			return err
@@ -994,12 +952,6 @@ func (tx *Transaction) Rollback(savepointId int) error {
 	tx.rows = append(tx.rows, *dataRow)
 	tx.last = nil
 	tx.rowBytesWritten = 0
-
-	// Notify finder of new row
-	rowUnion := &RowUnion{DataRow: dataRow}
-	if err := tx.notifyFinderRowAdded(rowUnion); err != nil {
-		return err
-	}
 
 	// Check and insert checksum row if needed (after rollback DataRow write)
 	if err := tx.checkAndInsertChecksum(); err != nil {

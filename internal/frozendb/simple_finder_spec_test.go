@@ -8,6 +8,20 @@ import (
 	"github.com/google/uuid"
 )
 
+// Helper to create a SimpleFinder with row emitter for spec tests
+func newTestSimpleFinderForSpec(t *testing.T, dbFile DBFile, rowSize int32) *SimpleFinder {
+	t.Helper()
+	rowEmitter, err := NewRowEmitter(dbFile, int(rowSize))
+	if err != nil {
+		t.Fatalf("Failed to create RowEmitter: %v", err)
+	}
+	sf, err := NewSimpleFinder(dbFile, rowSize, rowEmitter)
+	if err != nil {
+		t.Fatalf("Failed to create SimpleFinder: %v", err)
+	}
+	return sf
+}
+
 // Test_S_019_FR_001_FinderInterfaceDefinition validates that the Finder interface
 // is properly defined with all required methods.
 func Test_S_019_FR_001_FinderInterfaceDefinition(t *testing.T) {
@@ -32,10 +46,7 @@ func Test_S_019_FR_001_FinderInterfaceDefinition(t *testing.T) {
 	defer dbFile.Close()
 
 	// Create SimpleFinder and verify it implements Finder interface
-	sf, err := NewSimpleFinder(dbFile, 1024)
-	if err != nil {
-		t.Fatalf("Failed to create SimpleFinder: %v", err)
-	}
+	sf := newTestSimpleFinderForSpec(t, dbFile, 1024)
 
 	// Verify SimpleFinder implements Finder interface by type assertion
 	var _ Finder = sf
@@ -102,10 +113,7 @@ func Test_S_019_FR_002_GetIndexReturnsCorrectIndex(t *testing.T) {
 	}
 	defer dbFile.Close()
 
-	sf, err := NewSimpleFinder(dbFile, 1024)
-	if err != nil {
-		t.Fatalf("Failed to create SimpleFinder: %v", err)
-	}
+	sf := newTestSimpleFinderForSpec(t, dbFile, 1024)
 
 	// Test: Find first UUID (should be at index 1 - after initial checksum at index 0)
 	index1, err := sf.GetIndex(uuid1)
@@ -192,10 +200,7 @@ func Test_S_019_FR_007_SimpleFinderImplementation(t *testing.T) {
 	}
 	defer dbFile.Close()
 
-	sf, err := NewSimpleFinder(dbFile, 1024)
-	if err != nil {
-		t.Fatalf("Failed to create SimpleFinder: %v", err)
-	}
+	sf := newTestSimpleFinderForSpec(t, dbFile, 1024)
 
 	// Verify SimpleFinder implements Finder interface
 	var finder Finder = sf
@@ -241,10 +246,7 @@ func Test_S_019_FR_007_SimpleFinderImplementation(t *testing.T) {
 	}
 	defer dbFile2.Close()
 
-	sf2, err := NewSimpleFinder(dbFile2, 1024)
-	if err != nil {
-		t.Fatalf("Failed to create second SimpleFinder: %v", err)
-	}
+	sf2 := newTestSimpleFinderForSpec(t, dbFile2, 1024)
 
 	index, err := sf2.GetIndex(duplicateUUID)
 	if err != nil {
@@ -316,10 +318,7 @@ func Test_S_019_FR_003_GetTransactionStartReturnsCorrectIndex(t *testing.T) {
 	}
 	defer dbFile.Close()
 
-	sf, err := NewSimpleFinder(dbFile, 1024)
-	if err != nil {
-		t.Fatalf("Failed to create SimpleFinder: %v", err)
-	}
+	sf := newTestSimpleFinderForSpec(t, dbFile, 1024)
 
 	// Test: All rows in transaction 1 should point to index 1 (first data row)
 	// Indices: 0=checksum, 1-3=tx1, 4-5=tx2
@@ -404,10 +403,7 @@ func Test_S_019_FR_004_GetTransactionEndReturnsCorrectIndex(t *testing.T) {
 	}
 	defer dbFile.Close()
 
-	sf, err := NewSimpleFinder(dbFile, 1024)
-	if err != nil {
-		t.Fatalf("Failed to create SimpleFinder: %v", err)
-	}
+	sf := newTestSimpleFinderForSpec(t, dbFile, 1024)
 
 	// Test: All rows in transaction 1 should point to index 3 (last row of tx1)
 	// Indices: 0=checksum, 1-3=tx1, 4-5=tx2
@@ -473,10 +469,7 @@ func Test_S_019_FR_005_TransactionBoundaryErrors(t *testing.T) {
 	}
 	defer dbFile.Close()
 
-	sf, err := NewSimpleFinder(dbFile, 1024)
-	if err != nil {
-		t.Fatalf("Failed to create SimpleFinder: %v", err)
-	}
+	sf := newTestSimpleFinderForSpec(t, dbFile, 1024)
 
 	// Test: Negative index
 	_, err = sf.GetTransactionStart(-1)
@@ -576,10 +569,7 @@ func Test_S_019_FR_006_OnRowAddedUpdatesState(t *testing.T) {
 	}
 	defer dbFile.Close()
 
-	sf, err := NewSimpleFinder(dbFile, 1024)
-	if err != nil {
-		t.Fatalf("Failed to create SimpleFinder: %v", err)
-	}
+	sf := newTestSimpleFinderForSpec(t, dbFile, 1024)
 
 	// The row should be findable after OnRowAdded was called during AddRow
 	index, err := sf.GetIndex(testUUID)
@@ -658,10 +648,7 @@ func Test_S_019_FR_008_DirectLinearScanning(t *testing.T) {
 	}
 	defer dbFile1.Close()
 
-	sf1, err := NewSimpleFinder(dbFile1, 1024)
-	if err != nil {
-		t.Fatalf("Failed to create SimpleFinder 1: %v", err)
-	}
+	sf1 := newTestSimpleFinderForSpec(t, dbFile1, 1024)
 
 	dbFile2, err := NewDBFile(dbPath, MODE_READ)
 	if err != nil {
@@ -669,10 +656,7 @@ func Test_S_019_FR_008_DirectLinearScanning(t *testing.T) {
 	}
 	defer dbFile2.Close()
 
-	sf2, err := NewSimpleFinder(dbFile2, 1024)
-	if err != nil {
-		t.Fatalf("Failed to create SimpleFinder 2: %v", err)
-	}
+	sf2 := newTestSimpleFinderForSpec(t, dbFile2, 1024)
 
 	// Both finders should find the same UUID at the same index (no caching differences)
 	index1, err := sf1.GetIndex(testUUID)
@@ -771,10 +755,7 @@ func Test_S_019_FR_009_HandlesAllRowTypes(t *testing.T) {
 	}
 	defer dbFile.Close()
 
-	sf, err := NewSimpleFinder(dbFile, 1024)
-	if err != nil {
-		t.Fatalf("Failed to create SimpleFinder: %v", err)
-	}
+	sf := newTestSimpleFinderForSpec(t, dbFile, 1024)
 
 	// Test: GetIndex should skip checksum and null rows
 	index1, err := sf.GetIndex(uuid1)
@@ -902,10 +883,7 @@ func Test_S_019_FR_010_TransactionBoundaryDetection(t *testing.T) {
 	}
 	defer dbFile.Close()
 
-	sf, err := NewSimpleFinder(dbFile, 1024)
-	if err != nil {
-		t.Fatalf("Failed to create SimpleFinder: %v", err)
-	}
+	sf := newTestSimpleFinderForSpec(t, dbFile, 1024)
 
 	// Test transaction 1: single row (index 1)
 	// start_control='T', end_control='TC'

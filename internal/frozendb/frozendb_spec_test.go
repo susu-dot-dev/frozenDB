@@ -4209,3 +4209,123 @@ func Test_S_021_FR_009_NewFrozenDBSignatureUpdate(t *testing.T) {
 	}
 	_ = db.Close()
 }
+
+// Test_S_038_FR_007_RowEmitter_Delivers_Notifications_Correctly validates that
+// Finders receive row notifications in correct order with accurate (index, row) data
+// through RowEmitter subscription mechanism.
+// FR-007: Transaction → DBFile → RowEmitter → Finder notification pipeline
+func Test_S_038_FR_007_RowEmitter_Delivers_Notifications_Correctly(t *testing.T) {
+	testPath := filepath.Join(t.TempDir(), "fr007.fdb")
+	createTestDatabase(t, testPath)
+
+	// Open database in write mode with InMemoryFinder (uses RowEmitter subscriptions)
+	db, err := NewFrozenDB(testPath, MODE_WRITE, FinderStrategyInMemory)
+	if err != nil {
+		t.Fatalf("NewFrozenDB failed: %v", err)
+	}
+	defer db.Close()
+
+	// Since RowEmitter is internal initialization glue, we verify through Finder behavior
+	// The finder will receive notifications via RowEmitter subscriptions
+
+	// Begin transaction
+	tx, err := db.BeginTx()
+	if err != nil {
+		t.Fatalf("BeginTx failed: %v", err)
+	}
+
+	// Add multiple rows
+	key1 := uuid.Must(uuid.NewV7())
+	key2 := uuid.Must(uuid.NewV7())
+	key3 := uuid.Must(uuid.NewV7())
+
+	value1JSON := json.RawMessage(`{"name":"alice","age":30}`)
+	value2JSON := json.RawMessage(`{"name":"bob","age":25}`)
+	value3JSON := json.RawMessage(`{"name":"charlie","age":35}`)
+
+	if err := tx.AddRow(key1, value1JSON); err != nil {
+		t.Fatalf("AddRow key1 failed: %v", err)
+	}
+	if err := tx.AddRow(key2, value2JSON); err != nil {
+		t.Fatalf("AddRow key2 failed: %v", err)
+	}
+	if err := tx.AddRow(key3, value3JSON); err != nil {
+		t.Fatalf("AddRow key3 failed: %v", err)
+	}
+
+	// Commit transaction (this triggers RowEmitter notifications)
+	if err := tx.Commit(); err != nil {
+		t.Fatalf("Commit failed: %v", err)
+	}
+
+	// Verify that Finder received notifications by checking it can find all keys
+	// If RowEmitter notification pipeline works, InMemoryFinder will have indexed all keys
+
+	// Check key1 is findable
+	index1, err := db.finder.GetIndex(key1)
+	if err != nil {
+		t.Errorf("GetIndex(key1) failed: %v (RowEmitter notification may not have reached Finder)", err)
+	}
+	if index1 < 1 {
+		t.Errorf("GetIndex(key1) returned invalid index %d (expected >= 1)", index1)
+	}
+
+	// Check key2 is findable
+	index2, err := db.finder.GetIndex(key2)
+	if err != nil {
+		t.Errorf("GetIndex(key2) failed: %v (RowEmitter notification may not have reached Finder)", err)
+	}
+	if index2 < 1 {
+		t.Errorf("GetIndex(key2) returned invalid index %d (expected >= 1)", index2)
+	}
+
+	// Check key3 is findable
+	index3, err := db.finder.GetIndex(key3)
+	if err != nil {
+		t.Errorf("GetIndex(key3) failed: %v (RowEmitter notification may not have reached Finder)", err)
+	}
+	if index3 < 1 {
+		t.Errorf("GetIndex(key3) returned invalid index %d (expected >= 1)", index3)
+	}
+
+	// Verify indexes are in order (row 1, 2, 3 after initial checksum at row 0)
+	if index1 >= index2 || index2 >= index3 {
+		t.Errorf("Indexes not in order: index1=%d, index2=%d, index3=%d", index1, index2, index3)
+	}
+
+	// Verify we can retrieve the values (proves notifications included correct data)
+	type TestValue struct {
+		Name string `json:"name"`
+		Age  int    `json:"age"`
+	}
+
+	var retrievedValue1 TestValue
+	if err := db.Get(key1, &retrievedValue1); err != nil {
+		t.Errorf("Get(key1) failed: %v", err)
+	}
+	if retrievedValue1.Name != "alice" || retrievedValue1.Age != 30 {
+		t.Errorf("Get(key1) returned wrong value: got %+v, want {Name:alice Age:30}", retrievedValue1)
+	}
+
+	var retrievedValue2 TestValue
+	if err := db.Get(key2, &retrievedValue2); err != nil {
+		t.Errorf("Get(key2) failed: %v", err)
+	}
+	if retrievedValue2.Name != "bob" || retrievedValue2.Age != 25 {
+		t.Errorf("Get(key2) returned wrong value: got %+v, want {Name:bob Age:25}", retrievedValue2)
+	}
+
+	var retrievedValue3 TestValue
+	if err := db.Get(key3, &retrievedValue3); err != nil {
+		t.Errorf("Get(key3) failed: %v", err)
+	}
+	if retrievedValue3.Name != "charlie" || retrievedValue3.Age != 35 {
+		t.Errorf("Get(key3) returned wrong value: got %+v, want {Name:charlie Age:35}", retrievedValue3)
+	}
+
+	// Additional verification: Ensure the notification mechanism preserves timestamp ordering
+	maxTS := db.finder.MaxTimestamp()
+	if maxTS == 0 {
+		t.Error("MaxTimestamp is 0 after adding rows (RowEmitter notifications may not have updated Finder state)")
+	}
+}

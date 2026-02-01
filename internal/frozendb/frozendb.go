@@ -78,14 +78,22 @@ func NewFrozenDB(path string, mode string, strategy FinderStrategy) (*FrozenDB, 
 	}
 
 	rowSize := int32(header.GetRowSize())
+
+	// Create RowEmitter for all finder strategies
+	rowEmitter, err := NewRowEmitter(dbFile, int(rowSize))
+	if err != nil {
+		cleanupErr = err
+		return nil, err
+	}
+
 	var finder Finder
 	switch strategy {
 	case FinderStrategySimple:
-		finder, err = NewSimpleFinder(dbFile, rowSize)
+		finder, err = NewSimpleFinder(dbFile, rowSize, rowEmitter)
 	case FinderStrategyInMemory:
-		finder, err = NewInMemoryFinder(dbFile, rowSize)
+		finder, err = NewInMemoryFinder(dbFile, rowSize, rowEmitter)
 	case FinderStrategyBinarySearch:
-		finder, err = NewBinarySearchFinder(dbFile, rowSize)
+		finder, err = NewBinarySearchFinder(dbFile, rowSize, rowEmitter)
 	}
 	if err != nil {
 		cleanupErr = err
