@@ -25,6 +25,7 @@ type Data struct {
 //   - SetWriter: Sets write channel for appending data
 //   - GetMode: Returns the access mode ("read" or "write")
 //   - WriterClosed: Waits for writer goroutine to complete (returns immediately in read mode)
+//   - Subscribe: Registers a callback for write notifications
 type DBFile interface {
 	Read(start int64, size int32) ([]byte, error)
 	Size() int64
@@ -32,6 +33,7 @@ type DBFile interface {
 	SetWriter(dataChan <-chan Data) error
 	GetMode() string
 	WriterClosed()
+	Subscribe(callback func() error) (func() error, error)
 }
 
 type FileManager struct {
@@ -40,6 +42,7 @@ type FileManager struct {
 	writerWg     sync.WaitGroup
 	currentSize  atomic.Uint64
 	mode         string // Access mode: "read" or "write"
+	subscribers  *Subscriber[func() error]
 }
 
 func NewFileManager(filePath string) (*FileManager, error) {
@@ -58,7 +61,9 @@ func NewFileManager(filePath string) (*FileManager, error) {
 		return nil, NewPathError("failed to stat file", err)
 	}
 
-	fm := &FileManager{}
+	fm := &FileManager{
+		subscribers: NewSubscriber[func() error](),
+	}
 	fm.file.Store(file)
 	fm.writeChannel.Store((<-chan Data)(nil))
 	fm.currentSize.Store(uint64(fileInfo.Size()))
@@ -113,7 +118,8 @@ func NewDBFile(path string, mode string) (DBFile, error) {
 
 	// Create FileManager
 	fm := &FileManager{
-		mode: mode,
+		mode:        mode,
+		subscribers: NewSubscriber[func() error](),
 	}
 	fm.file.Store(file)
 	fm.writeChannel.Store((<-chan Data)(nil))
@@ -171,6 +177,24 @@ func (fm *FileManager) Size() int64 {
 
 func (fm *FileManager) GetMode() string {
 	return fm.mode
+}
+
+// Subscribe registers a callback to be notified when data is written to the DBFile.
+// The callback is called synchronously after write operations complete.
+//
+// Parameters:
+//   - callback: Function to call after writes (MUST NOT be nil)
+//
+// Returns:
+//   - unsubscribe: Closure to remove the subscription (idempotent)
+//   - error: InvalidInputError if callback is nil
+//
+// Thread-safe: May be called concurrently with other DBFile methods.
+func (fm *FileManager) Subscribe(callback func() error) (func() error, error) {
+	if callback == nil {
+		return nil, NewInvalidInputError("callback cannot be nil", nil)
+	}
+	return fm.subscribers.Subscribe(callback), nil
 }
 
 // WriterClosed waits for the writer goroutine to complete.
@@ -274,6 +298,15 @@ func (fm *FileManager) processWrite(bytes []byte) error {
 		return NewWriteError("failed to write data", writeErr)
 	}
 	fm.currentSize.Add(appendSize)
+
+	// Notify subscribers after successful write
+	snapshot := fm.subscribers.Snapshot()
+	for _, callback := range snapshot {
+		if err := callback(); err != nil {
+			return err // First error stops chain and propagates
+		}
+	}
+
 	return nil
 }
 
