@@ -51,6 +51,11 @@ func (m *mockSimpleFinderDBFile) WriterClosed() {
 	// Mock implementation - return immediately (no writer to wait for)
 }
 
+func (m *mockSimpleFinderDBFile) Subscribe(callback func() error) (func() error, error) {
+	// Mock implementation - no-op subscription for read-only mock
+	return func() error { return nil }, nil
+}
+
 // Helper to create a mock DBFile with given data
 func newMockDBFile(data []byte) *mockSimpleFinderDBFile {
 	return &mockSimpleFinderDBFile{

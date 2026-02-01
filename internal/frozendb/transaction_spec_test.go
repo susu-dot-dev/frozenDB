@@ -53,6 +53,11 @@ func (m *mockDBFile) WriterClosed() {
 	// Mock implementation - return immediately (no writer to wait for)
 }
 
+func (m *mockDBFile) Subscribe(callback func() error) (func() error, error) {
+	// Mock implementation - no-op subscription
+	return func() error { return nil }, nil
+}
+
 // Helper function to create a transaction with mock write channel for spec tests
 // This is needed because Begin() now requires writeChan (spec 015)
 func createTransactionWithMockWriter(header *Header) *Transaction {

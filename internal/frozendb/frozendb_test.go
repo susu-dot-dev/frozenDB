@@ -91,6 +91,11 @@ func (m *mockGetDBFile) WriterClosed() {
 	// Mock implementation - return immediately (no writer to wait for)
 }
 
+func (m *mockGetDBFile) Subscribe(callback func() error) (func() error, error) {
+	// Mock implementation - no-op subscription for read-only mock
+	return func() error { return nil }, nil
+}
+
 // Simulate closing the file mid-operation
 func (m *mockGetDBFile) simulateClose() {
 	m.mu.Lock()
