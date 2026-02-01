@@ -92,7 +92,8 @@ type Finder interface {
 	//
 	// Returns:
 	//   - error: InvalidInputError if index validation fails or gaps in sequential ordering,
-	//            CorruptDatabaseError if row data cannot be parsed
+	//            CorruptDatabaseError if row data cannot be parsed,
+	//            TombstonedError if finder is in permanent error state
 	//
 	// Preconditions:
 	//   - Row data is successfully written and persistent on disk
@@ -117,4 +118,30 @@ type Finder interface {
 	// Time Complexity: O(1) - must execute in constant time
 	// Thread-safe: Safe for concurrent read access
 	MaxTimestamp() int64
+
+	// OnError is called when an error occurs during live update processing.
+	// The Finder enters a permanent tombstone state where all subsequent query
+	// operations return TombstonedError wrapping the original error.
+	//
+	// Parameters:
+	//   - err: Error that occurred during file watching or batch processing
+	//
+	// Behavior:
+	//   - Finder enters permanent error state (no recovery without reopen)
+	//   - GetIndex(), GetTransactionStart(), GetTransactionEnd() return TombstonedError
+	//   - MaxTimestamp() continues to work (no error return value)
+	//   - OnRowAdded() returns TombstonedError wrapping the original error
+	//
+	// Thread Safety: Must be safe for calls from FileWatcher goroutine
+	OnError(err error)
+
+	// Close releases resources held by the Finder, including any internal
+	// FileWatcher instances. Called by FrozenDB.Close() during shutdown.
+	//
+	// Returns:
+	//   - error: Error if cleanup fails, nil if successful
+	//
+	// Thread Safety: Called once during FrozenDB.Close()
+	// Idempotent: Safe to call multiple times
+	Close() error
 }

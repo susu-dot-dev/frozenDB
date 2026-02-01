@@ -14,7 +14,7 @@ func inmemoryFinderFactory(t *testing.T, path string, rowSize int32) (Finder, fu
 	if err != nil {
 		t.Fatalf("NewDBFile: %v", err)
 	}
-	f, err := NewInMemoryFinder(dbFile, rowSize)
+	f, err := NewInMemoryFinder(dbFile, "", rowSize, MODE_READ)
 	if err != nil {
 		_ = dbFile.Close()
 		t.Fatalf("NewInMemoryFinder: %v", err)
@@ -32,7 +32,7 @@ func Test_S_021_FR_001_InMemoryFinderImplementation(t *testing.T) {
 		t.Fatalf("NewDBFile: %v", err)
 	}
 	defer dbFile.Close()
-	f, err := NewInMemoryFinder(dbFile, confRowSize)
+	f, err := NewInMemoryFinder(dbFile, path, confRowSize, MODE_READ)
 	if err != nil {
 		t.Fatalf("NewInMemoryFinder: %v", err)
 	}
@@ -112,7 +112,7 @@ func Test_S_021_FR_004_IndexUpdatesOnRowAddition(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewDBFile: %v", err)
 	}
-	finder, err := NewInMemoryFinder(dbFile, confRowSize)
+	finder, err := NewInMemoryFinder(dbFile, path, confRowSize, MODE_READ)
 	if err != nil {
 		dbFile.Close()
 		t.Fatalf("NewInMemoryFinder: %v", err)

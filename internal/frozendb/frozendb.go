@@ -83,9 +83,9 @@ func NewFrozenDB(path string, mode string, strategy FinderStrategy) (*FrozenDB, 
 	case FinderStrategySimple:
 		finder, err = NewSimpleFinder(dbFile, rowSize)
 	case FinderStrategyInMemory:
-		finder, err = NewInMemoryFinder(dbFile, rowSize)
+		finder, err = NewInMemoryFinder(dbFile, path, rowSize, mode)
 	case FinderStrategyBinarySearch:
-		finder, err = NewBinarySearchFinder(dbFile, rowSize)
+		finder, err = NewBinarySearchFinder(dbFile, path, rowSize, mode)
 	}
 	if err != nil {
 		cleanupErr = err
@@ -154,6 +154,16 @@ func (db *FrozenDB) Close() error {
 	if db.file == nil {
 		return nil
 	}
+
+	// Close finder first (this closes any FileWatcher)
+	if db.finder != nil {
+		if err := db.finder.Close(); err != nil {
+			// Log error but continue with file close
+			// Don't return early - we still want to close the file
+			_ = err
+		}
+	}
+
 	if err := db.file.Close(); err != nil {
 		return NewWriteError("failed to close file descriptor", err)
 	}

@@ -28,7 +28,7 @@ func Test_S_027_FR_001_BinarySearchFinderInterfaceImplementation(t *testing.T) {
 	defer dbFile.Close()
 
 	// Create BinarySearchFinder and verify it implements Finder interface
-	bsf, err := NewBinarySearchFinder(dbFile, 1024)
+	bsf, err := NewBinarySearchFinder(dbFile, dbPath, 1024, MODE_READ)
 	if err != nil {
 		t.Fatalf("Failed to create BinarySearchFinder: %v", err)
 	}
@@ -103,7 +103,7 @@ func Test_S_027_FR_002_SubLinearReadOperations(t *testing.T) {
 	}
 	defer dbFile.Close()
 
-	bsf, err := NewBinarySearchFinder(dbFile, 1024)
+	bsf, err := NewBinarySearchFinder(dbFile, dbPath, 1024, MODE_READ)
 	if err != nil {
 		t.Fatalf("Failed to create BinarySearchFinder: %v", err)
 	}
@@ -184,7 +184,7 @@ func Test_S_027_FR_003_ConstantMemoryUsage(t *testing.T) {
 	}
 	defer dbFile.Close()
 
-	bsf, err := NewBinarySearchFinder(dbFile, 1024)
+	bsf, err := NewBinarySearchFinder(dbFile, dbPath, 1024, MODE_READ)
 	if err != nil {
 		t.Fatalf("Failed to create BinarySearchFinder: %v", err)
 	}
@@ -245,7 +245,7 @@ func Test_S_027_FR_004_UUIDv7KeyHandling(t *testing.T) {
 	}
 	defer dbFile.Close()
 
-	bsf, err := NewBinarySearchFinder(dbFile, 1024)
+	bsf, err := NewBinarySearchFinder(dbFile, dbPath, 1024, MODE_READ)
 	if err != nil {
 		t.Fatalf("Failed to create BinarySearchFinder: %v", err)
 	}
@@ -307,7 +307,7 @@ func Test_S_027_FR_006_ConformanceTestPassing(t *testing.T) {
 	}
 	defer dbFile.Close()
 
-	bsf, err := NewBinarySearchFinder(dbFile, 1024)
+	bsf, err := NewBinarySearchFinder(dbFile, dbPath, 1024, MODE_READ)
 	if err != nil {
 		t.Fatalf("Failed to create BinarySearchFinder: %v", err)
 	}
@@ -362,7 +362,7 @@ func Test_S_027_FR_007_ThreadSafeAccess(t *testing.T) {
 	}
 	defer dbFile.Close()
 
-	bsf, err := NewBinarySearchFinder(dbFile, 1024)
+	bsf, err := NewBinarySearchFinder(dbFile, dbPath, 1024, MODE_READ)
 	if err != nil {
 		t.Fatalf("Failed to create BinarySearchFinder: %v", err)
 	}
@@ -442,7 +442,7 @@ func Test_S_027_FR_008_ChecksumRowHandling(t *testing.T) {
 	}
 	defer dbFile.Close()
 
-	bsf, err := NewBinarySearchFinder(dbFile, 1024)
+	bsf, err := NewBinarySearchFinder(dbFile, dbPath, 1024, MODE_READ)
 	if err != nil {
 		t.Fatalf("Failed to create BinarySearchFinder: %v", err)
 	}
@@ -487,7 +487,7 @@ func Test_S_027_FR_010_GetIndexRejectsNullRowUUID(t *testing.T) {
 	}
 	defer dbFile.Close()
 
-	bsf, err := NewBinarySearchFinder(dbFile, 1024)
+	bsf, err := NewBinarySearchFinder(dbFile, dbPath, 1024, MODE_READ)
 	if err != nil {
 		t.Fatalf("Failed to create BinarySearchFinder: %v", err)
 	}

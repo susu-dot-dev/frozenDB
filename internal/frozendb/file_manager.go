@@ -142,9 +142,13 @@ func (fm *FileManager) Read(start int64, size int32) ([]byte, error) {
 	if size <= 0 {
 		return nil, NewInvalidInputError("size must be positive", nil)
 	}
+
+	// Get the current file size (actual for READ mode, cached for WRITE mode)
+	currentSize := uint64(fm.Size())
+
 	// Guaranteed not to overflow because start is int64 and size is int32
 	// Thus, the max value is MAX_INT64 + MAX_INT32 < MAX_UINT64
-	if uint64(start)+uint64(size) > fm.currentSize.Load() {
+	if uint64(start)+uint64(size) > currentSize {
 		return nil, NewInvalidInputError("read exceeds file size", nil)
 	}
 
@@ -166,6 +170,27 @@ func (fm *FileManager) Read(start int64, size int32) ([]byte, error) {
 }
 
 func (fm *FileManager) Size() int64 {
+	// In READ mode, we need to get the actual file size from the OS because
+	// external writers may have appended to the file. The cached currentSize
+	// is only accurate for WRITE mode where this FileManager controls all writes.
+	if fm.mode == MODE_READ {
+		file := fm.file.Load().(*os.File)
+		if file == nil {
+			// File is closed, return cached size
+			return int64(fm.currentSize.Load())
+		}
+
+		// Get actual file size from OS via stat
+		stat, err := file.Stat()
+		if err != nil {
+			// On error, fall back to cached size
+			return int64(fm.currentSize.Load())
+		}
+
+		return stat.Size()
+	}
+
+	// In WRITE mode, use the cached atomic size which is accurate
 	return int64(fm.currentSize.Load())
 }
 
@@ -273,6 +298,14 @@ func (fm *FileManager) processWrite(bytes []byte) error {
 		}
 		return NewWriteError("failed to write data", writeErr)
 	}
+
+	// Sync the file to disk to ensure fsnotify detects changes in read-mode watchers
+	// This is necessary for the live update feature (spec 036) to work reliably
+	if syncErr := file.Sync(); syncErr != nil {
+		_ = fm.Close()
+		return NewWriteError("failed to sync data to disk", syncErr)
+	}
+
 	fm.currentSize.Add(appendSize)
 	return nil
 }

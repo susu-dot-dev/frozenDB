@@ -19,22 +19,30 @@ import (
 //     physical indices (accounting for checksum rows)
 //   - Constant Memory: O(row_size) - constant regardless of database size
 //
+// In read-mode, BinarySearchFinder creates an internal FileWatcher to detect and
+// incorporate new rows added by concurrent write processes.
+//
 // Memory Usage: O(row_size) - constant regardless of database size
 // Performance: O(log n) for GetIndex, O(k) for transaction boundary methods where k <= 101
 type BinarySearchFinder struct {
-	dbFile       DBFile     // Database file interface for reading rows
-	rowSize      int32      // Size of each row in bytes from header
-	size         int64      // Confirmed file size (updated via OnRowAdded)
-	maxTimestamp int64      // Maximum timestamp among all complete data and null rows
-	skewMs       int64      // Time skew window in milliseconds from database header
-	mu           sync.Mutex // Protects size and maxTimestamp fields for concurrent access
+	dbFile       DBFile       // Database file interface for reading rows
+	dbFilePath   string       // Path to database file (for FileWatcher)
+	rowSize      int32        // Size of each row in bytes from header
+	size         int64        // Confirmed file size (updated via OnRowAdded)
+	maxTimestamp int64        // Maximum timestamp among all complete data and null rows
+	skewMs       int64        // Time skew window in milliseconds from database header
+	mu           sync.Mutex   // Protects size and maxTimestamp fields for concurrent access
+	watcher      *FileWatcher // File watcher for read-mode live updates (nil in write-mode)
+	tombstoneErr error        // Error that caused tombstone state (nil = healthy)
 }
 
 // NewBinarySearchFinder creates a new BinarySearchFinder instance.
 //
 // Parameters:
 //   - dbFile: DBFile interface for reading database rows
+//   - dbFilePath: Filesystem path to database file (for FileWatcher)
 //   - rowSize: Size of each row in bytes (from database header)
+//   - mode: Access mode - MODE_READ or MODE_WRITE
 //
 // Returns:
 //   - *BinarySearchFinder: Initialized finder instance
@@ -42,7 +50,10 @@ type BinarySearchFinder struct {
 //
 // The finder initializes with the current database file size from dbFile.Size(),
 // representing the extent of data confirmed via OnRowAdded() callbacks.
-func NewBinarySearchFinder(dbFile DBFile, rowSize int32) (*BinarySearchFinder, error) {
+//
+// In MODE_READ, creates an internal FileWatcher to monitor for live updates.
+// In MODE_WRITE, skips FileWatcher creation (updates come from Transaction).
+func NewBinarySearchFinder(dbFile DBFile, dbFilePath string, rowSize int32, mode string) (*BinarySearchFinder, error) {
 	if dbFile == nil {
 		return nil, NewInvalidInputError("dbFile cannot be nil", nil)
 	}
@@ -67,18 +78,41 @@ func NewBinarySearchFinder(dbFile DBFile, rowSize int32) (*BinarySearchFinder, e
 		return nil, NewCorruptDatabaseError("failed to parse header", err)
 	}
 
+	// Phase 1: Anchor - capture initial size exactly once
+	initialSize := dbFile.Size()
+
 	bsf := &BinarySearchFinder{
 		dbFile:       dbFile,
+		dbFilePath:   dbFilePath,
 		rowSize:      rowSize,
-		size:         dbFile.Size(),
+		size:         initialSize,
 		maxTimestamp: 0,
 		skewMs:       int64(header.GetSkewMs()),
 	}
 
-	// Initialize maxTimestamp by scanning existing rows
+	// Phase 2: Initial Scan - initialize maxTimestamp
 	if err := bsf.initializeMaxTimestamp(); err != nil {
 		return nil, err
 	}
+
+	// Phase 3: Kickstart (via FileWatcher) - only in read-mode
+	if mode == MODE_READ {
+		// Create FileWatcher with callbacks
+		watcher, err := NewFileWatcher(
+			dbFilePath,
+			dbFile,
+			bsf.OnRowAdded, // callback for new rows
+			bsf.OnError,    // callback for errors
+			rowSize,
+			initialSize,
+			nil, // use real fsnotify
+		)
+		if err != nil {
+			return nil, err
+		}
+		bsf.watcher = watcher
+	}
+	// In MODE_WRITE, watcher remains nil
 
 	return bsf, nil
 }
@@ -163,8 +197,12 @@ func (bsf *BinarySearchFinder) GetIndex(key uuid.UUID) (int64, error) {
 		return -1, NewInvalidInputError("search key cannot be a NullRow UUID", nil)
 	}
 
-	// Get confirmed size for search bounds
+	// Get confirmed size for search bounds and check tombstone state
 	bsf.mu.Lock()
+	if bsf.tombstoneErr != nil {
+		bsf.mu.Unlock()
+		return -1, NewTombstonedError("finder is in permanent error state", bsf.tombstoneErr)
+	}
 	confirmedSize := bsf.size
 	bsf.mu.Unlock()
 
@@ -320,6 +358,14 @@ func (bsf *BinarySearchFinder) getLogicalKey(logicalIndex int64) (uuid.UUID, err
 // Time Complexity: O(k) where k is distance to start (max ~101)
 // Space Complexity: O(row_size) constant memory
 func (bsf *BinarySearchFinder) GetTransactionStart(index int64) (int64, error) {
+	// Check tombstone state
+	bsf.mu.Lock()
+	if bsf.tombstoneErr != nil {
+		bsf.mu.Unlock()
+		return -1, NewTombstonedError("finder is in permanent error state", bsf.tombstoneErr)
+	}
+	bsf.mu.Unlock()
+
 	// Validate index
 	if err := bsf.validateIndex(index); err != nil {
 		return -1, err
@@ -371,6 +417,14 @@ func (bsf *BinarySearchFinder) GetTransactionStart(index int64) (int64, error) {
 // Time Complexity: O(k) where k is distance to end (max ~101)
 // Space Complexity: O(row_size) constant memory
 func (bsf *BinarySearchFinder) GetTransactionEnd(index int64) (int64, error) {
+	// Check tombstone state
+	bsf.mu.Lock()
+	if bsf.tombstoneErr != nil {
+		bsf.mu.Unlock()
+		return -1, NewTombstonedError("finder is in permanent error state", bsf.tombstoneErr)
+	}
+	bsf.mu.Unlock()
+
 	// Validate index
 	if err := bsf.validateIndex(index); err != nil {
 		return -1, err
@@ -425,6 +479,9 @@ func (bsf *BinarySearchFinder) GetTransactionEnd(index int64) (int64, error) {
 // This method is called within transaction write lock context and must not attempt
 // to acquire additional locks.
 //
+// If the finder is in tombstone state (after OnError was called), this method returns
+// TombstonedError wrapping the original error that caused the tombstone state.
+//
 // Implementation: Identical to SimpleFinder implementation
 //
 // Time Complexity: O(1) constant time
@@ -436,6 +493,11 @@ func (bsf *BinarySearchFinder) OnRowAdded(index int64, row *RowUnion) error {
 
 	bsf.mu.Lock()
 	defer bsf.mu.Unlock()
+
+	// Check tombstone state first
+	if bsf.tombstoneErr != nil {
+		return NewTombstonedError("finder is in permanent error state", bsf.tombstoneErr)
+	}
 
 	// Calculate expected next row index
 	expectedIndex := (bsf.size - HEADER_SIZE) / int64(bsf.rowSize)
@@ -562,4 +624,26 @@ func (bsf *BinarySearchFinder) rowEndsTransaction(row *RowUnion) bool {
 	}
 
 	return false
+}
+
+// OnError is called when an error occurs during live update processing.
+// The Finder enters a permanent tombstone state where all subsequent query
+// operations return TombstonedError wrapping the original error.
+func (bsf *BinarySearchFinder) OnError(err error) {
+	bsf.mu.Lock()
+	defer bsf.mu.Unlock()
+
+	// Only set tombstoneErr once (first error wins)
+	if bsf.tombstoneErr == nil {
+		bsf.tombstoneErr = err
+	}
+}
+
+// Close releases resources held by the BinarySearchFinder, including the internal
+// FileWatcher if one was created.
+func (bsf *BinarySearchFinder) Close() error {
+	if bsf.watcher != nil {
+		return bsf.watcher.Close()
+	}
+	return nil
 }

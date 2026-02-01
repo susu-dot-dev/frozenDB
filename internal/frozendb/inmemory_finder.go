@@ -13,40 +13,75 @@ var _ Finder = (*InMemoryFinder)(nil)
 // GetTransactionEnd via in-memory maps. Memory scales ~40 bytes per row.
 // Use when DB size allows full in-memory indexing; prefer SimpleFinder for
 // fixed memory when DB is large.
+//
+// In read-mode, InMemoryFinder creates an internal FileWatcher to detect and
+// incorporate new rows added by concurrent write processes.
 type InMemoryFinder struct {
 	uuidIndex        map[uuid.UUID]int64
 	transactionStart map[int64]int64
 	transactionEnd   map[int64]int64
 	mu               sync.RWMutex
 	dbFile           DBFile
+	dbFilePath       string // Path to database file (for FileWatcher)
 	rowSize          int32
 	size             int64
 	lastTxStart      int64
 	maxTimestamp     int64
+	watcher          *FileWatcher // File watcher for read-mode live updates (nil in write-mode)
+	tombstoneErr     error        // Error that caused tombstone state (nil = healthy)
 }
 
 // NewInMemoryFinder builds an InMemoryFinder by scanning the database and
 // populating uuid and transaction boundary maps. O(n) init, O(1) lookups after.
-func NewInMemoryFinder(dbFile DBFile, rowSize int32) (*InMemoryFinder, error) {
+//
+// In MODE_READ, creates an internal FileWatcher to monitor for live updates.
+// In MODE_WRITE, skips FileWatcher creation (updates come from Transaction).
+func NewInMemoryFinder(dbFile DBFile, dbFilePath string, rowSize int32, mode string) (*InMemoryFinder, error) {
 	if dbFile == nil {
 		return nil, NewInvalidInputError("dbFile cannot be nil", nil)
 	}
 	if rowSize < 128 || rowSize > 65536 {
 		return nil, NewInvalidInputError(fmt.Sprintf("rowSize must be between 128 and 65536, got %d", rowSize), nil)
 	}
-	size := dbFile.Size()
+
+	// Phase 1: Anchor - capture initial size exactly once
+	initialSize := dbFile.Size()
+
 	imf := &InMemoryFinder{
 		uuidIndex:        make(map[uuid.UUID]int64),
 		transactionStart: make(map[int64]int64),
 		transactionEnd:   make(map[int64]int64),
 		dbFile:           dbFile,
+		dbFilePath:       dbFilePath,
 		rowSize:          rowSize,
-		size:             size,
+		size:             initialSize,
 		lastTxStart:      -1,
 	}
+
+	// Phase 2: Initial Scan - scan rows up to initialSize
 	if err := imf.buildIndex(); err != nil {
 		return nil, err
 	}
+
+	// Phase 3: Kickstart (via FileWatcher) - only in read-mode
+	if mode == MODE_READ {
+		// Create FileWatcher with callbacks
+		watcher, err := NewFileWatcher(
+			dbFilePath,
+			dbFile,
+			imf.OnRowAdded, // callback for new rows
+			imf.OnError,    // callback for errors
+			rowSize,
+			initialSize,
+			nil, // use real fsnotify
+		)
+		if err != nil {
+			return nil, err
+		}
+		imf.watcher = watcher
+	}
+	// In MODE_WRITE, watcher remains nil
+
 	return imf, nil
 }
 
@@ -129,8 +164,15 @@ func (imf *InMemoryFinder) GetIndex(key uuid.UUID) (int64, error) {
 	if err := ValidateUUIDv7(key); err != nil {
 		return -1, err
 	}
+
 	imf.mu.RLock()
 	defer imf.mu.RUnlock()
+
+	// Check tombstone state
+	if imf.tombstoneErr != nil {
+		return -1, NewTombstonedError("finder is in permanent error state", imf.tombstoneErr)
+	}
+
 	idx, ok := imf.uuidIndex[key]
 	if !ok {
 		return -1, NewKeyNotFoundError(fmt.Sprintf("key %s not found in database", key.String()), nil)
@@ -141,6 +183,12 @@ func (imf *InMemoryFinder) GetIndex(key uuid.UUID) (int64, error) {
 func (imf *InMemoryFinder) GetTransactionStart(index int64) (int64, error) {
 	imf.mu.RLock()
 	defer imf.mu.RUnlock()
+
+	// Check tombstone state
+	if imf.tombstoneErr != nil {
+		return -1, NewTombstonedError("finder is in permanent error state", imf.tombstoneErr)
+	}
+
 	if err := imf.validateIndex(index); err != nil {
 		return -1, err
 	}
@@ -157,6 +205,12 @@ func (imf *InMemoryFinder) GetTransactionStart(index int64) (int64, error) {
 func (imf *InMemoryFinder) GetTransactionEnd(index int64) (int64, error) {
 	imf.mu.RLock()
 	defer imf.mu.RUnlock()
+
+	// Check tombstone state
+	if imf.tombstoneErr != nil {
+		return -1, NewTombstonedError("finder is in permanent error state", imf.tombstoneErr)
+	}
+
 	if err := imf.validateIndex(index); err != nil {
 		return -1, err
 	}
@@ -176,6 +230,12 @@ func (imf *InMemoryFinder) OnRowAdded(index int64, row *RowUnion) error {
 	}
 	imf.mu.Lock()
 	defer imf.mu.Unlock()
+
+	// Check tombstone state first
+	if imf.tombstoneErr != nil {
+		return NewTombstonedError("finder is in permanent error state", imf.tombstoneErr)
+	}
+
 	expected := (imf.size - int64(HEADER_SIZE)) / int64(imf.rowSize)
 	if index < expected {
 		return NewInvalidInputError(fmt.Sprintf("row index %d does not match expected position %d (existing data)", index, expected), nil)
@@ -244,4 +304,26 @@ func (imf *InMemoryFinder) validateIndex(index int64) error {
 
 func (imf *InMemoryFinder) isChecksumRow(index int64) bool {
 	return index%int64(CHECKSUM_INTERVAL+1) == 0
+}
+
+// OnError is called when an error occurs during live update processing.
+// The Finder enters a permanent tombstone state where all subsequent query
+// operations return TombstonedError wrapping the original error.
+func (imf *InMemoryFinder) OnError(err error) {
+	imf.mu.Lock()
+	defer imf.mu.Unlock()
+
+	// Only set tombstoneErr once (first error wins)
+	if imf.tombstoneErr == nil {
+		imf.tombstoneErr = err
+	}
+}
+
+// Close releases resources held by the InMemoryFinder, including the internal
+// FileWatcher if one was created.
+func (imf *InMemoryFinder) Close() error {
+	if imf.watcher != nil {
+		return imf.watcher.Close()
+	}
+	return nil
 }

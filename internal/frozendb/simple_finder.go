@@ -25,7 +25,8 @@ type SimpleFinder struct {
 	rowSize      int32      // Size of each row in bytes from header
 	size         int64      // Confirmed file size (updated via OnRowAdded)
 	maxTimestamp int64      // Maximum timestamp among all complete data and null rows
-	mu           sync.Mutex // Protects size and maxTimestamp fields for concurrent access
+	mu           sync.Mutex // Protects size, maxTimestamp, and tombstoneErr fields for concurrent access
+	tombstoneErr error      // Error that caused tombstone state (nil = healthy)
 }
 
 // NewSimpleFinder creates a new SimpleFinder instance.
@@ -137,8 +138,12 @@ func (sf *SimpleFinder) GetIndex(key uuid.UUID) (int64, error) {
 		return -1, err
 	}
 
-	// Get confirmed size for search bounds
+	// Check tombstone state and get confirmed size
 	sf.mu.Lock()
+	if sf.tombstoneErr != nil {
+		sf.mu.Unlock()
+		return -1, NewTombstonedError("finder is in permanent error state", sf.tombstoneErr)
+	}
 	confirmedSize := sf.size
 	sf.mu.Unlock()
 
@@ -185,6 +190,14 @@ func (sf *SimpleFinder) GetIndex(key uuid.UUID) (int64, error) {
 // Time Complexity: O(k) where k is distance to start (max ~101)
 // Space Complexity: O(row_size) constant memory
 func (sf *SimpleFinder) GetTransactionStart(index int64) (int64, error) {
+	// Check tombstone state first
+	sf.mu.Lock()
+	if sf.tombstoneErr != nil {
+		sf.mu.Unlock()
+		return -1, NewTombstonedError("finder is in permanent error state", sf.tombstoneErr)
+	}
+	sf.mu.Unlock()
+
 	// Validate index
 	if err := sf.validateIndex(index); err != nil {
 		return -1, err
@@ -241,6 +254,14 @@ func (sf *SimpleFinder) GetTransactionStart(index int64) (int64, error) {
 // Time Complexity: O(k) where k is distance to end (max ~101)
 // Space Complexity: O(row_size) constant memory
 func (sf *SimpleFinder) GetTransactionEnd(index int64) (int64, error) {
+	// Check tombstone state first
+	sf.mu.Lock()
+	if sf.tombstoneErr != nil {
+		sf.mu.Unlock()
+		return -1, NewTombstonedError("finder is in permanent error state", sf.tombstoneErr)
+	}
+	sf.mu.Unlock()
+
 	// Validate index
 	if err := sf.validateIndex(index); err != nil {
 		return -1, err
@@ -295,12 +316,16 @@ func (sf *SimpleFinder) GetTransactionEnd(index int64) (int64, error) {
 // This method is called within transaction write lock context and must not attempt
 // to acquire additional locks.
 //
+// If the finder is in tombstone state (after OnError was called), this method returns
+// TombstonedError wrapping the original error that caused the tombstone state.
+//
 // Algorithm:
-//  1. Calculate expected next row index from current size
-//  2. Verify input index matches expected index
-//  3. Update internal size by adding one row_size
-//  4. Update maxTimestamp if the row is a complete DataRow or NullRow
-//  5. Return success
+//  1. Check tombstone state and return TombstonedError if set
+//  2. Calculate expected next row index from current size
+//  3. Verify input index matches expected index
+//  4. Update internal size by adding one row_size
+//  5. Update maxTimestamp if the row is a complete DataRow or NullRow
+//  6. Return success
 //
 // Time Complexity: O(1) constant time
 // Space Complexity: O(1) memory update
@@ -311,6 +336,11 @@ func (sf *SimpleFinder) OnRowAdded(index int64, row *RowUnion) error {
 
 	sf.mu.Lock()
 	defer sf.mu.Unlock()
+
+	// Check tombstone state first
+	if sf.tombstoneErr != nil {
+		return NewTombstonedError("finder is in permanent error state", sf.tombstoneErr)
+	}
 
 	// Calculate expected next row index
 	expectedIndex := (sf.size - HEADER_SIZE) / int64(sf.rowSize)
@@ -437,4 +467,31 @@ func (sf *SimpleFinder) rowEndsTransaction(row *RowUnion) bool {
 	}
 
 	return false
+}
+
+// OnError is called when an error occurs during live update processing.
+// The Finder enters a permanent tombstone state where all subsequent query
+// operations return TombstonedError wrapping the original error.
+//
+// Note: SimpleFinder does not use FileWatcher (uses on-demand scanning), so this
+// method is unlikely to be called in practice. However, it's implemented for
+// interface consistency and to support potential future use cases.
+func (sf *SimpleFinder) OnError(err error) {
+	sf.mu.Lock()
+	defer sf.mu.Unlock()
+
+	// Only set tombstoneErr once (first error wins)
+	if sf.tombstoneErr == nil {
+		sf.tombstoneErr = err
+	}
+}
+
+// Close releases resources held by the SimpleFinder.
+// SimpleFinder has no resources to clean up (no FileWatcher), so this is a no-op.
+//
+// Returns:
+//   - error: Always returns nil (no cleanup needed)
+func (sf *SimpleFinder) Close() error {
+	// No-op: SimpleFinder has no resources to release
+	return nil
 }

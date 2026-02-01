@@ -35,7 +35,10 @@ func simpleFinderFactory(t *testing.T, path string, rowSize int32) (Finder, func
 		dbFile.Close()
 		t.Fatalf("NewSimpleFinder: %v", err)
 	}
-	return f, func() { _ = dbFile.Close() }
+	return f, func() {
+		_ = f.Close()
+		_ = dbFile.Close()
+	}
 }
 
 func binarySearchFinderFactory(t *testing.T, path string, rowSize int32) (Finder, func()) {
@@ -44,12 +47,15 @@ func binarySearchFinderFactory(t *testing.T, path string, rowSize int32) (Finder
 	if err != nil {
 		t.Fatalf("NewDBFile: %v", err)
 	}
-	f, err := NewBinarySearchFinder(dbFile, int32(rowSize))
+	f, err := NewBinarySearchFinder(dbFile, path, int32(rowSize), MODE_READ)
 	if err != nil {
 		dbFile.Close()
 		t.Fatalf("NewBinarySearchFinder: %v", err)
 	}
-	return f, func() { _ = dbFile.Close() }
+	return f, func() {
+		_ = f.Close()
+		_ = dbFile.Close()
+	}
 }
 
 // RunFinderConformance runs all conformance scenarios for the given finder factory.

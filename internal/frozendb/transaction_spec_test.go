@@ -107,6 +107,14 @@ func (m *mockFinderWithMaxTimestamp) MaxTimestamp() int64 {
 	return m.maxTs
 }
 
+func (m *mockFinderWithMaxTimestamp) OnError(err error) {
+	// No-op for mock
+}
+
+func (m *mockFinderWithMaxTimestamp) Close() error {
+	return nil
+}
+
 // Helper function to create a test DataRow
 func createTestDataRow(startControl StartControl, endControl EndControl, key uuid.UUID, value json.RawMessage) *DataRow {
 	return &DataRow{

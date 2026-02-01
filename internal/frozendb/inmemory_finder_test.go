@@ -27,7 +27,7 @@ func TestNewInMemoryFinder_InvalidInputs(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := NewInMemoryFinder(tt.dbFile, tt.rowSize)
+			_, err := NewInMemoryFinder(tt.dbFile, "", tt.rowSize, MODE_READ)
 			if err == nil {
 				t.Fatal("expected error, got nil")
 			}
@@ -47,7 +47,7 @@ func TestNewInMemoryFinder_ValidInputs(t *testing.T) {
 		t.Fatalf("NewDBFile: %v", err)
 	}
 	defer dbFile.Close()
-	f, err := NewInMemoryFinder(dbFile, confRowSize)
+	f, err := NewInMemoryFinder(dbFile, path, confRowSize, MODE_READ)
 	if err != nil {
 		t.Fatalf("NewInMemoryFinder: %v", err)
 	}
@@ -140,7 +140,7 @@ func TestInMemoryFinder_OnRowAdded_ChecksumRow(t *testing.T) {
 	path := setupCreate(t, dir, 0)
 	dbAddDataRow(t, path, uuidFromTS(1), `{}`)
 	dbFile, _ := NewDBFile(path, MODE_READ)
-	f, err := NewInMemoryFinder(dbFile, confRowSize)
+	f, err := NewInMemoryFinder(dbFile, path, confRowSize, MODE_READ)
 	if err != nil {
 		dbFile.Close()
 		t.Fatalf("NewInMemoryFinder: %v", err)
@@ -195,7 +195,7 @@ func BenchmarkInMemoryFinder_GetIndex(b *testing.B) {
 		dbAddDataRowB(b, path, uuidFromTS(i), `{}`)
 	}
 	dbFile, _ := NewDBFile(path, MODE_READ)
-	f, _ := NewInMemoryFinder(dbFile, confRowSize)
+	f, _ := NewInMemoryFinder(dbFile, path, confRowSize, MODE_READ)
 	defer dbFile.Close()
 	key := uuidFromTS(500)
 	b.ResetTimer()
@@ -266,7 +266,7 @@ func inmemoryFinderFactoryB(b *testing.B, path string, rowSize int32) (Finder, f
 	if err != nil {
 		b.Fatalf("NewDBFile: %v", err)
 	}
-	f, err := NewInMemoryFinder(dbFile, rowSize)
+	f, err := NewInMemoryFinder(dbFile, path, rowSize, MODE_READ)
 	if err != nil {
 		dbFile.Close()
 		b.Fatalf("NewInMemoryFinder: %v", err)
