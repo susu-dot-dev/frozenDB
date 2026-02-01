@@ -76,11 +76,17 @@ type RowEmitter struct {
 ### RowEmitter Initialization
 
 **Initial State Determination**:
+- Receive rowSize as parameter from caller (from header)
 - Query DBFile for current size
 - Set lastKnownFileSize to current file size
+- Store rowSize for calculating row boundaries
 - Create Subscriber[T] instance for row-level callbacks
 - Subscribe to DBFile for future notifications
 - Store DBFile unsubscribe closure for cleanup
+
+**Constructor Parameters**:
+- `dbfile DBFile`: The file to monitor
+- `rowSize int`: The row size from database header (used for calculating row boundaries)
 
 ### State Transitions
 

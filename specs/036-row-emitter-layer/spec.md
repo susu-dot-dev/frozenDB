@@ -77,28 +77,21 @@ Close() methods on RowEmitter are provided primarily for unit testing and resour
 
 ## Component Decoupling Requirements
 
-This feature requires decoupling the tight relationships between Transaction, DBFile, and Finder components by introducing the RowEmitter as an intermediary notification layer.
-
-### Transaction Decoupling
-
-Transaction MUST only be responsible for writing data and MUST NOT directly notify any component about row completion. The current tight coupling where Transaction determines when rows are complete and notifies Finders directly must be eliminated.
-
-Transaction MAY maintain a dependency on Finder for purposes other than row completion notification (e.g., querying for existing values, validation), but MUST NOT be responsible for sending row completion events to Finder.
+This feature introduces the RowEmitter as a reusable notification layer that decouples row-level event processing from file-level write operations.
 
 ### DBFile Notification
 
 DBFile MUST support a mechanism for other components to be notified when data is written. This enables RowEmitter to monitor file changes without DBFile needing to know about rows or application-level concerns.
 
-### RowEmitter Integration
+### RowEmitter Capabilities
 
-RowEmitter MUST act as the intermediary layer that:
-- Monitors DBFile for changes
-- Determines when complete rows have been written
-- Notifies interested components about row completion
+RowEmitter MUST act as an intermediary layer that:
+- Monitors DBFile for changes via subscription
+- Determines when complete rows have been written based on file size growth
+- Notifies interested components about row completion via its own subscription mechanism
+- Supports multiple independent subscribers without tight coupling
 
-### Finder Decoupling
-
-Finder components MUST receive row completion notifications through RowEmitter rather than being directly notified by Transaction. This removes the tight coupling between Transaction and Finder, allowing Finders to be added or removed without modifying Transaction code.
+This design allows any component to subscribe to row completion events without requiring modifications to DBFile or other subscribers.
 
 ## Clarifications
 
@@ -124,13 +117,11 @@ Finder components MUST receive row completion notifications through RowEmitter r
 
 ### Key Entities
 
-- **Transaction**: Component responsible for writing data to the database. Must be decoupled from row completion notification concerns (but may maintain Finder dependency for other purposes such as querying).
+- **DBFile**: The database file that receives written data. Supports notifying other components when data is written via a Subscribe() method.
 
-- **DBFile**: The database file that receives written data. Must support notifying other components when data is written.
+- **RowEmitter**: Component that monitors the database file for changes, detects when complete rows have been written based on file size growth, and notifies interested components via its own Subscribe() method. Acts as a decoupling layer between file-level and row-level concerns.
 
-- **RowEmitter**: Intermediary component that monitors the database file for changes, detects when complete rows have been written, and notifies interested components. Central to the decoupling strategy.
-
-- **Finder**: Components that need to be notified when rows are complete (SimpleFinder, InMemoryFinder, BinarySearchFinder). Must receive notifications through RowEmitter rather than directly from Transaction.
+- **Subscriber Components**: Any component that needs to be notified when rows are complete. Examples include indexers, validators, or query engines. Components subscribe to RowEmitter and receive row completion events.
 
 ### Spec Testing Requirements
 

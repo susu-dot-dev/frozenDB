@@ -53,22 +53,25 @@ specs/036-row-emitter-layer/
 
 ```text
 frozenDB/
-├── frozendb/            # Core database package (public API)
-│   ├── dbfile.go        # DBFile interface - will gain Subscribe() method
+├── internal/frozendb/   # Core database package (internal)
+│   ├── file_manager.go  # FileManager (DBFile implementation) - will gain Subscribe() method
+│   ├── subscriber.go    # New: Generic Subscriber[T] type for thread-safe callbacks
+│   ├── subscriber_test.go # New: Unit tests for Subscriber[T]
 │   ├── row_emitter.go   # New: RowEmitter implementation
+│   ├── row_emitter_test.go # New: Unit tests for RowEmitter
+│   ├── row_emitter_spec_test.go # New: Spec tests for FR-001 through FR-012
 │   ├── transaction.go   # Modified: decoupled from row completion notification (may still depend on Finder for queries)
 │   ├── finder.go        # Finder interface (unchanged)
 │   ├── simple_finder.go # Will subscribe to RowEmitter
 │   ├── binary_search_finder.go # Will subscribe to RowEmitter
 │   ├── inmemory_finder.go # Will subscribe to RowEmitter
-│   ├── dbfile_spec_test.go # Spec tests for FR-003
-│   ├── row_emitter_spec_test.go # Spec tests for FR-005 through FR-012
-│   └── transaction_spec_test.go # Spec tests for FR-001, FR-002
+│   ├── file_manager_spec_test.go # Existing + new specs for Subscribe() method
+│   └── transaction_spec_test.go # Existing + validation that direct notification removed
 ├── docs/                # Documentation
 └── specs/               # Feature specifications
 ```
 
-**Structure Decision**: Single project structure with core database package in `frozendb/`. All new RowEmitter functionality will be co-located with existing database components. Spec tests will follow the pattern `[file]_spec_test.go` in the same package directory as implementation files per docs/spec_testing.md.
+**Structure Decision**: Single project structure with core database package in `internal/frozendb/`. The generic `Subscriber[T]` type is extracted to its own file (`subscriber.go`) since it's used by both FileManager and RowEmitter, promoting code reuse. All new RowEmitter functionality is co-located with existing database components. Spec tests follow the pattern `[file]_spec_test.go` in the same package directory as implementation files per docs/spec_testing.md.
 
 ## Complexity Tracking
 

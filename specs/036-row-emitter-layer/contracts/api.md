@@ -145,7 +145,7 @@ type RowEmitter struct {
 
 **Signature**:
 ```go
-func NewRowEmitter(dbfile DBFile) (*RowEmitter, error)
+func NewRowEmitter(dbfile DBFile, rowSize int) (*RowEmitter, error)
 ```
 
 **Purpose**: Create a new RowEmitter that monitors the given DBFile for completed rows
@@ -155,30 +155,33 @@ func NewRowEmitter(dbfile DBFile) (*RowEmitter, error)
   - MUST NOT be nil
   - Can be in read or write mode (write mode will emit events, read mode will not)
   - MUST support subscription via Subscribe() method
+- `rowSize int`: The row size from the database header
+  - MUST be between MIN_ROW_SIZE (128) and MAX_ROW_SIZE (65536)
+  - Used to calculate row boundaries from file size
 
 **Returns**:
 - `*RowEmitter`: New RowEmitter instance
 - `error`: Error if creation fails
-  - `InvalidInputError` if dbfile is nil
+  - `InvalidInputError` if dbfile is nil or rowSize is invalid
   - Propagates errors from dbfile.Subscribe()
-  - Errors from querying initial file state
 
 **Behavior**:
-1. Queries DBFile for current size and row count
-2. Determines if last row is partial
-3. Initializes internal state (lastKnownRowCount, lastKnownFileSize)
+1. Validates dbfile is not nil and rowSize is valid
+2. Queries DBFile for current size
+3. Initializes internal state (lastKnownFileSize, rowSize)
 4. Subscribes to DBFile for future write notifications
 5. Initializes empty subscriber map
 
 **Initialization States**:
-- **Empty file**: lastKnownRowCount = 0
-- **Complete rows only**: lastKnownRowCount = N (where N is complete row count)
-- **Partial row present**: lastKnownRowCount = N (partial not counted)
+- **Empty file**: lastKnownFileSize = HEADER_SIZE (64 bytes)
+- **File with rows**: lastKnownFileSize = current file size
+- **Partial row present**: lastKnownFileSize includes partial row bytes
 
 **Usage Example**:
 ```go
 dbfile, _ := NewDBFile("/path/to/db.fdb", MODE_WRITE)
-emitter, err := NewRowEmitter(dbfile)
+header := readHeader(dbfile) // Read header to get rowSize
+emitter, err := NewRowEmitter(dbfile, header.GetRowSize())
 if err != nil {
     return err
 }
@@ -223,7 +226,7 @@ func (re *RowEmitter) Subscribe(callback func(index int64, row *RowUnion) error)
 
 **Usage Example**:
 ```go
-emitter, _ := NewRowEmitter(dbfile)
+emitter, _ := NewRowEmitter(dbfile, rowSize)
 
 unsubscribe, err := emitter.Subscribe(func(index int64, row *RowUnion) error {
     fmt.Printf("Row %d completed: %+v\n", index, row)
@@ -266,7 +269,7 @@ func (re *RowEmitter) Close() error
 
 **Usage Example**:
 ```go
-emitter, _ := NewRowEmitter(dbfile)
+emitter, _ := NewRowEmitter(dbfile, rowSize)
 defer emitter.Close() // Always close to prevent resource leaks
 ```
 
