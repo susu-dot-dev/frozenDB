@@ -36,9 +36,12 @@ features, ALWAYS load:
 
 - `docs/v1_file_format.md` - Complete file format specification
 
+**CRITICAL** When implementing tests, ALWAYS load
+- `docs/spec_testing.md` - Spec testing guidelines and requirements
+- `docs/testing.md` - How to write spec or unit tests in the codebase
+
 **Additional context for implementation:**
 
-- `docs/spec_testing.md` - Spec testing guidelines and requirements
 - `docs/error_handling.md` - How error handling should work in the codebase
 - Relevant spec files in `specs/` directory for feature requirements
 - `AGENTS.md` - This file for coding standards and build commands
