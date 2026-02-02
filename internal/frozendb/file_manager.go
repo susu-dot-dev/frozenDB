@@ -8,6 +8,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"syscall"
+
+	"github.com/fsnotify/fsnotify"
 )
 
 type Data struct {
@@ -43,6 +45,8 @@ type FileManager struct {
 	currentSize  atomic.Uint64
 	mode         string // Access mode: "read" or "write"
 	subscribers  *Subscriber[func() error]
+	watcher      *fsnotify.Watcher // File system watcher (nil in write mode, non-nil in read mode)
+	path         string            // Database file path (stored for watcher)
 }
 
 func NewFileManager(filePath string) (*FileManager, error) {
@@ -120,10 +124,33 @@ func NewDBFile(path string, mode string) (DBFile, error) {
 	fm := &FileManager{
 		mode:        mode,
 		subscribers: NewSubscriber[func() error](),
+		path:        path,
 	}
 	fm.file.Store(file)
 	fm.writeChannel.Store((<-chan Data)(nil))
 	fm.currentSize.Store(uint64(fileInfo.Size()))
+
+	// Set up file watcher for read mode
+	if mode == MODE_READ {
+		// Create watcher
+		watcher, err := fsnotify.NewWatcher()
+		if err != nil {
+			_ = file.Close()
+			return nil, NewWriteError("failed to create file watcher", err)
+		}
+		fm.watcher = watcher
+
+		// Add watch for the database file
+		if err := watcher.Add(path); err != nil {
+			_ = watcher.Close()
+			_ = file.Close()
+			return nil, NewWriteError("failed to add watch for database file", err)
+		}
+
+		// Start file watcher goroutine
+		fm.writerWg.Add(1)
+		go fm.fileWatcherLoop()
+	}
 
 	// Acquire lock if write mode
 	if mode == MODE_WRITE {
@@ -212,6 +239,14 @@ func (fm *FileManager) WriterClosed() {
 }
 
 func (fm *FileManager) Close() error {
+	// Close watcher if in read mode
+	if fm.mode == MODE_READ && fm.watcher != nil {
+		// Close watcher to signal goroutine to exit
+		_ = fm.watcher.Close()
+		// Wait for file watcher goroutine to complete
+		fm.writerWg.Wait()
+	}
+
 	file := fm.file.Load().(*os.File)
 	if file != nil && fm.file.CompareAndSwap(file, (*os.File)(nil)) {
 		// Release lock if in write mode
@@ -316,4 +351,69 @@ func (fm *FileManager) getFile() (*os.File, error) {
 		return nil, NewTombstonedError("file manager is closed", os.ErrClosed)
 	}
 	return file, nil
+}
+
+// fileWatcherLoop is the goroutine that processes file system events from the watcher.
+// It runs for the lifetime of the read-mode FileManager and exits when the watcher is closed.
+func (fm *FileManager) fileWatcherLoop() {
+	defer fm.writerWg.Done()
+
+	for {
+		select {
+		case event, ok := <-fm.watcher.Events:
+			if !ok {
+				// Watcher closed, exit goroutine
+				return
+			}
+
+			// Process only Write events (FR-001)
+			if event.Has(fsnotify.Write) {
+				fm.processFileUpdate()
+			}
+
+		case err, ok := <-fm.watcher.Errors:
+			if !ok {
+				// Watcher closed, exit goroutine
+				return
+			}
+
+			// Handle ErrEventOverflow by triggering update cycle
+			if errors.Is(err, fsnotify.ErrEventOverflow) {
+				fm.processFileUpdate()
+			}
+			// Other errors are ignored (best-effort watching)
+		}
+	}
+}
+
+// processFileUpdate handles a single file update cycle:
+// 1. Reads current file size
+// 2. Updates currentSize atomically
+// 3. Invokes subscriber callbacks if size changed
+func (fm *FileManager) processFileUpdate() {
+	// Read current file size
+	fileInfo, err := os.Stat(fm.path)
+	if err != nil {
+		// If stat fails, ignore this update cycle
+		return
+	}
+
+	newSize := uint64(fileInfo.Size())
+
+	// Update size atomically and get old size
+	oldSize := fm.currentSize.Swap(newSize)
+
+	// If size unchanged, skip callback invocation (FR-005)
+	if newSize == oldSize {
+		return
+	}
+
+	// Invoke subscriber callbacks in registration order (FR-006)
+	snapshot := fm.subscribers.Snapshot()
+	for _, callback := range snapshot {
+		if err := callback(); err != nil {
+			// First error stops chain (FR-006)
+			return
+		}
+	}
 }

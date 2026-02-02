@@ -22,12 +22,13 @@ import (
 // Memory Usage: O(row_size) - constant regardless of database size
 // Performance: O(log n) for GetIndex, O(k) for transaction boundary methods where k <= 101
 type BinarySearchFinder struct {
-	dbFile       DBFile     // Database file interface for reading rows
-	rowSize      int32      // Size of each row in bytes from header
-	size         int64      // Confirmed file size (updated via OnRowAdded)
-	maxTimestamp int64      // Maximum timestamp among all complete data and null rows
-	skewMs       int64      // Time skew window in milliseconds from database header
-	mu           sync.Mutex // Protects size and maxTimestamp fields for concurrent access
+	dbFile        DBFile     // Database file interface for reading rows
+	rowSize       int32      // Size of each row in bytes from header
+	size          int64      // Confirmed file size (updated via OnRowAdded)
+	maxTimestamp  int64      // Maximum timestamp among all complete data and null rows
+	skewMs        int64      // Time skew window in milliseconds from database header
+	tombstonedErr error      // Error that caused this Finder to be tombstoned (nil if not tombstoned)
+	mu            sync.Mutex // Protects size, maxTimestamp, skewMs, and tombstonedErr fields for concurrent access
 }
 
 // NewBinarySearchFinder creates a new BinarySearchFinder instance.
@@ -157,6 +158,15 @@ func (bsf *BinarySearchFinder) initializeMaxTimestamp() error {
 // Time Complexity: O(log n) where n is number of DataRows
 // Space Complexity: O(row_size) constant memory
 func (bsf *BinarySearchFinder) GetIndex(key uuid.UUID) (int64, error) {
+	// FR-011: Check tombstoned state FIRST
+	bsf.mu.Lock()
+	if bsf.tombstonedErr != nil {
+		tombErr := bsf.tombstonedErr
+		bsf.mu.Unlock()
+		return -1, tombErr
+	}
+	bsf.mu.Unlock()
+
 	// Validate input UUID
 	if key == uuid.Nil {
 		return -1, NewInvalidInputError("key cannot be uuid.Nil", nil)
@@ -325,11 +335,22 @@ func (bsf *BinarySearchFinder) getLogicalKey(logicalIndex int64) (uuid.UUID, err
 // GetTransactionStart returns the index of the first row in the transaction
 // containing the specified index. Implements backward scanning from input index.
 //
+// FR-011: This method MUST check tombstoned state FIRST and return TombstonedError if set.
+//
 // Implementation: Identical to SimpleFinder implementation
 //
 // Time Complexity: O(k) where k is distance to start (max ~101)
 // Space Complexity: O(row_size) constant memory
 func (bsf *BinarySearchFinder) GetTransactionStart(index int64) (int64, error) {
+	// FR-011: Check tombstoned state FIRST
+	bsf.mu.Lock()
+	if bsf.tombstonedErr != nil {
+		tombErr := bsf.tombstonedErr
+		bsf.mu.Unlock()
+		return -1, tombErr
+	}
+	bsf.mu.Unlock()
+
 	// Validate index
 	if err := bsf.validateIndex(index); err != nil {
 		return -1, err
@@ -376,11 +397,22 @@ func (bsf *BinarySearchFinder) GetTransactionStart(index int64) (int64, error) {
 // GetTransactionEnd returns the index of the last row in the transaction
 // containing the specified index. Implements forward scanning from input index.
 //
+// FR-011: This method MUST check tombstoned state FIRST and return TombstonedError if set.
+//
 // Implementation: Identical to SimpleFinder implementation
 //
 // Time Complexity: O(k) where k is distance to end (max ~101)
 // Space Complexity: O(row_size) constant memory
 func (bsf *BinarySearchFinder) GetTransactionEnd(index int64) (int64, error) {
+	// FR-011: Check tombstoned state FIRST
+	bsf.mu.Lock()
+	if bsf.tombstonedErr != nil {
+		tombErr := bsf.tombstonedErr
+		bsf.mu.Unlock()
+		return -1, tombErr
+	}
+	bsf.mu.Unlock()
+
 	// Validate index
 	if err := bsf.validateIndex(index); err != nil {
 		return -1, err
@@ -451,11 +483,17 @@ func (bsf *BinarySearchFinder) onRowAdded(index int64, row *RowUnion) error {
 	expectedIndex := (bsf.size - HEADER_SIZE) / int64(bsf.rowSize)
 
 	if index < expectedIndex {
-		return NewInvalidInputError(fmt.Sprintf("row index %d does not match expected position %d (existing data)", index, expectedIndex), nil)
+		err := NewInvalidInputError(fmt.Sprintf("row index %d does not match expected position %d (existing data)", index, expectedIndex), nil)
+		// FR-010: Set tombstoned error BEFORE returning
+		bsf.tombstonedErr = NewTombstonedError("finder tombstoned due to onRowAdded error", err)
+		return err
 	}
 
 	if index > expectedIndex {
-		return NewInvalidInputError(fmt.Sprintf("row index %d skips positions (expected %d)", index, expectedIndex), nil)
+		err := NewInvalidInputError(fmt.Sprintf("row index %d skips positions (expected %d)", index, expectedIndex), nil)
+		// FR-010: Set tombstoned error BEFORE returning
+		bsf.tombstonedErr = NewTombstonedError("finder tombstoned due to onRowAdded error", err)
+		return err
 	}
 
 	// Update maxTimestamp for complete DataRow or NullRow entries
@@ -487,6 +525,8 @@ func (bsf *BinarySearchFinder) onRowAdded(index int64, row *RowUnion) error {
 
 // MaxTimestamp returns the maximum timestamp among all complete data and null rows.
 // Implements O(1) time complexity by returning the cached maxTimestamp value.
+// Note: This method returns the maxTimestamp value even if the Finder is tombstoned,
+// since maxTimestamp represents historical data that remains valid.
 func (bsf *BinarySearchFinder) MaxTimestamp() int64 {
 	bsf.mu.Lock()
 	defer bsf.mu.Unlock()

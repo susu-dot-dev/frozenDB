@@ -21,11 +21,12 @@ import (
 // Memory Usage: O(row_size) - constant regardless of database size
 // Performance: O(n) for GetIndex, O(k) for transaction boundary methods where k <= 101
 type SimpleFinder struct {
-	dbFile       DBFile     // Database file interface for reading rows
-	rowSize      int32      // Size of each row in bytes from header
-	size         int64      // Confirmed file size (updated via OnRowAdded)
-	maxTimestamp int64      // Maximum timestamp among all complete data and null rows
-	mu           sync.Mutex // Protects size and maxTimestamp fields for concurrent access
+	dbFile        DBFile     // Database file interface for reading rows
+	rowSize       int32      // Size of each row in bytes from header
+	size          int64      // Confirmed file size (updated via OnRowAdded)
+	maxTimestamp  int64      // Maximum timestamp among all complete data and null rows
+	tombstonedErr error      // Error that caused this Finder to be tombstoned (nil if not tombstoned)
+	mu            sync.Mutex // Protects size, maxTimestamp, and tombstonedErr fields for concurrent access
 }
 
 // NewSimpleFinder creates a new SimpleFinder instance.
@@ -126,17 +127,29 @@ func (sf *SimpleFinder) initializeMaxTimestamp() error {
 // GetIndex returns the index of the first row containing the specified UUID key.
 // Implements linear scanning through all complete rows in the database.
 //
+// FR-011: This method MUST check tombstoned state FIRST and return TombstonedError if set.
+//
 // Algorithm:
-//  1. Calculate total number of complete rows
-//  2. Iterate through each row index
-//  3. Read and parse each row as RowUnion
-//  4. If row is DataRow and UUID matches, return index
-//  5. Skip ChecksumRows, NullRows, and PartialDataRows
-//  6. Return KeyNotFoundError if no match found
+//  1. Check tombstoned state (FR-011)
+//  2. Calculate total number of complete rows
+//  3. Iterate through each row index
+//  4. Read and parse each row as RowUnion
+//  5. If row is DataRow and UUID matches, return index
+//  6. Skip ChecksumRows, NullRows, and PartialDataRows
+//  7. Return KeyNotFoundError if no match found
 //
 // Time Complexity: O(n) where n is number of rows
 // Space Complexity: O(row_size) constant memory
 func (sf *SimpleFinder) GetIndex(key uuid.UUID) (int64, error) {
+	// FR-011: Check tombstoned state FIRST
+	sf.mu.Lock()
+	if sf.tombstonedErr != nil {
+		tombErr := sf.tombstonedErr
+		sf.mu.Unlock()
+		return -1, tombErr
+	}
+	sf.mu.Unlock()
+
 	// Validate input UUID
 	if key == uuid.Nil {
 		return -1, NewInvalidInputError("key cannot be uuid.Nil", nil)
@@ -185,16 +198,28 @@ func (sf *SimpleFinder) GetIndex(key uuid.UUID) (int64, error) {
 // GetTransactionStart returns the index of the first row in the transaction
 // containing the specified index. Implements backward scanning from input index.
 //
+// FR-011: This method MUST check tombstoned state FIRST and return TombstonedError if set.
+//
 // Algorithm:
-//  1. Validate input index and ensure it's not a checksum row
-//  2. Read row at input index and check if it starts transaction (start_control='T')
-//  3. If not, scan backward through preceding rows
-//  4. Find first row with start_control='T' in transaction chain
-//  5. Return that index or error if no start found
+//  1. Check tombstoned state (FR-011)
+//  2. Validate input index and ensure it's not a checksum row
+//  3. Read row at input index and check if it starts transaction (start_control='T')
+//  4. If not, scan backward through preceding rows
+//  5. Find first row with start_control='T' in transaction chain
+//  6. Return that index or error if no start found
 //
 // Time Complexity: O(k) where k is distance to start (max ~101)
 // Space Complexity: O(row_size) constant memory
 func (sf *SimpleFinder) GetTransactionStart(index int64) (int64, error) {
+	// FR-011: Check tombstoned state FIRST
+	sf.mu.Lock()
+	if sf.tombstonedErr != nil {
+		tombErr := sf.tombstonedErr
+		sf.mu.Unlock()
+		return -1, tombErr
+	}
+	sf.mu.Unlock()
+
 	// Validate index
 	if err := sf.validateIndex(index); err != nil {
 		return -1, err
@@ -241,16 +266,28 @@ func (sf *SimpleFinder) GetTransactionStart(index int64) (int64, error) {
 // GetTransactionEnd returns the index of the last row in the transaction
 // containing the specified index. Implements forward scanning from input index.
 //
+// FR-011: This method MUST check tombstoned state FIRST and return TombstonedError if set.
+//
 // Algorithm:
-//  1. Validate input index and ensure it's not a checksum row
-//  2. Read row at input index and check if it ends transaction
-//  3. If not, scan forward through subsequent rows
-//  4. Find first row with transaction-ending end_control
-//  5. Return that index or TransactionActiveError if no end found
+//  1. Check tombstoned state (FR-011)
+//  2. Validate input index and ensure it's not a checksum row
+//  3. Read row at input index and check if it ends transaction
+//  4. If not, scan forward through subsequent rows
+//  5. Find first row with transaction-ending end_control
+//  6. Return that index or TransactionActiveError if no end found
 //
 // Time Complexity: O(k) where k is distance to end (max ~101)
 // Space Complexity: O(row_size) constant memory
 func (sf *SimpleFinder) GetTransactionEnd(index int64) (int64, error) {
+	// FR-011: Check tombstoned state FIRST
+	sf.mu.Lock()
+	if sf.tombstonedErr != nil {
+		tombErr := sf.tombstonedErr
+		sf.mu.Unlock()
+		return -1, tombErr
+	}
+	sf.mu.Unlock()
+
 	// Validate index
 	if err := sf.validateIndex(index); err != nil {
 		return -1, err
@@ -305,6 +342,10 @@ func (sf *SimpleFinder) GetTransactionEnd(index int64) (int64, error) {
 // This method is called within transaction write lock context and must not attempt
 // to acquire additional locks.
 //
+// FR-010: If this method encounters ANY error, it MUST set the tombstonedErr field
+// BEFORE returning the error. Once tombstoned, the Finder remains in that state
+// permanently and all public methods will return TombstonedError.
+//
 // Algorithm:
 //  1. Calculate expected next row index from current size
 //  2. Verify input index matches expected index
@@ -326,11 +367,17 @@ func (sf *SimpleFinder) OnRowAdded(index int64, row *RowUnion) error {
 	expectedIndex := (sf.size - HEADER_SIZE) / int64(sf.rowSize)
 
 	if index < expectedIndex {
-		return NewInvalidInputError(fmt.Sprintf("row index %d does not match expected position %d (existing data)", index, expectedIndex), nil)
+		err := NewInvalidInputError(fmt.Sprintf("row index %d does not match expected position %d (existing data)", index, expectedIndex), nil)
+		// FR-010: Set tombstoned error BEFORE returning
+		sf.tombstonedErr = NewTombstonedError("finder tombstoned due to OnRowAdded error", err)
+		return err
 	}
 
 	if index > expectedIndex {
-		return NewInvalidInputError(fmt.Sprintf("row index %d skips positions (expected %d)", index, expectedIndex), nil)
+		err := NewInvalidInputError(fmt.Sprintf("row index %d skips positions (expected %d)", index, expectedIndex), nil)
+		// FR-010: Set tombstoned error BEFORE returning
+		sf.tombstonedErr = NewTombstonedError("finder tombstoned due to OnRowAdded error", err)
+		return err
 	}
 
 	// Update maxTimestamp for complete DataRow or NullRow entries
@@ -362,6 +409,8 @@ func (sf *SimpleFinder) OnRowAdded(index int64, row *RowUnion) error {
 
 // MaxTimestamp returns the maximum timestamp among all complete data and null rows.
 // Implements O(1) time complexity by returning the cached maxTimestamp value.
+// Note: This method returns the maxTimestamp value even if the Finder is tombstoned,
+// since maxTimestamp represents historical data that remains valid.
 func (sf *SimpleFinder) MaxTimestamp() int64 {
 	sf.mu.Lock()
 	defer sf.mu.Unlock()

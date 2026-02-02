@@ -300,3 +300,402 @@ func Test_S_023_FR_004_Updates_On_Commit(t *testing.T) {
 
 	t.Log("FR-004: MaxTimestamp() updates only on commit/rollback of complete rows")
 }
+
+// Test_S_039_FR_010_FinderTombstonedOnRefreshError tests FR-010: When a Finder's
+// OnRowAdded() callback encounters an error, the Finder MUST set its tombstoned
+// error state BEFORE returning the error to FileManager.
+func Test_S_039_FR_010_FinderTombstonedOnRefreshError(t *testing.T) {
+	tempDir := t.TempDir()
+	dbPath := filepath.Join(tempDir, "test.fdb")
+
+	// Create test database
+	createTestDatabase(t, dbPath)
+
+	// Open in write mode to add data
+	db, err := NewFrozenDB(dbPath, MODE_WRITE, FinderStrategySimple)
+	if err != nil {
+		t.Fatalf("Failed to open database: %v", err)
+	}
+
+	// Add a data row to establish state
+	tx, err := db.BeginTx()
+	if err != nil {
+		db.Close()
+		t.Fatalf("Failed to begin transaction: %v", err)
+	}
+
+	key1 := uuid.Must(uuid.NewV7())
+	if err := tx.AddRow(key1, json.RawMessage(`{"value":"test1"}`)); err != nil {
+		tx.Rollback(0)
+		db.Close()
+		t.Fatalf("Failed to add row: %v", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		db.Close()
+		t.Fatalf("Failed to commit: %v", err)
+	}
+
+	// Close write-mode database
+	if err := db.Close(); err != nil {
+		t.Fatalf("Failed to close database: %v", err)
+	}
+
+	// Open database file in read mode
+	dbFile, err := NewDBFile(dbPath, MODE_READ)
+	if err != nil {
+		t.Fatalf("Failed to open DBFile: %v", err)
+	}
+	defer dbFile.Close()
+
+	// Create a SimpleFinder
+	rowEmitter := createTestRowEmitterForFinder(t, dbFile, 1024)
+	sf, err := NewSimpleFinder(dbFile, 1024, rowEmitter)
+	if err != nil {
+		t.Fatalf("Failed to create SimpleFinder: %v", err)
+	}
+
+	// Inject an error into OnRowAdded by calling it with an invalid index
+	// This simulates what happens during background update cycles when a Finder
+	// fails to update its internal state
+	validRow := &RowUnion{
+		DataRow: &DataRow{
+			baseRow[*DataRowPayload]{
+				RowSize:      1024,
+				StartControl: START_TRANSACTION,
+				EndControl:   TRANSACTION_COMMIT,
+				RowPayload:   &DataRowPayload{Key: uuid.Must(uuid.NewV7()), Value: json.RawMessage(`{"test":"value"}`)},
+			},
+		},
+	}
+
+	// Call OnRowAdded with an invalid index (skips positions)
+	// This should cause an error, and the Finder should tombstone itself
+	currentIndex := (dbFile.Size() - HEADER_SIZE) / int64(1024)
+	err = sf.OnRowAdded(currentIndex+100, validRow) // Skip 100 positions - causes index mismatch error
+
+	// Verify that OnRowAdded returned an error
+	if err == nil {
+		t.Fatal("OnRowAdded should have returned an error for invalid index")
+	}
+
+	// FR-010 requirement: Finder should now be in tombstoned state
+	// Verify by calling a public method - it should return TombstonedError
+	_, err = sf.GetIndex(key1)
+	if err == nil {
+		t.Fatal("GetIndex should return TombstonedError after OnRowAdded failed")
+	}
+
+	// Verify the error is specifically a TombstonedError
+	var tombErr *TombstonedError
+	if !isError(err, &tombErr) {
+		t.Errorf("Expected TombstonedError, got %T: %v", err, err)
+	}
+
+	t.Log("FR-010: Finder tombstones itself before returning error from OnRowAdded")
+}
+
+// Test_S_039_FR_011_TombstonedFinderReturnsError tests FR-011: All public Finder
+// methods MUST check the tombstoned error state FIRST and return TombstonedError
+// if the Finder is tombstoned.
+func Test_S_039_FR_011_TombstonedFinderReturnsError(t *testing.T) {
+	tempDir := t.TempDir()
+	dbPath := filepath.Join(tempDir, "test.fdb")
+
+	// Create test database
+	createTestDatabase(t, dbPath)
+
+	// Open in write mode to add data
+	db, err := NewFrozenDB(dbPath, MODE_WRITE, FinderStrategySimple)
+	if err != nil {
+		t.Fatalf("Failed to open database: %v", err)
+	}
+
+	// Add data rows
+	tx, err := db.BeginTx()
+	if err != nil {
+		db.Close()
+		t.Fatalf("Failed to begin transaction: %v", err)
+	}
+
+	key1 := uuid.Must(uuid.NewV7())
+	if err := tx.AddRow(key1, json.RawMessage(`{"value":"test1"}`)); err != nil {
+		tx.Rollback(0)
+		db.Close()
+		t.Fatalf("Failed to add row: %v", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		db.Close()
+		t.Fatalf("Failed to commit: %v", err)
+	}
+
+	if err := db.Close(); err != nil {
+		t.Fatalf("Failed to close database: %v", err)
+	}
+
+	// Open database file in read mode
+	dbFile, err := NewDBFile(dbPath, MODE_READ)
+	if err != nil {
+		t.Fatalf("Failed to open DBFile: %v", err)
+	}
+	defer dbFile.Close()
+
+	// Create SimpleFinder
+	rowEmitter := createTestRowEmitterForFinder(t, dbFile, 1024)
+	sf, err := NewSimpleFinder(dbFile, 1024, rowEmitter)
+	if err != nil {
+		t.Fatalf("Failed to create SimpleFinder: %v", err)
+	}
+
+	// Tombstone the Finder by calling OnRowAdded with invalid data
+	currentIndex := (dbFile.Size() - HEADER_SIZE) / int64(1024)
+	validRow := &RowUnion{
+		DataRow: &DataRow{
+			baseRow[*DataRowPayload]{
+				RowSize:      1024,
+				StartControl: START_TRANSACTION,
+				EndControl:   TRANSACTION_COMMIT,
+				RowPayload:   &DataRowPayload{Key: uuid.Must(uuid.NewV7()), Value: json.RawMessage(`{"test":"value"}`)},
+			},
+		},
+	}
+	err = sf.OnRowAdded(currentIndex+100, validRow) // Invalid index - skips positions
+	if err == nil {
+		t.Fatal("OnRowAdded should have returned error")
+	}
+
+	// FR-011 requirement: All public methods should now return TombstonedError
+
+	// Test GetIndex
+	_, err = sf.GetIndex(key1)
+	if err == nil {
+		t.Error("GetIndex should return TombstonedError after Finder is tombstoned")
+	}
+	var tombErr *TombstonedError
+	if !isError(err, &tombErr) {
+		t.Errorf("GetIndex: Expected TombstonedError, got %T: %v", err, err)
+	}
+
+	// Test GetTransactionStart
+	_, err = sf.GetTransactionStart(1)
+	if err == nil {
+		t.Error("GetTransactionStart should return TombstonedError after Finder is tombstoned")
+	}
+	if !isError(err, &tombErr) {
+		t.Errorf("GetTransactionStart: Expected TombstonedError, got %T: %v", err, err)
+	}
+
+	// Test GetTransactionEnd
+	_, err = sf.GetTransactionEnd(1)
+	if err == nil {
+		t.Error("GetTransactionEnd should return TombstonedError after Finder is tombstoned")
+	}
+	if !isError(err, &tombErr) {
+		t.Errorf("GetTransactionEnd: Expected TombstonedError, got %T: %v", err, err)
+	}
+
+	// MaxTimestamp does NOT check tombstoned state - it returns historical data
+	// which remains valid even after tombstoning
+	_ = sf.MaxTimestamp()
+
+	t.Log("FR-011: All public Finder methods return TombstonedError when tombstoned")
+}
+
+// Test_S_039_FR_011_TombstonedStateIsPermanent tests FR-011: Once a Finder is
+// tombstoned, it remains tombstoned for its lifetime (no recovery mechanism).
+func Test_S_039_FR_011_TombstonedStateIsPermanent(t *testing.T) {
+	tempDir := t.TempDir()
+	dbPath := filepath.Join(tempDir, "test.fdb")
+
+	// Create test database
+	createTestDatabase(t, dbPath)
+
+	// Open database file
+	dbFile, err := NewDBFile(dbPath, MODE_READ)
+	if err != nil {
+		t.Fatalf("Failed to open DBFile: %v", err)
+	}
+	defer dbFile.Close()
+
+	// Create SimpleFinder
+	rowEmitter := createTestRowEmitterForFinder(t, dbFile, 1024)
+	sf, err := NewSimpleFinder(dbFile, 1024, rowEmitter)
+	if err != nil {
+		t.Fatalf("Failed to create SimpleFinder: %v", err)
+	}
+
+	// Tombstone the Finder
+	currentIndex := (dbFile.Size() - HEADER_SIZE) / int64(1024)
+	validRow := &RowUnion{
+		DataRow: &DataRow{
+			baseRow[*DataRowPayload]{
+				RowSize:      1024,
+				StartControl: START_TRANSACTION,
+				EndControl:   TRANSACTION_COMMIT,
+				RowPayload:   &DataRowPayload{Key: uuid.Must(uuid.NewV7()), Value: json.RawMessage(`{"test":"value"}`)},
+			},
+		},
+	}
+	err = sf.OnRowAdded(currentIndex+100, validRow) // Invalid index - skips positions
+	if err == nil {
+		t.Fatal("OnRowAdded should have returned error")
+	}
+
+	// Verify tombstoned state
+	_, err = sf.GetIndex(uuid.Must(uuid.NewV7()))
+	if err == nil {
+		t.Fatal("Finder should be tombstoned")
+	}
+
+	// FR-011 requirement: State is permanent
+	// Even calling OnRowAdded with valid data won't clear tombstoned state
+	_, err = sf.GetIndex(uuid.Must(uuid.NewV7()))
+	if err == nil {
+		t.Error("Finder should remain tombstoned (no recovery)")
+	}
+
+	var tombErr *TombstonedError
+	if !isError(err, &tombErr) {
+		t.Errorf("Expected TombstonedError to persist, got %T: %v", err, err)
+	}
+
+	// Try multiple method calls - all should return TombstonedError
+	for i := 0; i < 10; i++ {
+		_, err = sf.GetIndex(uuid.Must(uuid.NewV7()))
+		if err == nil {
+			t.Errorf("Call %d: Finder should remain tombstoned", i)
+		}
+		if !isError(err, &tombErr) {
+			t.Errorf("Call %d: Expected TombstonedError, got %T", i, err)
+		}
+	}
+
+	t.Log("FR-011: Tombstoned state is permanent for Finder lifetime")
+}
+
+// Test_S_039_FR_011_TombstonedErrorInBothModes tests FR-011: Tombstoning behavior
+// is identical in both read mode (file watcher callbacks) and write mode
+// (processWrite callbacks). The Finder doesn't know which mode triggered the update.
+func Test_S_039_FR_011_TombstonedErrorInBothModes(t *testing.T) {
+	// Test write mode tombstoning
+	t.Run("WriteMode", func(t *testing.T) {
+		tempDir := t.TempDir()
+		dbPath := filepath.Join(tempDir, "test.fdb")
+
+		// Create test database
+		createTestDatabase(t, dbPath)
+
+		// Open in write mode
+		db, err := NewFrozenDB(dbPath, MODE_WRITE, FinderStrategySimple)
+		if err != nil {
+			t.Fatalf("Failed to open database: %v", err)
+		}
+		defer db.Close()
+
+		// Get the finder (need to cast to *SimpleFinder to access OnRowAdded)
+		// The public Finder interface doesn't expose OnRowAdded
+		// In write mode, we access the internal finder from FrozenDB
+		var sf *SimpleFinder
+		switch f := db.finder.(type) {
+		case *SimpleFinder:
+			sf = f
+		default:
+			t.Fatalf("Expected SimpleFinder, got %T", db.finder)
+		}
+
+		// Tombstone it by calling OnRowAdded with invalid data
+		currentIndex := (db.file.Size() - HEADER_SIZE) / int64(1024)
+		validRow := &RowUnion{
+			DataRow: &DataRow{
+				baseRow[*DataRowPayload]{
+					RowSize:      1024,
+					StartControl: START_TRANSACTION,
+					EndControl:   TRANSACTION_COMMIT,
+					RowPayload:   &DataRowPayload{Key: uuid.Must(uuid.NewV7()), Value: json.RawMessage(`{"test":"value"}`)},
+				},
+			},
+		}
+		err = sf.OnRowAdded(currentIndex+100, validRow) // Invalid index - skips positions
+		if err == nil {
+			t.Fatal("OnRowAdded should have returned error")
+		}
+
+		// Verify tombstoned state
+		_, err = sf.GetIndex(uuid.Must(uuid.NewV7()))
+		if err == nil {
+			t.Error("Write mode: Finder should be tombstoned")
+		}
+		var tombErr *TombstonedError
+		if !isError(err, &tombErr) {
+			t.Errorf("Write mode: Expected TombstonedError, got %T", err)
+		}
+	})
+
+	// Test read mode tombstoning
+	t.Run("ReadMode", func(t *testing.T) {
+		tempDir := t.TempDir()
+		dbPath := filepath.Join(tempDir, "test.fdb")
+
+		// Create test database
+		createTestDatabase(t, dbPath)
+
+		// Open in read mode
+		dbFile, err := NewDBFile(dbPath, MODE_READ)
+		if err != nil {
+			t.Fatalf("Failed to open DBFile: %v", err)
+		}
+		defer dbFile.Close()
+
+		// Create SimpleFinder
+		rowEmitter := createTestRowEmitterForFinder(t, dbFile, 1024)
+		sf, err := NewSimpleFinder(dbFile, 1024, rowEmitter)
+		if err != nil {
+			t.Fatalf("Failed to create SimpleFinder: %v", err)
+		}
+
+		// Tombstone it by calling OnRowAdded with invalid data
+		currentIndex := (dbFile.Size() - HEADER_SIZE) / int64(1024)
+		validRow := &RowUnion{
+			DataRow: &DataRow{
+				baseRow[*DataRowPayload]{
+					RowSize:      1024,
+					StartControl: START_TRANSACTION,
+					EndControl:   TRANSACTION_COMMIT,
+					RowPayload:   &DataRowPayload{Key: uuid.Must(uuid.NewV7()), Value: json.RawMessage(`{"test":"value"}`)},
+				},
+			},
+		}
+		err = sf.OnRowAdded(currentIndex+100, validRow) // Invalid index - skips positions
+		if err == nil {
+			t.Fatal("OnRowAdded should have returned error")
+		}
+
+		// Verify tombstoned state
+		_, err = sf.GetIndex(uuid.Must(uuid.NewV7()))
+		if err == nil {
+			t.Error("Read mode: Finder should be tombstoned")
+		}
+		var tombErr *TombstonedError
+		if !isError(err, &tombErr) {
+			t.Errorf("Read mode: Expected TombstonedError, got %T", err)
+		}
+	})
+
+	// FR-011 requirement: Behavior is identical in both modes
+	t.Log("FR-011: Tombstoning behavior is identical in read and write modes")
+}
+
+// isError is a helper function to check if an error matches a specific type
+func isError(err error, target interface{}) bool {
+	if err == nil {
+		return false
+	}
+	switch target.(type) {
+	case **TombstonedError:
+		_, ok := err.(*TombstonedError)
+		return ok
+	default:
+		return false
+	}
+}

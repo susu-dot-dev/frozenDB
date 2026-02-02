@@ -64,8 +64,10 @@ build-examples:
 	@echo "Building examples..."
 	@mkdir -p $(DIST_DIR)/examples
 	go build -o $(DIST_DIR)/examples/getting_started ./examples/getting_started
-	@echo "Copying sample database..."
-	cp examples/getting_started/sample.fdb $(DIST_DIR)/examples/
+	go build -o $(DIST_DIR)/examples/concurrent_reader_writer ./examples/concurrent_reader_writer
+	@echo "Copying sample databases..."
+	cp examples/getting_started/sample.fdb $(DIST_DIR)/examples/getting_started.sample.fdb
+	cp examples/concurrent_reader_writer/sample.fdb $(DIST_DIR)/examples/concurrent_reader_writer.sample.fdb
 
 ## Run all checks and build
 ci: deps tidy fmt lint test build build-cli build-examples

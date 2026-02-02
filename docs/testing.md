@@ -176,6 +176,7 @@ Benchmark variants use `b` parameter: `setupCreateB()`, `dbAddDataRowB()`
 6. **Always clean up resources** with defer or t.Cleanup()
 7. **Use constants** instead of magic numbers: `confRowSize`, `confSkewMs`
 8. **Mark helpers with t.Helper()** for better error reporting
+9. **Avoid t.Parallel()** - incompatible with `t.Setenv()` used by `createTestDatabase()` and adds complexity
 
 ## Writing Spec Tests
 
