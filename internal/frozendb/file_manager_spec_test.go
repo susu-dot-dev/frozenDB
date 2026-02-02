@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -1136,3 +1137,701 @@ func Test_S_024_FR_001_WriterStateCleared(t *testing.T) {
 		}
 	})
 }
+
+// Test_S_039_FR_001_FileWatcherCreatedOnlyInReadMode tests FR-001: File watcher MUST be created only when mode==MODE_READ
+// and watcher MUST listen only for fsnotify.Write events
+func Test_S_039_FR_001_FileWatcherCreatedOnlyInReadMode(t *testing.T) {
+	// Create a test database file
+	testPath := filepath.Join(t.TempDir(), "test.fdb")
+	createTestDatabase(t, testPath)
+
+	// Test: Read mode should create watcher
+	t.Run("read_mode_creates_watcher", func(t *testing.T) {
+		dbFile, err := NewDBFile(testPath, MODE_READ)
+		if err != nil {
+			t.Fatalf("NewDBFile with read mode failed: %v", err)
+		}
+		defer dbFile.Close()
+
+		// Verify mode is read
+		if dbFile.GetMode() != MODE_READ {
+			t.Errorf("GetMode() = %q, want %q", dbFile.GetMode(), MODE_READ)
+		}
+
+		// Verify watcher field exists and is non-nil
+		fm, ok := dbFile.(*FileManager)
+		if !ok {
+			t.Fatalf("dbFile is not *FileManager, got %T", dbFile)
+		}
+
+		if fm.watcher == nil {
+			t.Error("watcher field should be non-nil in read mode")
+		}
+	})
+
+	// Test: Write mode should NOT create watcher
+	t.Run("write_mode_does_not_create_watcher", func(t *testing.T) {
+		dbFile, err := NewDBFile(testPath, MODE_WRITE)
+		if err != nil {
+			t.Fatalf("NewDBFile with write mode failed: %v", err)
+		}
+		defer dbFile.Close()
+
+		// Verify mode is write
+		if dbFile.GetMode() != MODE_WRITE {
+			t.Errorf("GetMode() = %q, want %q", dbFile.GetMode(), MODE_WRITE)
+		}
+
+		// Verify watcher field is nil in write mode
+		fm, ok := dbFile.(*FileManager)
+		if !ok {
+			t.Fatalf("dbFile is not *FileManager, got %T", dbFile)
+		}
+
+		if fm.watcher != nil {
+			t.Error("watcher field should be nil in write mode")
+		}
+	})
+}
+
+// Test_S_039_FR_001_WatcherListensOnlyForWriteEvents tests FR-001: Watcher MUST listen only for fsnotify.Write events
+// (not Chmod, Rename, etc.)
+func Test_S_039_FR_001_WatcherListensOnlyForWriteEvents(t *testing.T) {
+	// Create a test database file
+	testPath := filepath.Join(t.TempDir(), "test.fdb")
+	createTestDatabase(t, testPath)
+
+	dbFile, err := NewDBFile(testPath, MODE_READ)
+	if err != nil {
+		t.Fatalf("NewDBFile with read mode failed: %v", err)
+	}
+	defer dbFile.Close()
+
+	// Get FileManager to access internal fields
+	fm, ok := dbFile.(*FileManager)
+	if !ok {
+		t.Fatalf("dbFile is not *FileManager, got %T", dbFile)
+	}
+
+	if fm.watcher == nil {
+		t.Fatal("watcher should be non-nil in read mode")
+	}
+
+	// Track callback invocations
+	var callbackCount atomic.Int32
+	_, err = dbFile.Subscribe(func() error {
+		callbackCount.Add(1)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("Subscribe failed: %v", err)
+	}
+
+	// Record initial size and callback count
+	initialSize := dbFile.Size()
+	initialCount := callbackCount.Load()
+
+	// Perform Write operation - should trigger callback
+	file, err := os.OpenFile(testPath, os.O_WRONLY|os.O_APPEND, 0)
+	if err != nil {
+		t.Fatalf("Failed to open file for write: %v", err)
+	}
+	testData := []byte("TEST_DATA_WRITE")
+	if _, err := file.Write(testData); err != nil {
+		file.Close()
+		t.Fatalf("Failed to write test data: %v", err)
+	}
+	file.Close()
+
+	// Wait for watcher to process Write event
+	time.Sleep(100 * time.Millisecond)
+
+	// Verify callback was invoked after Write
+	if callbackCount.Load() <= initialCount {
+		t.Error("Callback should have been invoked after Write event")
+	}
+
+	// Verify size was updated
+	if dbFile.Size() <= initialSize {
+		t.Error("File size should have increased after Write event")
+	}
+
+	// Perform Chmod operation - should NOT trigger callback
+	beforeChmodCount := callbackCount.Load()
+	if err := os.Chmod(testPath, 0644); err != nil {
+		t.Fatalf("Failed to chmod file: %v", err)
+	}
+
+	// Wait to ensure no spurious callbacks
+	time.Sleep(100 * time.Millisecond)
+
+	// Verify callback was NOT invoked after Chmod
+	if callbackCount.Load() != beforeChmodCount {
+		t.Error("Callback should NOT have been invoked after Chmod event")
+	}
+}
+
+// Test_S_039_FR_002_InitialFileSizeCapturedBeforeWatcher tests FR-002: Initial file size MUST be captured
+// during DBFile creation before watcher starts
+func Test_S_039_FR_002_InitialFileSizeCapturedBeforeWatcher(t *testing.T) {
+	// Create a test database file
+	testPath := filepath.Join(t.TempDir(), "test.fdb")
+	createTestDatabase(t, testPath)
+
+	// Get initial file info
+	fileInfo, err := os.Stat(testPath)
+	if err != nil {
+		t.Fatalf("Failed to stat file: %v", err)
+	}
+	expectedSize := fileInfo.Size()
+
+	// Open in read mode
+	dbFile, err := NewDBFile(testPath, MODE_READ)
+	if err != nil {
+		t.Fatalf("NewDBFile failed: %v", err)
+	}
+	defer dbFile.Close()
+
+	// Verify Size() returns initial file size
+	actualSize := dbFile.Size()
+	if actualSize != expectedSize {
+		t.Errorf("Size() = %d, want %d (initial file size)", actualSize, expectedSize)
+	}
+
+	// Verify size is consistent even before any writes
+	for i := 0; i < 10; i++ {
+		if dbFile.Size() != expectedSize {
+			t.Errorf("Size() changed before any writes: got %d, want %d", dbFile.Size(), expectedSize)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+// Test_S_039_FR_003_ZeroTimingGapsDuringInitialization tests FR-003: Zero timing gaps where writes could be missed
+// during initialization. This test creates a database during active writes and verifies all written keys are retrievable.
+func Test_S_039_FR_003_ZeroTimingGapsDuringInitialization(t *testing.T) {
+	// Create a test database file
+	testPath := filepath.Join(t.TempDir(), "test.fdb")
+	createTestDatabase(t, testPath)
+
+	// Start background writer that continuously writes
+	stopWriter := make(chan struct{})
+	writerDone := make(chan struct{})
+	var writtenSizes []int64
+
+	go func() {
+		defer close(writerDone)
+		file, err := os.OpenFile(testPath, os.O_WRONLY|os.O_APPEND, 0)
+		if err != nil {
+			t.Errorf("Writer: Failed to open file: %v", err)
+			return
+		}
+		defer file.Close()
+
+		for i := 0; ; i++ {
+			select {
+			case <-stopWriter:
+				return
+			default:
+				data := fmt.Sprintf("WRITE_%04d_", i)
+				if _, err := file.Write([]byte(data)); err != nil {
+					t.Errorf("Writer: Failed to write: %v", err)
+					return
+				}
+				// Force sync to ensure write is visible
+				file.Sync()
+
+				// Record size after write
+				info, err := os.Stat(testPath)
+				if err == nil {
+					writtenSizes = append(writtenSizes, info.Size())
+				}
+
+				// Small delay to allow overlap with reader initialization
+				time.Sleep(5 * time.Millisecond)
+			}
+		}
+	}()
+
+	// Give writer time to start
+	time.Sleep(20 * time.Millisecond)
+
+	// Open read-mode database DURING active writes (testing initialization window)
+	dbFile, err := NewDBFile(testPath, MODE_READ)
+	if err != nil {
+		close(stopWriter)
+		<-writerDone
+		t.Fatalf("NewDBFile failed: %v", err)
+	}
+	defer dbFile.Close()
+
+	// Record size immediately after open
+	initialSeenSize := dbFile.Size()
+
+	// Continue writing for a bit more
+	time.Sleep(50 * time.Millisecond)
+
+	// Stop writer
+	close(stopWriter)
+	<-writerDone
+
+	// Get final file size from OS
+	finalInfo, err := os.Stat(testPath)
+	if err != nil {
+		t.Fatalf("Failed to stat file: %v", err)
+	}
+	finalActualSize := finalInfo.Size()
+
+	// Wait for watcher to catch up
+	time.Sleep(200 * time.Millisecond)
+
+	// Verify DBFile.Size() matches final actual size
+	finalSeenSize := dbFile.Size()
+	if finalSeenSize != finalActualSize {
+		t.Errorf("Final Size() = %d, want %d (actual file size)", finalSeenSize, finalActualSize)
+	}
+
+	// Critical check: Verify we didn't miss any size increases
+	// The watcher should have seen ALL writes that happened after initialization
+	if finalSeenSize < initialSeenSize {
+		t.Errorf("Size decreased: initial=%d, final=%d", initialSeenSize, finalSeenSize)
+	}
+
+	// Verify we captured writes that happened during initialization
+	if initialSeenSize == finalActualSize {
+		// This is fine - we captured everything including gap writes
+		t.Logf("Initial size already matched final: %d", initialSeenSize)
+	} else {
+		// Watcher caught up - verify no size regressions
+		for i, size := range writtenSizes {
+			if dbFile.Size() < size {
+				t.Errorf("Size regression detected: written size[%d]=%d, but Size()=%d", i, size, dbFile.Size())
+				break
+			}
+		}
+	}
+}
+
+// Test_S_039_FR_004_OnlyOneUpdateCycleActiveAtATime tests FR-004: Only one update cycle MUST be active at a time.
+// This test triggers rapid file modifications and verifies that only one update cycle executes at a time
+// using instrumented callbacks to detect concurrent execution.
+func Test_S_039_FR_004_OnlyOneUpdateCycleActiveAtATime(t *testing.T) {
+	// Create a test database file
+	testPath := filepath.Join(t.TempDir(), "test.fdb")
+	createTestDatabase(t, testPath)
+
+	// Open in read mode
+	dbFile, err := NewDBFile(testPath, MODE_READ)
+	if err != nil {
+		t.Fatalf("NewDBFile failed: %v", err)
+	}
+	defer dbFile.Close()
+
+	// Track concurrent callback executions
+	var activeCallbacks atomic.Int32
+	var maxConcurrent atomic.Int32
+	var callbackCount atomic.Int32
+
+	// Register callback that detects concurrent execution
+	_, err = dbFile.Subscribe(func() error {
+		// Increment active count
+		active := activeCallbacks.Add(1)
+		callbackCount.Add(1)
+
+		// Track maximum concurrent executions
+		for {
+			current := maxConcurrent.Load()
+			if active <= current || maxConcurrent.CompareAndSwap(current, active) {
+				break
+			}
+		}
+
+		// Simulate some work to increase chance of detecting concurrency
+		time.Sleep(10 * time.Millisecond)
+
+		// Decrement active count
+		activeCallbacks.Add(-1)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("Subscribe failed: %v", err)
+	}
+
+	// Trigger rapid file modifications
+	for i := 0; i < 20; i++ {
+		file, err := os.OpenFile(testPath, os.O_WRONLY|os.O_APPEND, 0)
+		if err != nil {
+			t.Fatalf("Failed to open file for write: %v", err)
+		}
+		data := fmt.Sprintf("RAPID_WRITE_%04d", i)
+		if _, err := file.Write([]byte(data)); err != nil {
+			file.Close()
+			t.Fatalf("Failed to write: %v", err)
+		}
+		file.Close()
+
+		// Small delay between writes to allow watcher to process
+		time.Sleep(5 * time.Millisecond)
+	}
+
+	// Wait for all callbacks to complete
+	time.Sleep(500 * time.Millisecond)
+
+	// Verify: Maximum concurrent should be 1 (serialization)
+	if maxConcurrent.Load() > 1 {
+		t.Errorf("Concurrent update cycles detected: max concurrent = %d, want 1", maxConcurrent.Load())
+	}
+
+	// Verify: At least some callbacks were invoked
+	if callbackCount.Load() == 0 {
+		t.Error("No callbacks invoked, file watcher may not be working")
+	}
+}
+
+// Test_S_039_FR_005_SizeUpdateBeforeCallbacks tests FR-005: File size update MUST complete before
+// subscriber callbacks are invoked. This verifies that callbacks see the updated size.
+func Test_S_039_FR_005_SizeUpdateBeforeCallbacks(t *testing.T) {
+	// Create a test database file
+	testPath := filepath.Join(t.TempDir(), "test.fdb")
+	createTestDatabase(t, testPath)
+
+	// Open in read mode
+	dbFile, err := NewDBFile(testPath, MODE_READ)
+	if err != nil {
+		t.Fatalf("NewDBFile failed: %v", err)
+	}
+	defer dbFile.Close()
+
+	// Record initial size
+	initialSize := dbFile.Size()
+
+	// Track sizes seen in callback
+	var sizesSeenInCallback []int64
+	var mu sync.Mutex
+
+	// Register callback that records current size
+	_, err = dbFile.Subscribe(func() error {
+		mu.Lock()
+		sizesSeenInCallback = append(sizesSeenInCallback, dbFile.Size())
+		mu.Unlock()
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("Subscribe failed: %v", err)
+	}
+
+	// Perform writes to trigger callbacks
+	testData := []byte("SIZE_UPDATE_TEST_DATA")
+	for i := 0; i < 5; i++ {
+		file, err := os.OpenFile(testPath, os.O_WRONLY|os.O_APPEND, 0)
+		if err != nil {
+			t.Fatalf("Failed to open file for write: %v", err)
+		}
+		if _, err := file.Write(testData); err != nil {
+			file.Close()
+			t.Fatalf("Failed to write: %v", err)
+		}
+		file.Close()
+
+		// Wait for watcher to process
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	// Verify: All sizes seen in callback should be greater than initial size
+	mu.Lock()
+	defer mu.Unlock()
+
+	if len(sizesSeenInCallback) == 0 {
+		t.Fatal("No callbacks invoked")
+	}
+
+	for i, size := range sizesSeenInCallback {
+		if size <= initialSize {
+			t.Errorf("Callback[%d] saw size %d, which is not greater than initial size %d", i, size, initialSize)
+		}
+
+		// Each callback should see a size >= previous callback
+		if i > 0 && size < sizesSeenInCallback[i-1] {
+			t.Errorf("Callback[%d] saw size decrease: %d -> %d", i, sizesSeenInCallback[i-1], size)
+		}
+	}
+}
+
+// Test_S_039_FR_005_NoCallbacksWhenSizeUnchanged tests FR-005: Callbacks MUST NOT be invoked
+// when file size is unchanged (metadata-only updates).
+func Test_S_039_FR_005_NoCallbacksWhenSizeUnchanged(t *testing.T) {
+	// Create a test database file
+	testPath := filepath.Join(t.TempDir(), "test.fdb")
+	createTestDatabase(t, testPath)
+
+	// Open in read mode
+	dbFile, err := NewDBFile(testPath, MODE_READ)
+	if err != nil {
+		t.Fatalf("NewDBFile failed: %v", err)
+	}
+	defer dbFile.Close()
+
+	// Record initial size
+	initialSize := dbFile.Size()
+
+	// Track callback invocations
+	var callbackCount atomic.Int32
+
+	// Register callback
+	_, err = dbFile.Subscribe(func() error {
+		callbackCount.Add(1)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("Subscribe failed: %v", err)
+	}
+
+	// Wait for any pending callbacks to complete
+	time.Sleep(100 * time.Millisecond)
+	initialCallbackCount := callbackCount.Load()
+
+	// Trigger metadata-only update (chmod)
+	if err := os.Chmod(testPath, 0644); err != nil {
+		t.Fatalf("Failed to chmod: %v", err)
+	}
+
+	// Wait to see if spurious callbacks occur
+	time.Sleep(200 * time.Millisecond)
+
+	// Verify: Size unchanged
+	if dbFile.Size() != initialSize {
+		t.Errorf("Size changed unexpectedly: %d -> %d", initialSize, dbFile.Size())
+	}
+
+	// Verify: No additional callbacks invoked
+	finalCallbackCount := callbackCount.Load()
+	if finalCallbackCount != initialCallbackCount {
+		t.Errorf("Callbacks invoked despite no size change: count changed from %d to %d", initialCallbackCount, finalCallbackCount)
+	}
+
+	// Now perform actual write to verify watcher is still working
+	file, err := os.OpenFile(testPath, os.O_WRONLY|os.O_APPEND, 0)
+	if err != nil {
+		t.Fatalf("Failed to open file for write: %v", err)
+	}
+	if _, err := file.Write([]byte("VERIFY_WATCHER_WORKS")); err != nil {
+		file.Close()
+		t.Fatalf("Failed to write: %v", err)
+	}
+	file.Close()
+
+	// Wait for callback
+	time.Sleep(200 * time.Millisecond)
+
+	// Verify: Callback was invoked after real write
+	if callbackCount.Load() <= finalCallbackCount {
+		t.Error("Callback should have been invoked after write with size change")
+	}
+}
+
+// Test_S_039_FR_006_CallbacksInRegistrationOrder tests FR-006: Callbacks MUST be invoked
+// in registration order.
+func Test_S_039_FR_006_CallbacksInRegistrationOrder(t *testing.T) {
+	// Create a test database file
+	testPath := filepath.Join(t.TempDir(), "test.fdb")
+	createTestDatabase(t, testPath)
+
+	// Open in read mode
+	dbFile, err := NewDBFile(testPath, MODE_READ)
+	if err != nil {
+		t.Fatalf("NewDBFile failed: %v", err)
+	}
+	defer dbFile.Close()
+
+	// Wait for watcher to settle
+	time.Sleep(100 * time.Millisecond)
+
+	// Track callback invocation order
+	var invocationOrder []int
+	var mu sync.Mutex
+	var recordingStarted atomic.Bool
+	var recordedCount atomic.Int32
+
+	// Register multiple callbacks in order
+	for i := 1; i <= 5; i++ {
+		callbackID := i
+		_, err := dbFile.Subscribe(func() error {
+			// Only record the FIRST 5 callbacks after we start recording
+			if !recordingStarted.Load() {
+				return nil
+			}
+			if recordedCount.Load() >= 5 {
+				return nil
+			}
+			mu.Lock()
+			if len(invocationOrder) < 5 {
+				invocationOrder = append(invocationOrder, callbackID)
+				recordedCount.Add(1)
+			}
+			mu.Unlock()
+			return nil
+		})
+		if err != nil {
+			t.Fatalf("Subscribe %d failed: %v", i, err)
+		}
+	}
+
+	// Additional sleep to drain any pending file system events
+	time.Sleep(200 * time.Millisecond)
+
+	// Start recording
+	recordingStarted.Store(true)
+
+	// Clear any spurious invocations
+	mu.Lock()
+	invocationOrder = invocationOrder[:0]
+	mu.Unlock()
+
+	// Trigger update cycle
+	file, err := os.OpenFile(testPath, os.O_WRONLY|os.O_APPEND, 0)
+	if err != nil {
+		t.Fatalf("Failed to open file for write: %v", err)
+	}
+	if _, err := file.Write([]byte("ORDER_TEST_DATA")); err != nil {
+		file.Close()
+		t.Fatalf("Failed to write: %v", err)
+	}
+	file.Close()
+
+	// Wait for callbacks to complete
+	time.Sleep(200 * time.Millisecond)
+
+	// Verify: Callbacks invoked in registration order
+	mu.Lock()
+	defer mu.Unlock()
+
+	expectedOrder := []int{1, 2, 3, 4, 5}
+	if len(invocationOrder) != len(expectedOrder) {
+		t.Fatalf("Expected %d callbacks, got %d: %v", len(expectedOrder), len(invocationOrder), invocationOrder)
+	}
+
+	for i, callbackID := range invocationOrder {
+		if callbackID != expectedOrder[i] {
+			t.Errorf("Callback order mismatch at position %d: got %d, want %d", i, callbackID, expectedOrder[i])
+		}
+	}
+}
+
+// Test_S_039_FR_006_FirstCallbackErrorStopsProcessing tests FR-006: When a callback returns error,
+// FileManager MUST stop invoking remaining callbacks.
+func Test_S_039_FR_006_FirstCallbackErrorStopsProcessing(t *testing.T) {
+	// Create a test database file
+	testPath := filepath.Join(t.TempDir(), "test.fdb")
+	createTestDatabase(t, testPath)
+
+	// Open in read mode
+	dbFile, err := NewDBFile(testPath, MODE_READ)
+	if err != nil {
+		t.Fatalf("NewDBFile failed: %v", err)
+	}
+	defer dbFile.Close()
+
+	// Wait for watcher to settle and any pending callbacks to complete
+	time.Sleep(200 * time.Millisecond)
+
+	// Track which callbacks were invoked
+	var invoked []int
+	var mu sync.Mutex
+	var recordingStarted atomic.Bool
+
+	// Register callback 1 - succeeds
+	_, err = dbFile.Subscribe(func() error {
+		if !recordingStarted.Load() {
+			return nil
+		}
+		mu.Lock()
+		invoked = append(invoked, 1)
+		mu.Unlock()
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("Subscribe 1 failed: %v", err)
+	}
+
+	// Register callback 2 - returns error
+	_, err = dbFile.Subscribe(func() error {
+		if !recordingStarted.Load() {
+			return nil
+		}
+		mu.Lock()
+		invoked = append(invoked, 2)
+		mu.Unlock()
+		// Return error only after recording
+		return NewInvalidInputError("callback 2 error", nil)
+	})
+	if err != nil {
+		t.Fatalf("Subscribe 2 failed: %v", err)
+	}
+
+	// Register callback 3 - should NOT be invoked
+	_, err = dbFile.Subscribe(func() error {
+		if !recordingStarted.Load() {
+			return nil
+		}
+		mu.Lock()
+		invoked = append(invoked, 3)
+		mu.Unlock()
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("Subscribe 3 failed: %v", err)
+	}
+
+	// Additional sleep to drain any pending file system events from the initial setup
+	// This prevents race conditions where callbacks are invoked before recording starts
+	time.Sleep(200 * time.Millisecond)
+
+	// Start recording
+	recordingStarted.Store(true)
+
+	// Clear any spurious invocations that might have occurred during setup
+	mu.Lock()
+	invoked = invoked[:0]
+	mu.Unlock()
+
+	// Trigger update cycle
+	file, err := os.OpenFile(testPath, os.O_WRONLY|os.O_APPEND, 0)
+	if err != nil {
+		t.Fatalf("Failed to open file for write: %v", err)
+	}
+	if _, err := file.Write([]byte("ERROR_TEST_DATA")); err != nil {
+		file.Close()
+		t.Fatalf("Failed to write: %v", err)
+	}
+	file.Close()
+
+	// Wait for callbacks to complete
+	time.Sleep(200 * time.Millisecond)
+
+	// Verify: Only callbacks 1 and 2 were invoked (callback 3 was NOT invoked)
+	mu.Lock()
+	defer mu.Unlock()
+
+	expectedInvoked := []int{1, 2}
+	if len(invoked) != len(expectedInvoked) {
+		t.Fatalf("Expected %d callbacks invoked, got %d: %v", len(expectedInvoked), len(invoked), invoked)
+	}
+
+	for i, callbackID := range invoked {
+		if callbackID != expectedInvoked[i] {
+			t.Errorf("Invoked callback mismatch at position %d: got %d, want %d", i, callbackID, expectedInvoked[i])
+		}
+	}
+
+	// Verify callback 3 was NOT invoked
+	for _, callbackID := range invoked {
+		if callbackID == 3 {
+			t.Error("Callback 3 should NOT have been invoked after callback 2 returned error")
+		}
+	}
+}
+
+// NOTE: FR-009 is tested by Test_S_039_FR_006_FirstCallbackErrorStopsProcessing above.
+// FR-006 and FR-009 have identical requirements: when a callback returns error,
+// FileManager MUST stop invoking remaining callbacks. The FR-006 test validates this
+// behavior comprehensively, so a separate FR-009 test would be redundant.

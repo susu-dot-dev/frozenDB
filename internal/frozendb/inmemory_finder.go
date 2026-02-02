@@ -23,6 +23,7 @@ type InMemoryFinder struct {
 	size             int64
 	lastTxStart      int64
 	maxTimestamp     int64
+	tombstonedErr    error // Error that caused this Finder to be tombstoned (nil if not tombstoned)
 }
 
 // NewInMemoryFinder builds an InMemoryFinder by scanning the database and
@@ -133,6 +134,15 @@ func (imf *InMemoryFinder) rowEndsTransaction(ru *RowUnion) bool {
 }
 
 func (imf *InMemoryFinder) GetIndex(key uuid.UUID) (int64, error) {
+	// FR-011: Check tombstoned state FIRST
+	imf.mu.RLock()
+	if imf.tombstonedErr != nil {
+		tombErr := imf.tombstonedErr
+		imf.mu.RUnlock()
+		return -1, tombErr
+	}
+	imf.mu.RUnlock()
+
 	if key == uuid.Nil {
 		return -1, NewInvalidInputError("key cannot be uuid.Nil", nil)
 	}
@@ -149,6 +159,15 @@ func (imf *InMemoryFinder) GetIndex(key uuid.UUID) (int64, error) {
 }
 
 func (imf *InMemoryFinder) GetTransactionStart(index int64) (int64, error) {
+	// FR-011: Check tombstoned state FIRST
+	imf.mu.RLock()
+	if imf.tombstonedErr != nil {
+		tombErr := imf.tombstonedErr
+		imf.mu.RUnlock()
+		return -1, tombErr
+	}
+	imf.mu.RUnlock()
+
 	imf.mu.RLock()
 	defer imf.mu.RUnlock()
 	if err := imf.validateIndex(index); err != nil {
@@ -165,6 +184,15 @@ func (imf *InMemoryFinder) GetTransactionStart(index int64) (int64, error) {
 }
 
 func (imf *InMemoryFinder) GetTransactionEnd(index int64) (int64, error) {
+	// FR-011: Check tombstoned state FIRST
+	imf.mu.RLock()
+	if imf.tombstonedErr != nil {
+		tombErr := imf.tombstonedErr
+		imf.mu.RUnlock()
+		return -1, tombErr
+	}
+	imf.mu.RUnlock()
+
 	imf.mu.RLock()
 	defer imf.mu.RUnlock()
 	if err := imf.validateIndex(index); err != nil {
@@ -188,10 +216,16 @@ func (imf *InMemoryFinder) onRowAdded(index int64, row *RowUnion) error {
 	defer imf.mu.Unlock()
 	expected := (imf.size - int64(HEADER_SIZE)) / int64(imf.rowSize)
 	if index < expected {
-		return NewInvalidInputError(fmt.Sprintf("row index %d does not match expected position %d (existing data)", index, expected), nil)
+		err := NewInvalidInputError(fmt.Sprintf("row index %d does not match expected position %d (existing data)", index, expected), nil)
+		// FR-010: Set tombstoned error BEFORE returning
+		imf.tombstonedErr = NewTombstonedError("finder tombstoned due to onRowAdded error", err)
+		return err
 	}
 	if index > expected {
-		return NewInvalidInputError(fmt.Sprintf("row index %d skips positions (expected %d)", index, expected), nil)
+		err := NewInvalidInputError(fmt.Sprintf("row index %d skips positions (expected %d)", index, expected), nil)
+		// FR-010: Set tombstoned error BEFORE returning
+		imf.tombstonedErr = NewTombstonedError("finder tombstoned due to onRowAdded error", err)
+		return err
 	}
 	if row.ChecksumRow != nil {
 		imf.size += int64(imf.rowSize)
@@ -235,6 +269,8 @@ func (imf *InMemoryFinder) onRowAdded(index int64, row *RowUnion) error {
 
 // MaxTimestamp returns the maximum timestamp among all complete data and null rows.
 // Implements O(1) time complexity by returning the cached maxTimestamp value.
+// Note: This method returns the maxTimestamp value even if the Finder is tombstoned,
+// since maxTimestamp represents historical data that remains valid.
 func (imf *InMemoryFinder) MaxTimestamp() int64 {
 	imf.mu.RLock()
 	defer imf.mu.RUnlock()
