@@ -4,11 +4,21 @@ import (
 	"sync"
 )
 
+// entry pairs a subscription ID with its callback function.
+// This is used internally by Subscriber to maintain registration order.
+type entry[T any] struct {
+	id       int64
+	callback T
+}
+
 // Subscriber manages thread-safe subscription/notification with snapshot pattern.
 // T is the callback function type (e.g., func() error, func(int64, *RowUnion) error).
 //
+// Callbacks are maintained in registration order - Snapshot() returns callbacks
+// in the exact order they were registered via Subscribe().
+//
 // Thread-safety is achieved through:
-// - Mutex protection for all map operations
+// - Mutex protection for all slice operations
 // - Snapshot pattern prevents deadlocks during callback execution
 //
 // The snapshot pattern works as follows:
@@ -17,17 +27,17 @@ import (
 // 3. Caller executes callbacks WITHOUT holding the lock
 // 4. This allows callbacks to safely call Subscribe/Unsubscribe
 type Subscriber[T any] struct {
-	mu        sync.Mutex
-	callbacks map[int64]T
-	nextID    int64
+	mu      sync.Mutex
+	entries []entry[T]
+	nextID  int64
 }
 
-// NewSubscriber creates a new Subscriber instance with empty callback map.
+// NewSubscriber creates a new Subscriber instance with empty callback slice.
 // The nextID counter starts at 1 to avoid confusion with zero values.
 func NewSubscriber[T any]() *Subscriber[T] {
 	return &Subscriber[T]{
-		callbacks: make(map[int64]T),
-		nextID:    1,
+		entries: make([]entry[T], 0),
+		nextID:  1,
 	}
 }
 
@@ -43,15 +53,21 @@ func (s *Subscriber[T]) Subscribe(callback T) func() error {
 	s.mu.Lock()
 	id := s.nextID
 	s.nextID++
-	s.callbacks[id] = callback
+	s.entries = append(s.entries, entry[T]{id: id, callback: callback})
 	s.mu.Unlock()
 
 	// Return closure that captures the subscription ID
 	return func() error {
 		s.mu.Lock()
 		defer s.mu.Unlock()
-		// Delete is idempotent - deleting a non-existent key is a no-op
-		delete(s.callbacks, id)
+		// Find and remove the entry with this ID
+		for i, e := range s.entries {
+			if e.id == id {
+				// Remove entry by slicing around it
+				s.entries = append(s.entries[:i], s.entries[i+1:]...)
+				break
+			}
+		}
 		return nil
 	}
 }
@@ -59,7 +75,8 @@ func (s *Subscriber[T]) Subscribe(callback T) func() error {
 // Snapshot returns a thread-safe copy of current callbacks as a slice.
 //
 // Key properties:
-// - Creates a copy of the callbacks map to a slice
+// - Returns callbacks in exact registration order (order Subscribe() was called)
+// - Creates a copy of callbacks to a slice
 // - Lock is held only during the copy operation
 // - Returned slice is independent of the current subscriber state
 // - New subscriptions after snapshot creation are NOT included
@@ -74,10 +91,10 @@ func (s *Subscriber[T]) Snapshot() []T {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	// Copy callbacks to slice
-	result := make([]T, 0, len(s.callbacks))
-	for _, callback := range s.callbacks {
-		result = append(result, callback)
+	// Copy callbacks to slice in registration order
+	result := make([]T, 0, len(s.entries))
+	for _, entry := range s.entries {
+		result = append(result, entry.callback)
 	}
 	return result
 }
